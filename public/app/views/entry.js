@@ -6,20 +6,19 @@ import { MoodTracker }     from '../components/moodTracker.js';
 
 export class EntryView {
   constructor(params = []) {
-    // params[0]: 'voice' | 'text' | <entry-id>
-    this.params = params;
-    this.mode = 'text'; // 'voice' | 'text'
-    this.entryId = null;
+    this.params   = params;
+    this.mode     = 'text';   // 'drive' | 'text'
+    this.entryId  = null;
     this.analysis = null;
     this.followupRound = 0;
     this.conversationHistory = [];
-    this.savedEntry = null;
-    this.recorder = null;
+    this.recorder  = null;
     this.container = null;
     this.moodOverrides = {};
+    this.rawContent = '';
 
-    // Determine initial mode / existing entry
-    if (params[0] === 'voice') this.mode = 'voice';
+    // BUG FIX: 'voice' should activate 'drive' mode, not a separate mode
+    if (params[0] === 'voice') this.mode = 'drive';
     else if (params[0] === 'text' || !params[0]) this.mode = 'text';
     else {
       this.entryId = params[0];
@@ -36,13 +35,24 @@ export class EntryView {
     }
 
     const today = new Date().toISOString().split('T')[0];
-    const timeOfDay = getTimeOfDay();
 
     container.innerHTML = `
       <div class="entry-view">
         <div class="entry-mode-toggle" id="mode-toggle">
-          <div class="mode-tab ${this.mode === 'drive' ? 'active' : ''}" data-mode="drive">🎙️ Drive</div>
-          <div class="mode-tab ${this.mode !== 'drive' ? 'active' : ''}" data-mode="text">✍️ Desktop</div>
+          <div class="mode-tab ${this.mode === 'drive' ? 'active' : ''}" data-mode="drive">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px;display:inline;margin-right:4px;vertical-align:middle">
+              <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
+              <path d="M19 10v2a7 7 0 01-14 0v-2"/>
+            </svg>
+            Voice
+          </div>
+          <div class="mode-tab ${this.mode !== 'drive' ? 'active' : ''}" data-mode="text">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px;display:inline;margin-right:4px;vertical-align:middle">
+              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+            Text
+          </div>
         </div>
 
         <div class="date-row">
@@ -63,10 +73,11 @@ export class EntryView {
       </div>
     `;
 
-    // Wire up mode toggle
+    // Mode toggle
     container.querySelectorAll('.mode-tab').forEach(tab => {
       tab.addEventListener('click', () => {
         const newMode = tab.dataset.mode;
+        if (newMode === this.mode) return;
         container.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
         this.mode = newMode;
@@ -75,27 +86,29 @@ export class EntryView {
       });
     });
 
-    // Date change → backdated notice
+    // Date → backdated notice
     container.querySelector('#entry-date').addEventListener('change', e => {
-      const isBackdated = e.target.value < today;
-      container.querySelector('#backdated-notice').classList.toggle('hidden', !isBackdated);
+      container.querySelector('#backdated-notice').classList.toggle('hidden', e.target.value >= today);
     });
 
-    // Save / discard
     container.querySelector('#save-btn').addEventListener('click', () => this.saveEntry());
     container.querySelector('#discard-btn').addEventListener('click', () => {
       if (confirm('Discard this entry?')) location.hash = '#home';
     });
 
+    // Render mode content ONCE — no duplicate startVoiceMode calls
     this.renderModeContent();
-
-    // If opened as voice directly
-    if (this.mode === 'voice') {
-      setTimeout(() => this.startVoiceMode(), 100);
-    }
   }
 
   renderModeContent() {
+    // Destroy any existing recorder before switching modes
+    if (this.recorder) {
+      this.recorder.destroy();
+      this.recorder = null;
+    }
+    this.stopWaveformAnimation();
+    this.stopRecordingTimer();
+
     const mc = this.container.querySelector('#mode-content');
     if (this.mode === 'drive') {
       this.renderDriveMode(mc);
@@ -109,6 +122,7 @@ export class EntryView {
     container.innerHTML = `
       <div class="drive-mode">
         <div class="mic-container">
+          <!-- Mic / start button -->
           <button class="mic-btn" id="mic-btn" aria-label="Start recording">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
@@ -118,16 +132,23 @@ export class EntryView {
             </svg>
           </button>
           <p class="mic-hint" id="mic-hint">Tap to start recording</p>
+
+          <!-- Waveform (hidden until recording) -->
           <div class="waveform hidden" id="waveform">
             ${Array.from({length: 20}, () => '<div class="waveform-bar" style="height:8px"></div>').join('')}
           </div>
         </div>
 
+        <!-- Recording status row -->
         <div class="recording-status hidden" id="rec-status">
           <span class="recording-dot"></span>
           <span id="rec-time">0:00</span>
-          <span>· Say "done" or tap mic to stop</span>
         </div>
+
+        <!-- Large STOP button — only visible while recording -->
+        <button class="btn btn-danger btn-lg btn-full hidden" id="stop-btn" style="margin:16px;width:calc(100% - 32px)">
+          ⏹ Stop recording
+        </button>
 
         <div class="recorder-transcript placeholder" id="transcript-display">
           Your words will appear here after recording...
@@ -135,97 +156,125 @@ export class EntryView {
       </div>
     `;
 
-    this.startVoiceMode();
+    this.initDriveMode();
   }
 
-  startVoiceMode() {
-    const mc = this.container.querySelector('#mode-content');
-    const micBtn = mc?.querySelector('#mic-btn');
-    const hint = mc?.querySelector('#mic-hint');
-    const waveform = mc?.querySelector('#waveform');
-    const recStatus = mc?.querySelector('#rec-status');
-    const transcriptDisplay = mc?.querySelector('#transcript-display');
-    if (!micBtn) return;
+  initDriveMode() {
+    const mc      = this.container.querySelector('#mode-content');
+    const micBtn  = mc.querySelector('#mic-btn');
+    const stopBtn = mc.querySelector('#stop-btn');
+    const hint    = mc.querySelector('#mic-hint');
+    const waveform = mc.querySelector('#waveform');
+    const recStatus = mc.querySelector('#rec-status');
+    const transcript = mc.querySelector('#transcript-display');
 
-    this.recorder = new VoiceRecorder({
+    // BUG FIX: use onclick (not addEventListener) — guarantees only one handler
+    const doStop = () => {
+      if (this.recorder && this.recorder.isRecording) {
+        this.recorder.stop();
+      }
+    };
+
+    micBtn.onclick = () => {
+      if (!this.recorder || !this.recorder.isRecording) {
+        this.recorder?.destroy();
+        this.recorder = this.buildRecorder({ micBtn, stopBtn, hint, waveform, recStatus, transcript });
+        this.recorder.start();
+      }
+      // If already recording, tap the mic does nothing — use the STOP button
+    };
+
+    stopBtn.onclick = doStop;
+
+    // Also keep "done" keyword stopping
+    // (handled inside buildRecorder via onKeyword)
+  }
+
+  buildRecorder({ micBtn, stopBtn, hint, waveform, recStatus, transcript }) {
+    return new VoiceRecorder({
       onStart: () => {
         micBtn.classList.add('recording');
-        hint.textContent = 'Recording... say "done" or tap to stop';
+        micBtn.setAttribute('aria-label', 'Recording in progress');
+        hint.textContent = 'Listening… say "done" or tap Stop';
         waveform.classList.remove('hidden');
         recStatus.classList.remove('hidden');
+        stopBtn.classList.remove('hidden');
         this.startWaveformAnimation(waveform);
         this.startRecordingTimer(recStatus.querySelector('#rec-time'));
       },
+
       onStop: async (audioBlob) => {
-        micBtn.classList.remove('recording');
-        micBtn.classList.add('processing');
-        hint.textContent = 'Transcribing...';
+        // Reset UI immediately
+        micBtn.classList.remove('recording', 'processing');
+        stopBtn.classList.add('hidden');
         waveform.classList.add('hidden');
         recStatus.classList.add('hidden');
+        hint.textContent = 'Processing…';
         this.stopWaveformAnimation();
         this.stopRecordingTimer();
 
-        transcriptDisplay.textContent = 'Transcribing your recording...';
-        transcriptDisplay.classList.remove('placeholder');
+        if (!audioBlob || audioBlob.size === 0) {
+          hint.textContent = 'No audio captured — tap to try again';
+          transcript.textContent = 'Nothing was recorded. Please try again.';
+          transcript.classList.add('placeholder');
+          return;
+        }
+
+        micBtn.classList.add('processing');
+        transcript.textContent = 'Transcribing your recording…';
+        transcript.classList.remove('placeholder');
 
         try {
+          const ext  = audioBlob.type.includes('mp4') ? 'mp4' : audioBlob.type.includes('ogg') ? 'ogg' : 'webm';
           const form = new FormData();
-          form.append('audio', audioBlob, 'recording.webm');
+          form.append('audio', audioBlob, `recording.${ext}`);
           const result = await api.postForm('/api/ai/transcribe', form);
-          const transcript = result.transcript || '';
-          transcriptDisplay.textContent = transcript || '(No transcript — please try again or type manually)';
+          const text   = result.transcript?.trim() || '';
 
-          if (transcript) {
-            await this.analyzeContent(transcript);
+          transcript.textContent = text || '(Nothing transcribed — tap to try again)';
+          if (!text) {
+            hint.textContent = 'Tap to record again';
+            micBtn.classList.remove('processing');
+            return;
           }
+          this.rawContent = text;
+          await this.analyzeContent(text);
         } catch (err) {
-          showToast('Transcription unavailable — try typing instead', 'error');
-          transcriptDisplay.textContent = '(Transcription failed)';
-          this.container.querySelector('#mode-toggle').querySelector('[data-mode="text"]').click();
+          showToast('Transcription failed — try typing instead', 'error');
+          transcript.textContent = '(Transcription failed)';
+          // Switch to text mode so they can type it manually
+          const textTab = this.container.querySelector('[data-mode="text"]');
+          if (textTab) textTab.click();
         }
 
         micBtn.classList.remove('processing');
         hint.textContent = 'Tap to record again';
       },
-      onKeyword: () => this.recorder?.stop(),
-    });
 
-    micBtn.addEventListener('click', () => {
-      if (this.recorder.isRecording) {
-        this.recorder.stop();
-      } else {
-        this.recorder.start();
-      }
+      onKeyword: () => {
+        if (this.recorder?.isRecording) this.recorder.stop();
+      },
     });
   }
 
   startWaveformAnimation(waveform) {
     const bars = waveform.querySelectorAll('.waveform-bar');
     this._waveInterval = setInterval(() => {
-      bars.forEach(bar => {
-        const h = Math.random() * 36 + 4;
-        bar.style.height = h + 'px';
-      });
-    }, 100);
+      bars.forEach(bar => { bar.style.height = (Math.random() * 36 + 4) + 'px'; });
+    }, 120);
   }
-
-  stopWaveformAnimation() {
-    clearInterval(this._waveInterval);
-  }
+  stopWaveformAnimation() { clearInterval(this._waveInterval); }
 
   startRecordingTimer(el) {
-    let seconds = 0;
+    let secs = 0;
     this._timerInterval = setInterval(() => {
-      seconds++;
-      const m = Math.floor(seconds / 60);
-      const s = String(seconds % 60).padStart(2, '0');
+      secs++;
+      const m = Math.floor(secs / 60);
+      const s = String(secs % 60).padStart(2, '0');
       if (el) el.textContent = `${m}:${s}`;
     }, 1000);
   }
-
-  stopRecordingTimer() {
-    clearInterval(this._timerInterval);
-  }
+  stopRecordingTimer() { clearInterval(this._timerInterval); }
 
   // ── Desktop Mode ────────────────────────────────────────────
   renderDesktopMode(container) {
@@ -234,31 +283,30 @@ export class EntryView {
         <div class="form-group">
           <label class="form-label">What's on your mind?</label>
           <div class="entry-textarea-wrap">
-            <textarea class="textarea textarea-large" id="entry-content" placeholder="Write freely — Nook will help clean it up and find the themes..." maxlength="10000"></textarea>
+            <textarea class="textarea textarea-large" id="entry-content"
+              placeholder="Write freely — Nook will help clean it up and find the themes..."
+              maxlength="10000"></textarea>
             <div class="char-count"><span id="char-count">0</span> / 10,000</div>
           </div>
         </div>
         <div class="analyze-btn-wrap">
-          <button class="btn btn-primary" id="analyze-btn">
-            ✨ Analyse
-          </button>
+          <button class="btn btn-primary" id="analyze-btn">✨ Analyse</button>
         </div>
       </div>
     `;
 
-    const textarea = container.querySelector('#entry-content');
-    const charCount = container.querySelector('#char-count');
+    const textarea   = container.querySelector('#entry-content');
+    const charCount  = container.querySelector('#char-count');
     const analyzeBtn = container.querySelector('#analyze-btn');
 
-    textarea.addEventListener('input', () => {
-      charCount.textContent = textarea.value.length;
-    });
+    textarea.addEventListener('input', () => { charCount.textContent = textarea.value.length; });
 
     analyzeBtn.addEventListener('click', async () => {
       const content = textarea.value.trim();
       if (!content) { showToast('Write something first 😊', ''); return; }
       analyzeBtn.disabled = true;
-      analyzeBtn.textContent = '✨ Analysing...';
+      analyzeBtn.textContent = '✨ Analysing…';
+      this.rawContent = content;
       await this.analyzeContent(content);
       analyzeBtn.disabled = false;
       analyzeBtn.textContent = '✨ Analyse again';
@@ -267,7 +315,6 @@ export class EntryView {
 
   // ── Analysis ────────────────────────────────────────────────
   async analyzeContent(content) {
-    this.rawContent = content;
     try {
       this.analysis = await api.post('/api/ai/analyze', {
         content,
@@ -276,17 +323,13 @@ export class EntryView {
       this.renderAnalysisResults();
       this.showActionBar();
 
-      // Drive mode: speak follow-up
       if (this.analysis.followup_question && this.mode === 'drive') {
         speak(this.analysis.followup_question);
       }
-
-      // Offer follow-up
       if (this.analysis.followup_question && this.followupRound < 3) {
         this.renderFollowup(this.analysis.followup_question);
       }
     } catch (err) {
-      console.error('Analysis error:', err);
       showToast(err.message || 'AI analysis unavailable — your entry is saved.', 'error');
       this.showActionBar();
     }
@@ -301,16 +344,14 @@ export class EntryView {
           <span>${question}</span>
         </div>
         <div class="followup-input-row">
-          <input type="text" class="input" id="followup-answer" placeholder="Your answer..." />
-          <button class="btn btn-secondary btn-sm" id="followup-skip">Skip</button>
+          <input type="text" class="input" id="followup-answer" placeholder="Your answer…" />
+          <button class="btn btn-ghost btn-sm" id="followup-skip">Skip</button>
           <button class="btn btn-primary btn-sm" id="followup-send">Send</button>
         </div>
       </div>
     `;
 
     const input = section.querySelector('#followup-answer');
-    const sendBtn = section.querySelector('#followup-send');
-    const skipBtn = section.querySelector('#followup-skip');
 
     const send = async () => {
       const answer = input.value.trim();
@@ -319,56 +360,27 @@ export class EntryView {
       this.conversationHistory.push({ role: 'assistant', content: question });
       this.conversationHistory.push({ role: 'user', content: answer });
       section.innerHTML = '<div class="loading-spinner"></div>';
-      await this.analyzeContent(this.rawContent + '\n\nFollow-up: ' + answer);
+      await this.analyzeContent(this.rawContent + '\n\nFollow-up answer: ' + answer);
     };
 
-    sendBtn.addEventListener('click', send);
+    section.querySelector('#followup-send').addEventListener('click', send);
+    section.querySelector('#followup-skip').addEventListener('click', () => { section.innerHTML = ''; });
     input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
-    skipBtn.addEventListener('click', () => { section.innerHTML = ''; });
-
-    // Drive mode: listen for voice answer
-    if (this.mode === 'drive' && AppState.ttsEnabled) {
-      this.listenForFollowupAnswer(send, input);
-    }
-  }
-
-  listenForFollowupAnswer(onAnswer, input) {
-    if (!window.SpeechRecognition && !window.webkitSpeechRecognition) return;
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recog = new SR();
-    recog.continuous = false;
-    recog.interimResults = false;
-    recog.onresult = e => {
-      const transcript = e.results[0][0].transcript;
-      input.value = transcript;
-      onAnswer();
-    };
-    recog.start();
   }
 
   renderAnalysisResults() {
     if (!this.analysis) return;
     const a = this.analysis;
 
-    // AI Panel
     const panelSection = this.container.querySelector('#ai-panel-section');
-    const panel = new AiPanel(a, this.moodOverrides, (overrides) => { this.moodOverrides = overrides; });
-    panel.mount(panelSection);
+    new AiPanel(a, this.moodOverrides, overrides => { this.moodOverrides = overrides; }).mount(panelSection);
 
-    // Love life section
     if (a.has_love_life_content) {
-      const loveSection = this.container.querySelector('#love-section');
-      const ll = new LoveLifeSection(a);
-      ll.mount(loveSection);
+      new LoveLifeSection(a).mount(this.container.querySelector('#love-section'));
     }
-
-    // Mood tracker (uncertain dimensions)
     if (a.mood?.uncertain_dimensions?.length) {
-      const moodSection = this.container.querySelector('#mood-section');
-      const tracker = new MoodTracker(a.mood, (updates) => {
-        this.moodOverrides = { ...this.moodOverrides, ...updates };
-      });
-      tracker.mount(moodSection);
+      new MoodTracker(a.mood, updates => { this.moodOverrides = { ...this.moodOverrides, ...updates }; })
+        .mount(this.container.querySelector('#mood-section'));
     }
   }
 
@@ -376,7 +388,7 @@ export class EntryView {
     this.analysis = null;
     this.followupRound = 0;
     this.conversationHistory = [];
-    ['#followup-section', '#ai-panel-section', '#love-section', '#mood-section'].forEach(sel => {
+    ['#followup-section','#ai-panel-section','#love-section','#mood-section'].forEach(sel => {
       const el = this.container.querySelector(sel);
       if (el) el.innerHTML = '';
     });
@@ -387,20 +399,18 @@ export class EntryView {
     this.container.querySelector('#action-bar').style.display = 'flex';
   }
 
-  // ── Save entry ───────────────────────────────────────────────
+  // ── Save ─────────────────────────────────────────────────────
   async saveEntry() {
     const saveBtn = this.container.querySelector('#save-btn');
     saveBtn.disabled = true;
-    saveBtn.textContent = 'Saving...';
+    saveBtn.textContent = 'Saving…';
 
-    const date = this.container.querySelector('#entry-date').value;
+    const date  = this.container.querySelector('#entry-date').value;
     const today = new Date().toISOString().split('T')[0];
-    const isBackdated = date < today;
 
-    // Determine content
     let rawContent = this.rawContent || '';
     if (this.mode === 'text') {
-      rawContent = this.container.querySelector('#entry-content')?.value?.trim() || '';
+      rawContent = this.container.querySelector('#entry-content')?.value?.trim() || rawContent;
     }
 
     if (!rawContent && !this.analysis) {
@@ -410,29 +420,28 @@ export class EntryView {
       return;
     }
 
-    const a = this.analysis || {};
+    const a    = this.analysis || {};
     const mood = { ...a.mood, ...this.moodOverrides };
-    const timeOfDay = getTimeOfDay();
 
     const payload = {
       date,
-      time_of_day: timeOfDay,
-      is_backdated: isBackdated,
+      time_of_day: getTimeOfDay(),
+      is_backdated: date < today,
       raw_transcript: rawContent,
       cleaned_content: a.cleaned_content || rawContent,
       ai_summary: a.ai_summary || null,
       key_themes: a.key_themes || [],
       action_items: a.action_items || [],
       important_today: a.important_today || null,
-      mood_energy: mood.energy ?? null,
-      mood_happiness: mood.happiness ?? null,
-      mood_anxiety: mood.anxiety ?? null,
-      mood_confidence: mood.confidence ?? null,
-      mood_motivation: mood.motivation ?? null,
-      mood_social_battery: mood.social_battery ?? null,
-      mood_physical: mood.physical ?? null,
-      mood_focus: mood.focus ?? null,
-      mood_overall: mood.overall ?? null,
+      mood_energy:        mood.energy        ?? null,
+      mood_happiness:     mood.happiness     ?? null,
+      mood_anxiety:       mood.anxiety       ?? null,
+      mood_confidence:    mood.confidence    ?? null,
+      mood_motivation:    mood.motivation    ?? null,
+      mood_social_battery:mood.social_battery?? null,
+      mood_physical:      mood.physical      ?? null,
+      mood_focus:         mood.focus         ?? null,
+      mood_overall:       mood.overall       ?? null,
       mood_source: this.analysis ? 'ai_detected' : null,
       life_areas: a.life_areas || [],
       tags: a.suggested_tags || [],
@@ -441,21 +450,14 @@ export class EntryView {
       love_life_raw: a.love_life_content || null,
       love_life_cleaned: a.love_life_content || null,
       love_life_emotion_intensity: a.love_life_emotion_intensity ?? null,
-      love_life_ai_summary: a.love_life_content ? (a.ai_summary || null) : null,
     };
 
     try {
       const saved = await api.post('/api/entries', payload);
       showToast('Entry saved. Your nook remembers. 🌿', 'success');
-
-      // Link people mentions
-      if (a.people_mentioned?.length) {
-        await this.linkPeopleMentions(saved.id, a.people_mentioned);
-      }
-
+      if (a.people_mentioned?.length) await this.linkPeopleMentions(saved.id, a.people_mentioned);
       setTimeout(() => { location.hash = '#home'; }, 1200);
     } catch (err) {
-      console.error('Save error:', err);
       showToast('Could not save — please try again', 'error');
       saveBtn.disabled = false;
       saveBtn.textContent = 'Save entry';
@@ -466,132 +468,79 @@ export class EntryView {
     try {
       const existing = await api.get('/api/people');
       const newPeople = [];
-
       for (const person of mentioned) {
-        const match = existing.find(p =>
-          p.name.toLowerCase() === person.name.toLowerCase()
-        );
-
-        let personId;
+        const match = existing.find(p => p.name.toLowerCase() === person.name.toLowerCase());
         if (match) {
-          personId = match.id;
+          await api.post('/api/people/link-mention', {
+            person_id: match.id, entry_id: entryId,
+            context: person.context, sentiment_score: person.sentiment,
+            facts_extracted: person.facts_extracted || [], emotion_toward: person.emotion_toward,
+          }).catch(() => {});
         } else {
           newPeople.push(person);
-          continue;
         }
-
-        await api.post('/api/people/link-mention', {
-          person_id: personId,
-          entry_id: entryId,
-          context: person.context,
-          sentiment_score: person.sentiment,
-          facts_extracted: person.facts_extracted || [],
-          emotion_toward: person.emotion_toward,
-        }).catch(() => {});
       }
-
-      // Show prompt for unrecognized people
-      if (newPeople.length) {
-        this.showPeoplePrompt(newPeople, entryId);
-      }
-    } catch (err) {
-      console.warn('People linking error:', err);
-    }
+      if (newPeople.length) this.showPeoplePrompt(newPeople, entryId);
+    } catch (err) { console.warn('People linking error:', err); }
   }
 
   showPeoplePrompt(people, entryId) {
-    const existing = document.querySelector('.people-prompt');
-    if (existing) existing.remove();
-
-    const names = people.map(p => p.name).join(', ');
+    document.querySelector('.people-prompt')?.remove();
+    const names  = people.map(p => p.name).join(', ');
     const prompt = document.createElement('div');
     prompt.className = 'people-prompt';
     prompt.innerHTML = `
-      <p>You mentioned <strong>${names}</strong> — add them to your People?</p>
+      <p>You mentioned <strong>${names}</strong> — add to your People?</p>
       <div class="people-prompt-actions">
-        <button class="btn btn-primary btn-sm" id="add-people-yes">Add</button>
-        <button class="btn btn-ghost btn-sm" id="add-people-no">Not now</button>
-      </div>
-    `;
+        <button class="btn btn-primary btn-sm" id="pp-yes">Add</button>
+        <button class="btn btn-ghost btn-sm" id="pp-no">Not now</button>
+      </div>`;
     document.body.appendChild(prompt);
-
-    prompt.querySelector('#add-people-yes').addEventListener('click', async () => {
+    prompt.querySelector('#pp-yes').addEventListener('click', async () => {
       prompt.remove();
-      for (const person of people) {
+      for (const p of people) {
         try {
-          const created = await api.post('/api/people', {
-            name: person.name,
-            relationship_type: 'unknown',
-            notes: '',
-          });
+          const created = await api.post('/api/people', { name: p.name, relationship_type: 'unknown', notes: '' });
           await api.post('/api/people/link-mention', {
-            person_id: created.id,
-            entry_id: entryId,
-            context: person.context,
-            sentiment_score: person.sentiment,
-            facts_extracted: person.facts_extracted || [],
-            emotion_toward: person.emotion_toward,
+            person_id: created.id, entry_id: entryId,
+            context: p.context, sentiment_score: p.sentiment,
+            facts_extracted: p.facts_extracted || [], emotion_toward: p.emotion_toward,
           });
         } catch {}
       }
       showToast('People added!', 'success');
     });
-
-    prompt.querySelector('#add-people-no').addEventListener('click', () => prompt.remove());
+    prompt.querySelector('#pp-no').addEventListener('click', () => prompt.remove());
     setTimeout(() => prompt.remove(), 12000);
   }
 
-  // ── Detail view (view existing entry) ───────────────────────
+  // ── Detail view ──────────────────────────────────────────────
   async mountDetailView(container) {
     try {
-      const entry = await api.get(`/api/entries/${this.entryId}`);
+      const entry   = await api.get(`/api/entries/${this.entryId}`);
       const content = entry.user_edited_content || entry.cleaned_content || entry.raw_transcript || '';
-
+      const themes  = Array.isArray(entry.key_themes) ? entry.key_themes : [];
+      const tags    = Array.isArray(entry.tags)        ? entry.tags        : [];
       const moodClass = entry.mood_overall == null ? 'none' : entry.mood_overall >= 7 ? 'high' : entry.mood_overall >= 4 ? 'mid' : 'low';
-      const themes = Array.isArray(entry.key_themes) ? entry.key_themes : [];
-      const tags   = Array.isArray(entry.tags)        ? entry.tags        : [];
 
       container.innerHTML = `
         <div class="entry-detail">
           <div class="back-btn" id="back-btn">← Back</div>
-
           <div class="entry-detail-meta">
             <span>${formatDate(entry.date)}</span>
             ${entry.time_of_day ? `<span>· ${entry.time_of_day}</span>` : ''}
             ${entry.mood_overall != null ? `<span class="mood-dot ${moodClass}"></span><span>${entry.mood_overall}/10</span>` : ''}
             ${entry.is_backdated ? '<span class="backdated-label">Added after the fact</span>' : ''}
           </div>
-
           ${entry.ai_summary ? `<div class="card mb-12"><p class="font-display text-muted" style="font-style:italic">${entry.ai_summary}</p></div>` : ''}
-
           <div class="entry-content-block">${content}</div>
-
-          ${themes.length ? `
-          <div class="mb-12">
-            <div class="ai-section-label">Themes</div>
-            <div class="tags-row">${themes.map(t => `<span class="chip chip-primary">${t}</span>`).join('')}</div>
-          </div>` : ''}
-
-          ${tags.length ? `
-          <div class="mb-12">
-            <div class="ai-section-label">Tags</div>
-            <div class="tags-row">${tags.map(t => `<span class="chip">${t}</span>`).join('')}</div>
-          </div>` : ''}
-
-          ${entry.action_items?.length ? `
-          <div class="mb-12">
-            <div class="ai-section-label">Action items</div>
-            <div class="action-items-list">
-              ${entry.action_items.map(item => `<div class="action-item"><input type="checkbox"><span>${item}</span></div>`).join('')}
-            </div>
-          </div>` : ''}
-
+          ${themes.length ? `<div class="mb-12"><div class="ai-section-label">Themes</div><div class="tags-row">${themes.map(t=>`<span class="chip chip-primary">${t}</span>`).join('')}</div></div>` : ''}
+          ${tags.length   ? `<div class="mb-12"><div class="ai-section-label">Tags</div><div class="tags-row">${tags.map(t=>`<span class="chip">${t}</span>`).join('')}</div></div>` : ''}
+          ${entry.action_items?.length ? `<div class="mb-12"><div class="ai-section-label">Action items</div><div class="action-items-list">${entry.action_items.map(i=>`<div class="action-item"><input type="checkbox"><span>${i}</span></div>`).join('')}</div></div>` : ''}
           <div class="entry-detail-actions">
-            <button class="btn btn-secondary btn-sm" id="edit-btn">Edit</button>
             <button class="btn btn-danger btn-sm" id="delete-btn">Delete</button>
           </div>
-        </div>
-      `;
+        </div>`;
 
       container.querySelector('#back-btn').addEventListener('click', () => history.back());
       container.querySelector('#delete-btn').addEventListener('click', async () => {
@@ -600,18 +549,13 @@ export class EntryView {
         showToast('Entry deleted', '');
         location.hash = '#home';
       });
-      container.querySelector('#edit-btn').addEventListener('click', () => {
-        // Simple edit: put content back in textarea
-        container.querySelector('.entry-content-block').contentEditable = 'true';
-        container.querySelector('.entry-content-block').focus();
-      });
-    } catch (err) {
+    } catch {
       container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">😕</div><h3>Entry not found</h3><a href="#home" class="btn btn-primary btn-sm mt-12">Go home</a></div>`;
     }
   }
 
   destroy() {
-    this.recorder?.destroy?.();
+    this.recorder?.destroy();
     this.stopWaveformAnimation();
     this.stopRecordingTimer();
   }
@@ -624,8 +568,6 @@ function getTimeOfDay() {
   if (h < 21) return 'evening';
   return 'night';
 }
-
-function formatDate(dateStr) {
-  const d = new Date(dateStr);
-  return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+function formatDate(d) {
+  return new Date(d).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
 }
