@@ -98,3 +98,6 @@ CREATE INDEX IF NOT EXISTS idx_entries_date ON entries(date DESC);
 CREATE INDEX IF NOT EXISTS idx_entries_mood_overall ON entries(mood_overall);
 CREATE INDEX IF NOT EXISTS idx_person_mentions_person ON person_mentions(person_id);
 CREATE INDEX IF NOT EXISTS idx_person_mentions_entry ON person_mentions(entry_id);
+
+-- Aliases support (safe to run on existing databases)
+ALTER TABLE people ADD COLUMN IF NOT EXISTS aliases JSONB DEFAULT '[]';

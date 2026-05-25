@@ -61,10 +61,16 @@ router.post('/transcribe', upload.single('audio'), async (req, res) => {
       return res.status(400).json({ error: 'No audio file provided', code: 'MISSING_FILE' });
     }
 
+    // Pick the right extension so Whisper knows the format
+    const mime = req.file.mimetype || '';
+    let fileExt = 'webm';
+    if (mime.includes('mp4') || mime.includes('m4a')) fileExt = 'm4a';
+    else if (mime.includes('ogg')) fileExt = 'ogg';
+
     const form = new FormData();
     form.append('file', req.file.buffer, {
-      filename: `audio.${req.file.mimetype.includes('ogg') ? 'ogg' : 'webm'}`,
-      contentType: req.file.mimetype || 'audio/webm',
+      filename: `audio.${fileExt}`,
+      contentType: mime || 'audio/webm',
     });
     form.append('model', 'whisper-large-v3');
     form.append('language', 'en');
@@ -115,6 +121,21 @@ router.post('/analyze', async (req, res) => {
       return res.status(400).json({ error: 'content is required', code: 'VALIDATION_ERROR' });
     }
 
+    // Fetch known people so AI can recognise aliases and resolve ambiguous names
+    let knownPeopleContext = '';
+    try {
+      const peopleResult = await db.query('SELECT name, relationship_type, aliases FROM people ORDER BY name');
+      if (peopleResult.rows.length) {
+        const list = peopleResult.rows.map(p => {
+          const aliases = Array.isArray(p.aliases) && p.aliases.length ? p.aliases : [];
+          const akaStr  = aliases.length ? ` (also known as: ${aliases.join(', ')})` : '';
+          const relStr  = p.relationship_type ? ` [${p.relationship_type}]` : '';
+          return `• ${p.name}${akaStr}${relStr}`;
+        }).join('\n');
+        knownPeopleContext = `\n\nPeople already tracked in this journal:\n${list}\nIMPORTANT: If the entry mentions any of these people by any name or alias, always use their PRIMARY name (the bullet-point name) in people_mentioned[].name.`;
+      }
+    } catch { /* non-fatal — analysis still works */ }
+
     const systemPrompt = `You are Nook, a warm and insightful personal journal assistant.
 Analyze the user's journal entry and return a JSON object with EXACTLY this structure:
 {
@@ -148,7 +169,7 @@ Analyze the user's journal entry and return a JSON object with EXACTLY this stru
 For mood scores use 0-10 integer or null if genuinely unclear. Life areas should be from: Health & Fitness, Work & Career, Relationships & Social, Personal Growth, Creativity, Finance, Travel & Adventure, Mental Health, Family, Love Life, Hobbies, Home & Lifestyle.
 For people_mentioned, each item: { "name": string, "context": string, "facts_extracted": [], "sentiment": -5 to 5, "emotion_toward": string }
 missing_fields should list important fields that couldn't be determined.
-followup_question should be ONE warm, natural follow-up question (or null if nothing important is missing).`;
+followup_question should be ONE warm, natural follow-up question (or null if nothing important is missing).${knownPeopleContext}`;
 
     const messages = [
       { role: 'system', content: systemPrompt },

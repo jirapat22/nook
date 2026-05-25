@@ -467,21 +467,80 @@ export class EntryView {
   async linkPeopleMentions(entryId, mentioned) {
     try {
       const existing = await api.get('/api/people');
-      const newPeople = [];
+      const newPeople   = [];
+      const ambiguous   = [];
+
       for (const person of mentioned) {
-        const match = existing.find(p => p.name.toLowerCase() === person.name.toLowerCase());
-        if (match) {
+        const nameLC = person.name.toLowerCase();
+
+        // Match by primary name OR any alias (case-insensitive)
+        const matches = existing.filter(p => {
+          if (p.name.toLowerCase() === nameLC) return true;
+          const aliases = Array.isArray(p.aliases) ? p.aliases : [];
+          return aliases.some(a => a.toLowerCase() === nameLC);
+        });
+
+        if (matches.length === 1) {
+          // Clear one-to-one match
           await api.post('/api/people/link-mention', {
-            person_id: match.id, entry_id: entryId,
+            person_id: matches[0].id, entry_id: entryId,
             context: person.context, sentiment_score: person.sentiment,
             facts_extracted: person.facts_extracted || [], emotion_toward: person.emotion_toward,
           }).catch(() => {});
+        } else if (matches.length > 1) {
+          // Multiple people share this name — ask the user which one
+          ambiguous.push({ person, matches });
         } else {
           newPeople.push(person);
         }
       }
+
+      // Show disambiguation prompts first (one at a time, chained)
+      for (const { person, matches } of ambiguous) {
+        await this.showAmbiguousPrompt(person, matches, entryId);
+      }
       if (newPeople.length) this.showPeoplePrompt(newPeople, entryId);
     } catch (err) { console.warn('People linking error:', err); }
+  }
+
+  showAmbiguousPrompt(person, matches, entryId) {
+    return new Promise(resolve => {
+      document.querySelector('.modal-backdrop')?.remove();
+      const modal = document.createElement('div');
+      modal.className = 'modal-backdrop';
+      modal.innerHTML = `
+        <div class="modal-sheet">
+          <div class="modal-handle"></div>
+          <div class="modal-title">Which ${person.name}?</div>
+          <p style="font-size:0.875rem;color:var(--color-text-muted);margin-bottom:16px">
+            "${person.context || person.name}" — which person did you mean?
+          </p>
+          ${matches.map(m => `
+            <button class="btn btn-secondary" data-id="${m.id}"
+              style="width:100%;margin-bottom:8px;text-align:left;display:flex;justify-content:space-between;align-items:center">
+              <strong>${m.name}</strong>
+              ${m.relationship_type ? `<span style="color:var(--color-text-faint);font-size:0.8rem">${m.relationship_type}</span>` : ''}
+            </button>`).join('')}
+          <button class="btn btn-ghost btn-sm" id="ambig-skip" style="width:100%;margin-top:4px">Skip</button>
+        </div>`;
+      document.body.appendChild(modal);
+
+      const cleanup = () => { modal.remove(); resolve(); };
+      modal.querySelector('#ambig-skip').addEventListener('click', cleanup);
+      modal.addEventListener('click', e => { if (e.target === modal) cleanup(); });
+
+      matches.forEach(m => {
+        modal.querySelector(`[data-id="${m.id}"]`).addEventListener('click', async () => {
+          modal.remove();
+          await api.post('/api/people/link-mention', {
+            person_id: m.id, entry_id: entryId,
+            context: person.context, sentiment_score: person.sentiment,
+            facts_extracted: person.facts_extracted || [], emotion_toward: person.emotion_toward,
+          }).catch(() => {});
+          resolve();
+        });
+      });
+    });
   }
 
   showPeoplePrompt(people, entryId) {
@@ -533,22 +592,73 @@ export class EntryView {
             ${entry.is_backdated ? '<span class="backdated-label">Added after the fact</span>' : ''}
           </div>
           ${entry.ai_summary ? `<div class="card mb-12"><p class="font-display text-muted" style="font-style:italic">${entry.ai_summary}</p></div>` : ''}
-          <div class="entry-content-block">${content}</div>
+
+          <!-- View mode -->
+          <div class="entry-content-block" id="entry-content-display">${content}</div>
+
+          <!-- Edit mode (hidden by default) -->
+          <textarea class="textarea hidden" id="entry-content-edit" style="min-height:200px;margin-bottom:12px"></textarea>
+
           ${themes.length ? `<div class="mb-12"><div class="ai-section-label">Themes</div><div class="tags-row">${themes.map(t=>`<span class="chip chip-primary">${t}</span>`).join('')}</div></div>` : ''}
           ${tags.length   ? `<div class="mb-12"><div class="ai-section-label">Tags</div><div class="tags-row">${tags.map(t=>`<span class="chip">${t}</span>`).join('')}</div></div>` : ''}
           ${entry.action_items?.length ? `<div class="mb-12"><div class="ai-section-label">Action items</div><div class="action-items-list">${entry.action_items.map(i=>`<div class="action-item"><input type="checkbox"><span>${i}</span></div>`).join('')}</div></div>` : ''}
-          <div class="entry-detail-actions">
+
+          <div class="entry-detail-actions" id="entry-actions">
+            <button class="btn btn-secondary btn-sm" id="edit-btn">Edit</button>
             <button class="btn btn-danger btn-sm" id="delete-btn">Delete</button>
           </div>
         </div>`;
 
       container.querySelector('#back-btn').addEventListener('click', () => history.back());
+
       container.querySelector('#delete-btn').addEventListener('click', async () => {
         if (!confirm('Delete this entry?')) return;
         await api.delete(`/api/entries/${this.entryId}`);
         showToast('Entry deleted', '');
         location.hash = '#home';
       });
+
+      // ── Edit button ─────────────────────────────────────────
+      const editBtn       = container.querySelector('#edit-btn');
+      const displayEl     = container.querySelector('#entry-content-display');
+      const editEl        = container.querySelector('#entry-content-edit');
+      const actionsDiv    = container.querySelector('#entry-actions');
+
+      editBtn.addEventListener('click', () => {
+        // Switch to edit mode
+        editEl.value = displayEl.textContent;
+        displayEl.classList.add('hidden');
+        editEl.classList.remove('hidden');
+        editEl.focus();
+
+        actionsDiv.innerHTML = `
+          <button class="btn btn-secondary btn-sm" id="cancel-edit-btn">Cancel</button>
+          <button class="btn btn-primary btn-sm" id="save-edit-btn">Save changes</button>
+        `;
+
+        actionsDiv.querySelector('#cancel-edit-btn').addEventListener('click', () => {
+          // Back to view mode — just re-render
+          this.mountDetailView(container);
+        });
+
+        actionsDiv.querySelector('#save-edit-btn').addEventListener('click', async () => {
+          const newContent = editEl.value.trim();
+          if (!newContent) { showToast('Content cannot be empty', 'error'); return; }
+          const saveBtn = actionsDiv.querySelector('#save-edit-btn');
+          saveBtn.disabled = true;
+          saveBtn.textContent = 'Saving…';
+          try {
+            await api.put(`/api/entries/${this.entryId}`, { user_edited_content: newContent });
+            showToast('Entry updated ✓', 'success');
+            await this.mountDetailView(container);
+          } catch {
+            showToast('Could not save — please try again', 'error');
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save changes';
+          }
+        });
+      });
+
     } catch {
       container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">😕</div><h3>Entry not found</h3><a href="#home" class="btn btn-primary btn-sm mt-12">Go home</a></div>`;
     }

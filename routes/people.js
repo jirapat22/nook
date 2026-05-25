@@ -79,13 +79,13 @@ router.get('/:id', async (req, res) => {
 // POST /api/people — create person
 router.post('/', async (req, res) => {
   try {
-    const { name, relationship_type, notes, profile_data = {} } = req.body;
+    const { name, relationship_type, notes, profile_data = {}, aliases = [] } = req.body;
     if (!name) return res.status(400).json({ error: 'name is required', code: 'VALIDATION_ERROR' });
 
     const result = await db.query(`
-      INSERT INTO people (name, relationship_type, notes, profile_data)
-      VALUES ($1, $2, $3, $4) RETURNING *
-    `, [name, relationship_type, notes, JSON.stringify(profile_data)]);
+      INSERT INTO people (name, relationship_type, notes, profile_data, aliases)
+      VALUES ($1, $2, $3, $4, $5) RETURNING *
+    `, [name, relationship_type, notes, JSON.stringify(profile_data), JSON.stringify(aliases)]);
 
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -97,15 +97,16 @@ router.post('/', async (req, res) => {
 // PUT /api/people/:id
 router.put('/:id', async (req, res) => {
   try {
-    const { name, relationship_type, notes, profile_data } = req.body;
     const updates = [];
     const params = [];
     let idx = 1;
 
+    const { name, relationship_type, notes, profile_data, aliases } = req.body;
     if (name !== undefined) { updates.push(`name = $${idx++}`); params.push(name); }
     if (relationship_type !== undefined) { updates.push(`relationship_type = $${idx++}`); params.push(relationship_type); }
     if (notes !== undefined) { updates.push(`notes = $${idx++}`); params.push(notes); }
     if (profile_data !== undefined) { updates.push(`profile_data = $${idx++}`); params.push(JSON.stringify(profile_data)); }
+    if (aliases !== undefined) { updates.push(`aliases = $${idx++}`); params.push(JSON.stringify(aliases)); }
 
     if (!updates.length) return res.status(400).json({ error: 'No fields to update', code: 'VALIDATION_ERROR' });
     updates.push(`updated_at = NOW()`);

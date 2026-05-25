@@ -59,8 +59,13 @@ export class PeopleView {
         <div class="modal-handle"></div>
         <div class="modal-title">Add person</div>
         <div class="form-group">
-          <label class="form-label">Name or nickname</label>
-          <input type="text" class="input" id="person-name" value="${prefill.name || ''}" placeholder="e.g. Alex, Mum, Work Dave">
+          <label class="form-label">Full name</label>
+          <input type="text" class="input" id="person-name" value="${prefill.name || ''}" placeholder="e.g. Rafaella, Mum, Work Alex">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Nicknames &amp; aliases</label>
+          <input type="text" class="input" id="person-aliases" value="${(prefill.aliases || []).join(', ')}" placeholder="e.g. Raf, Ella — separate with commas">
+          <div style="font-size:0.75rem;color:var(--color-text-faint);margin-top:4px">Nook will recognise all of these names in your entries</div>
         </div>
         <div class="form-group">
           <label class="form-label">Relationship</label>
@@ -87,9 +92,12 @@ export class PeopleView {
     modal.querySelector('#modal-save').addEventListener('click', async () => {
       const name = modal.querySelector('#person-name').value.trim();
       if (!name) { showToast('Name is required', ''); return; }
+      const aliases = modal.querySelector('#person-aliases').value
+        .split(',').map(s => s.trim()).filter(s => s.length > 0);
       try {
         await api.post('/api/people', {
           name,
+          aliases,
           relationship_type: modal.querySelector('#person-type').value,
           notes: modal.querySelector('#person-notes').value.trim(),
         });
@@ -141,6 +149,10 @@ export class PersonView {
           <div class="person-profile-title">
             <h2>${person.name}</h2>
             <p>${person.relationship_type ? capitalize(person.relationship_type) : 'Person'} · ${person.mention_count || 0} mention${person.mention_count !== 1 ? 's' : ''}</p>
+            ${Array.isArray(person.aliases) && person.aliases.length ? `
+              <p style="font-size:0.8rem;color:var(--color-text-faint);margin-top:2px">
+                Also: ${person.aliases.join(', ')}
+              </p>` : ''}
           </div>
         </div>
 
@@ -212,6 +224,7 @@ export class PersonView {
   }
 
   showEditModal(person) {
+    const existingAliases = Array.isArray(person.aliases) ? person.aliases : [];
     const modal = document.createElement('div');
     modal.className = 'modal-backdrop';
     modal.innerHTML = `
@@ -219,8 +232,13 @@ export class PersonView {
         <div class="modal-handle"></div>
         <div class="modal-title">Edit ${person.name}</div>
         <div class="form-group">
-          <label class="form-label">Name</label>
+          <label class="form-label">Full name</label>
           <input type="text" class="input" id="edit-name" value="${person.name}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Nicknames &amp; aliases</label>
+          <input type="text" class="input" id="edit-aliases" value="${existingAliases.join(', ')}" placeholder="e.g. Raf, Ella — separate with commas">
+          <div style="font-size:0.75rem;color:var(--color-text-faint);margin-top:4px">Nook will recognise all of these names in your entries</div>
         </div>
         <div class="form-group">
           <label class="form-label">Relationship</label>
@@ -244,9 +262,12 @@ export class PersonView {
     modal.querySelector('#edit-cancel').addEventListener('click', () => modal.remove());
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
     modal.querySelector('#edit-save').addEventListener('click', async () => {
+      const aliases = modal.querySelector('#edit-aliases').value
+        .split(',').map(s => s.trim()).filter(s => s.length > 0);
       try {
         await api.put(`/api/people/${this.personId}`, {
           name: modal.querySelector('#edit-name').value.trim(),
+          aliases,
           relationship_type: modal.querySelector('#edit-type').value,
           notes: modal.querySelector('#edit-notes').value.trim(),
         });
