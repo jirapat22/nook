@@ -227,7 +227,7 @@ p  { line-height: 1.65; }
   border: 3px solid var(--color-border);
   border-top-color: var(--color-primary);
   border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+  animation: spin 1.4s ease-in-out infinite;
 }
 
 /* ── Cards ── */
@@ -1354,6 +1354,7 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
    ANIMATIONS
    ────────────────────────────────────────── */
 @keyframes spin       { to { transform: rotate(360deg); } }
+/* spinner speed controlled here */
 @keyframes pulse      { 0%,100%{opacity:0.6;transform:scale(1)} 50%{opacity:1;transform:scale(1.1)} }
 @keyframes micPulse   { 0%,100%{box-shadow:0 0 0 0 rgba(200,90,58,0.5)} 50%{box-shadow:0 0 0 20px rgba(200,90,58,0)} }
 @keyframes slideUp    { from{transform:translateY(20px);opacity:0} to{transform:translateY(0);opacity:1} }
