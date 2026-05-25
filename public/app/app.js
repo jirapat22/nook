@@ -174,11 +174,16 @@ function renderShell() {
       </div>
       <div class="top-bar-actions">
         <div class="streak-counter" id="streak-counter">
-          <span>🔥</span>
+          <svg viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px;color:#e85d04">
+            <path d="M12 2c0 0-5 5-5 10a5 5 0 0010 0C17 7 12 2 12 2zm0 14a3 3 0 01-3-3c0-2.5 3-6 3-6s3 3.5 3 6a3 3 0 01-3 3z"/>
+          </svg>
           <span id="streak-number">0</span>
         </div>
         <button class="theme-toggle" id="theme-toggle" title="Cycle theme" aria-label="Toggle theme">
-          🎨
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px">
+            <circle cx="12" cy="12" r="5"/>
+            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+          </svg>
         </button>
       </div>
     </header>
