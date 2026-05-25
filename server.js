@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const db = require('./db/db');
 
 const entriesRouter = require('./routes/entries');
@@ -11,6 +12,18 @@ const peopleRouter = require('./routes/people');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Auto-initialise database schema on startup (idempotent — uses IF NOT EXISTS)
+async function initDB() {
+  try {
+    const schema = fs.readFileSync(path.join(__dirname, 'db', 'schema.sql'), 'utf8');
+    await db.query(schema);
+    console.log('✅ Database schema ready');
+  } catch (err) {
+    console.error('❌ Database init error:', err.message);
+    // Don't crash — app still starts, individual routes will surface errors
+  }
+}
 
 // Middleware
 app.use(cors());
@@ -118,7 +131,9 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error', code: 'SERVER_ERROR' });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`🌿 Nook is running at http://localhost:${PORT}`);
+// Start server — init DB first, then listen
+initDB().then(() => {
+  app.listen(PORT, () => {
+    console.log(`🌿 Nook is running at http://localhost:${PORT}`);
+  });
 });
