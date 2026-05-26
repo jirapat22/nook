@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nook-v8';
+const CACHE_NAME = 'nook-v9';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -102,6 +102,19 @@ async function queueRequest(request) {
     console.error('SW: failed to queue request', e);
   }
 }
+
+// Notification click — open the app
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+      for (const c of list) {
+        if (c.url.includes(self.location.origin) && 'focus' in c) return c.focus();
+      }
+      return clients.openWindow('/');
+    })
+  );
+});
 
 // Sync queued requests when back online
 self.addEventListener('sync', event => {

@@ -218,4 +218,55 @@ router.post('/followup', async (req, res) => {
   }
 });
 
+// POST /api/ai/reflect — generate warm reflection questions for a past entry
+router.post('/reflect', async (req, res) => {
+  try {
+    const { entry_id } = req.body;
+    if (!entry_id) return res.status(400).json({ error: 'entry_id required' });
+
+    const apiKey = await getGroqKey();
+    if (!apiKey) return res.status(400).json({ error: 'No AI key configured', code: 'NO_KEY' });
+
+    const entryResult = await db.query('SELECT * FROM entries WHERE id = $1', [entry_id]);
+    if (!entryResult.rows.length) return res.status(404).json({ error: 'Entry not found' });
+    const entry = entryResult.rows[0];
+
+    // Recent entries for pattern context
+    const recentResult = await db.query(`
+      SELECT date, ai_summary, key_themes, mood_overall
+      FROM entries WHERE id != $1
+      ORDER BY date DESC LIMIT 15
+    `, [entry_id]);
+
+    const recentContext = recentResult.rows.length
+      ? recentResult.rows.map(e =>
+          `${String(e.date).split('T')[0]}: ${e.ai_summary || '(no summary)'} [themes: ${(e.key_themes || []).join(', ')}]`
+        ).join('\n')
+      : 'No other entries yet.';
+
+    const entryDate = String(entry.date).split('T')[0];
+    const content = entry.cleaned_content || entry.raw_transcript || '';
+
+    const result = await groqChat(apiKey, [
+      {
+        role: 'system',
+        content: `You are a warm, caring close friend reading someone's personal journal. You want to ask thoughtful follow-up questions — like a friend who checks in and genuinely cares. Casual, not clinical.
+
+Focus on: (1) people they mentioned — how things may have developed, (2) feelings they hinted at but didn't fully say, (3) patterns you notice across recent entries.
+
+Return JSON: { "questions": ["q1", "q2"] } — 2 questions max, each 1-2 sentences, warm and natural.`,
+      },
+      {
+        role: 'user',
+        content: `Entry from ${entryDate}${entry.time_of_day ? ' (' + entry.time_of_day + ')' : ''}:\n\n${content}\n\n---\nRecent context:\n${recentContext}`,
+      },
+    ], { temperature: 0.8, max_tokens: 300 });
+
+    res.json({ questions: Array.isArray(result.questions) ? result.questions : [] });
+  } catch (err) {
+    console.error('POST /api/ai/reflect error:', err);
+    res.status(500).json({ error: 'Could not generate questions', code: 'AI_ERROR' });
+  }
+});
+
 module.exports = router;

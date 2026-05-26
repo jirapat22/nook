@@ -1,10 +1,11 @@
-import { api, showToast, applyTheme, AppState } from '../app.js';
+import { api, showToast, applyTheme, AppState, scheduleReminder } from '../app.js';
 
 export class SettingsView {
   constructor() {}
 
   async mount(container) {
-    this.container = container;
+    this.container = container || this.container;
+    container = this.container;
     let settings = {};
     try { settings = await api.get('/api/settings'); } catch {}
 
@@ -13,6 +14,10 @@ export class SettingsView {
     const ttsSpeed = parseFloat(settings.tts_speed) || 1;
     const apiKey = typeof settings.groq_api_key === 'string' && settings.groq_api_key !== 'null'
       ? settings.groq_api_key : '';
+    const reminderEnabled = settings.reminder_enabled === 'true' || settings.reminder_enabled === true;
+    const reminderTime = (settings.reminder_time || '"21:00"').replace(/"/g, '');
+    const notifSupported = 'Notification' in window;
+    const notifGranted = notifSupported && Notification.permission === 'granted';
 
     container.innerHTML = `
       <div class="settings-view">
@@ -46,6 +51,29 @@ export class SettingsView {
             <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--color-text-faint);margin-top:4px">
               <span>Slow</span><span id="tts-speed-val">${ttsSpeed}×</span><span>Fast</span>
             </div>
+          </div>
+        </div>
+
+        <!-- Daily Reminder -->
+        <div class="settings-section-title">Daily Reminder</div>
+        <div class="card">
+          <div class="settings-row" style="border:none;padding:0">
+            <div>
+              <div class="settings-row-label">Journal reminder</div>
+              <div class="settings-row-sub">A nudge to write each day</div>
+            </div>
+            <div class="toggle ${reminderEnabled ? 'on' : ''}" id="reminder-toggle"></div>
+          </div>
+          <div id="reminder-time-row" style="${reminderEnabled ? '' : 'display:none'}">
+            <div style="height:1px;background:var(--color-border-light);margin:12px 0"></div>
+            <div class="form-label mb-8">Reminder time</div>
+            <input type="time" class="input" id="reminder-time" value="${reminderTime}">
+            ${!notifSupported ? `<p class="text-xs text-faint mt-8">Notifications not supported in this browser.</p>` :
+              !notifGranted ? `
+                <button class="btn btn-secondary btn-sm mt-12" id="enable-notifs-btn">Enable notifications</button>
+                <p class="text-xs text-faint mt-8">Tap to allow Nook to remind you</p>
+              ` : `<p class="text-xs text-faint mt-8">✓ Notifications on — you'll be reminded when the app is open past ${reminderTime}</p>`
+            }
           </div>
         </div>
 
@@ -150,6 +178,36 @@ export class SettingsView {
         showToast('API key saved ✓', 'success');
       } catch {
         showToast('Could not save key', 'error');
+      }
+    });
+
+    // Daily reminder toggle
+    let reminderState = reminderEnabled;
+    const reminderToggle = container.querySelector('#reminder-toggle');
+    const reminderTimeRow = container.querySelector('#reminder-time-row');
+    reminderToggle?.addEventListener('click', async () => {
+      reminderState = !reminderState;
+      reminderToggle.classList.toggle('on', reminderState);
+      reminderTimeRow.style.display = reminderState ? '' : 'none';
+      try { await api.put('/api/settings/reminder_enabled', { value: reminderState }); } catch {}
+      if (reminderState) scheduleReminder({ reminder_enabled: true, reminder_time: container.querySelector('#reminder-time')?.value }).catch(() => {});
+    });
+
+    // Reminder time change
+    container.querySelector('#reminder-time')?.addEventListener('change', async e => {
+      try { await api.put('/api/settings/reminder_time', { value: e.target.value }); } catch {}
+    });
+
+    // Enable notifications button
+    container.querySelector('#enable-notifs-btn')?.addEventListener('click', async () => {
+      const perm = await Notification.requestPermission();
+      if (perm === 'granted') {
+        showToast('Notifications enabled ✓', 'success');
+        // Re-mount to update UI
+        await this.mount(this.container);
+        scheduleReminder({ reminder_enabled: true, reminder_time: reminderTime }).catch(() => {});
+      } else {
+        showToast('Notifications blocked — check browser settings', 'error');
       }
     });
 

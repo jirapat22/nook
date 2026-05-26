@@ -299,6 +299,14 @@ export class EntryView {
     const charCount  = container.querySelector('#char-count');
     const analyzeBtn = container.querySelector('#analyze-btn');
 
+    // Pre-fill from "Write about this" in reflection panel
+    const reflectPrompt = sessionStorage.getItem('reflect_prompt');
+    if (reflectPrompt) {
+      sessionStorage.removeItem('reflect_prompt');
+      textarea.value = `Thinking about: ${reflectPrompt}\n\n`;
+      charCount.textContent = textarea.value.length;
+    }
+
     textarea.addEventListener('input', () => { charCount.textContent = textarea.value.length; });
 
     analyzeBtn.addEventListener('click', async () => {
@@ -666,6 +674,9 @@ export class EntryView {
 
       container.querySelector('#back-btn').addEventListener('click', () => history.back());
 
+      // Load reflection questions asynchronously (non-blocking)
+      this.loadReflectionQuestions(container);
+
       container.querySelector('#delete-btn').addEventListener('click', async () => {
         if (!confirm('Delete this entry?')) return;
         await api.delete(`/api/entries/${this.entryId}`);
@@ -716,6 +727,45 @@ export class EntryView {
 
     } catch {
       container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">😕</div><h3>Entry not found</h3><a href="#home" class="btn btn-primary btn-sm mt-12">Go home</a></div>`;
+    }
+  }
+
+  async loadReflectionQuestions(container) {
+    const actionsDiv = container.querySelector('#entry-actions');
+    if (!actionsDiv) return;
+
+    // Insert placeholder card before action buttons
+    const card = document.createElement('div');
+    card.id = 'reflect-card';
+    card.className = 'reflect-card reflect-loading';
+    card.innerHTML = `<div class="reflect-dots"><span></span><span></span><span></span></div>`;
+    actionsDiv.before(card);
+
+    try {
+      const result = await api.post('/api/ai/reflect', { entry_id: this.entryId });
+      const questions = result.questions || [];
+      if (!questions.length) { card.remove(); return; }
+
+      card.className = 'reflect-card';
+      card.innerHTML = `
+        <div class="reflect-header">
+          <span>💭</span>
+          <span>A thought or two…</span>
+        </div>
+        ${questions.map(q => `
+          <div class="reflect-question">
+            <p>${q}</p>
+            <button class="reflect-write-btn" data-q="${q.replace(/"/g, '&quot;')}">→ Write about this</button>
+          </div>`).join('')}
+      `;
+      card.querySelectorAll('.reflect-write-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          sessionStorage.setItem('reflect_prompt', btn.dataset.q);
+          location.hash = '#new-entry/text';
+        });
+      });
+    } catch {
+      card.remove(); // Silently fail — reflection is a bonus, not essential
     }
   }
 

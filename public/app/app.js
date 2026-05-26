@@ -84,6 +84,42 @@ export function applyTheme(theme) {
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColors[theme] || '#c8a97e');
 }
 
+// ── Daily reminder ──────────────────────────────────────────
+let _swReg = null;
+
+export async function showLocalNotification(title, body) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const opts = { body, icon: '/icons/icon.svg', badge: '/icons/icon.svg', tag: 'nook-reminder' };
+  if (_swReg) { await _swReg.showNotification(title, opts); }
+  else { new Notification(title, opts); }
+}
+
+export async function scheduleReminder(settings) {
+  if (!settings) return;
+  const enabled = settings.reminder_enabled === 'true' || settings.reminder_enabled === true;
+  if (!enabled) return;
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+
+  const reminderTime = (settings.reminder_time || '21:00').replace(/"/g, '');
+  const [h, m] = reminderTime.split(':').map(Number);
+  const now = new Date();
+  const trigger = new Date(now);
+  trigger.setHours(h, m, 0, 0);
+
+  if (now >= trigger) {
+    // Past today's trigger — check if they've journaled today
+    try {
+      const today = now.toISOString().split('T')[0];
+      const entries = await api.get('/api/entries?limit=5').catch(() => []);
+      const done = entries.some(e => String(e.date).split('T')[0] === today);
+      if (!done) await showLocalNotification('Nook 🌿', "Time to write in your nook — how was your day?");
+    } catch {}
+  } else {
+    // Schedule for later today
+    setTimeout(() => scheduleReminder(settings), trigger - now);
+  }
+}
+
 // ── Streak display ───────────────────────────────────────────
 export function updateStreakDisplay(count) {
   AppState.streakCount = count;
@@ -271,8 +307,13 @@ async function init() {
 
   // Register service worker
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(err => console.warn('SW registration failed:', err));
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => { _swReg = reg; })
+      .catch(err => console.warn('SW registration failed:', err));
   }
+
+  // Schedule daily reminder if enabled
+  scheduleReminder(settings).catch(() => {});
 
   // Initial route
   await handleRoute();
