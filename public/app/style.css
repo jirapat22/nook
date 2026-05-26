@@ -1379,14 +1379,14 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
 
 /* ── Desktop layout (≥ 760px) ── */
 @media (min-width: 760px) {
-  body {
-    align-items: flex-start;
-    justify-content: center;
-  }
+  body { align-items: flex-start; justify-content: center; }
 
+  /* Shell: 2-column grid */
   #app-shell {
     max-width: 1100px;
     width: 100%;
+    height: 100dvh;
+    overflow: hidden;
     display: grid;
     grid-template-columns: 220px 1fr;
     grid-template-rows: var(--top-bar-height) auto 1fr;
@@ -1399,107 +1399,102 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
   .top-bar        { grid-area: topbar; }
   .offline-banner { grid-area: offline; }
 
-  /* ── Sidebar navigation ── */
-  .bottom-nav {
+  /* ── Sidebar: use high-specificity selectors to beat base styles ── */
+  #app-shell .bottom-nav {
     grid-area: sidenav;
+    display: flex;
     flex-direction: column;
-    height: auto;
+    align-items: stretch;
+    height: auto;        /* beats height: var(--nav-height) */
     width: 220px;
+    position: static;   /* beats position: sticky */
     border-top: none;
     border-right: 1px solid var(--color-border-light);
-    padding: 16px 10px 24px;
-    align-items: stretch;
+    padding: 14px 10px 24px;
     gap: 2px;
     overflow-y: auto;
+    flex-shrink: 0;
   }
 
-  .nav-item {
-    flex-direction: row;
+  #app-shell .bottom-nav .nav-item {
+    flex: 0 0 auto;       /* beats flex: 1 — no more height-stretching */
+    flex-direction: row;  /* icon left, label right */
     justify-content: flex-start;
-    gap: 12px;
-    padding: 10px 14px;
+    align-items: center;
+    gap: 11px;
+    padding: 10px 13px;
     border-radius: var(--radius-md);
-    font-size: 0.9375rem;
+    font-size: 0.9rem;
     font-weight: 500;
-    height: auto;
-    min-height: 44px;
+    min-height: 42px;
     color: var(--color-text-muted);
   }
-  .nav-item:hover { background: var(--color-surface-offset); color: var(--color-text); }
-  .nav-item.active { background: var(--color-primary-light); color: var(--color-primary); }
-  .nav-item svg { width: 20px; height: 20px; flex-shrink: 0; }
-  .nav-item span { font-size: 0.9375rem; }
+  #app-shell .bottom-nav .nav-item:hover  { background: var(--color-surface-offset); color: var(--color-text); }
+  #app-shell .bottom-nav .nav-item.active { background: var(--color-primary-light);  color: var(--color-primary); }
+  #app-shell .bottom-nav .nav-item svg    { width: 19px; height: 19px; flex-shrink: 0; }
+  #app-shell .bottom-nav .nav-item span   { font-size: 0.9rem; }
 
-  /* New Entry — full-width pill button at top of sidebar */
-  .nav-item--new {
+  /* New Entry → full-width primary button at top of sidebar */
+  #app-shell .bottom-nav .nav-item--new {
     flex: 0 0 auto;
     order: -1;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
     padding: 0;
-    border-radius: var(--radius-md);
   }
-  .nav-item--new .nav-new-btn {
+  #app-shell .bottom-nav .nav-item--new .nav-new-btn {
     width: 100%;
-    height: 44px;
+    height: 42px;
     border-radius: var(--radius-md);
     background: var(--color-primary);
     color: white;
-    gap: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 9px;
+    padding: 0 14px;
     box-shadow: var(--shadow-sm);
-    padding: 0 16px;
   }
-  .nav-item--new .nav-new-btn svg { width: 18px; height: 18px; }
-  .nav-new-label { display: inline; font-size: 0.9375rem; font-weight: 600; }
+  #app-shell .bottom-nav .nav-item--new .nav-new-btn svg { width: 17px; height: 17px; }
+  #app-shell .bottom-nav .nav-item--new:hover .nav-new-btn { background: var(--color-primary-hover); }
 
   /* ── Content area ── */
-  .app-content {
+  #app-shell .app-content {
     grid-area: content;
-    padding-bottom: 32px;
+    padding-bottom: 32px; /* remove nav-height offset */
   }
 
-  /* ── View padding & layout ── */
-  .home-view    { padding: 0 28px 24px; }
-  .people-view  { padding: 0 28px 24px; }
-  .entry-detail { padding: 0 28px 24px; max-width: 720px; }
-  .person-profile { padding: 0 28px 24px; }
-  .entry-view   { max-width: 660px; margin: 0 auto; padding: 0 8px; }
+  /* Show "New entry" text — hidden on mobile */
+  .nav-new-label { display: inline; font-size: 0.9rem; font-weight: 600; }
 
-  /* Page headers larger */
-  .page-header h1 { font-size: 1.6rem; }
+  /* ── View padding ── */
+  .home-view, .people-view, .insights-view,
+  .calendar-view, .settings-view { padding: 0 28px 24px; }
+  .entry-view     { max-width: 660px; margin: 0 auto; padding: 0 12px; }
+  .entry-detail   { padding: 0 28px 24px; }
+  .person-profile { padding: 0 28px 24px; }
 
   /* ── People: 2-column card grid ── */
-  .people-list {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
-  .person-card  { padding: 16px 18px; }
+  .people-list { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .person-card   { padding: 16px 18px; }
   .person-avatar { width: 50px; height: 50px; font-size: 1.1rem; }
 
-  /* ── Home: 2-column entry grid ── */
-  .entry-cards-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-  }
+  /* ── Home: 2-column entry card grid ── */
+  .entry-cards-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .entry-cards-grid .entry-preview-card { margin-bottom: 0; }
-
-  /* ── Other views ── */
-  .insights-view  { padding: 0 28px 24px; }
-  .calendar-view  { padding: 0 28px 24px; }
-  .settings-view  { padding: 0 28px 24px; }
 }
 
-/* ── Large desktop (≥ 1024px) — even more breathing room ── */
+/* ── Large desktop (≥ 1024px) ── */
 @media (min-width: 1024px) {
-  #app-shell { max-width: 1200px; }
-  .bottom-nav { width: 240px; padding: 20px 14px 28px; }
-  #app-shell { grid-template-columns: 240px 1fr; }
+  #app-shell {
+    max-width: 1200px;
+    grid-template-columns: 240px 1fr;
+  }
+  #app-shell .bottom-nav { width: 240px; padding: 18px 12px 28px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
 
-/* Hide the new-entry label text on mobile */
+/* Mobile: hide the "New entry" sidebar label */
 .nav-new-label { display: none; }
