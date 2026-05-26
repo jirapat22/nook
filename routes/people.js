@@ -160,10 +160,10 @@ router.get('/:id/sentiment-trend', async (req, res) => {
 // POST /api/people/:id/merge — merge source person into target
 router.post('/:id/merge', async (req, res) => {
   try {
-    const sourceId = parseInt(req.params.id);
+    const sourceId = req.params.id; // UUID — do NOT parseInt
     const { target_id } = req.body;
     if (!target_id) return res.status(400).json({ error: 'target_id is required', code: 'VALIDATION_ERROR' });
-    if (sourceId === parseInt(target_id)) return res.status(400).json({ error: 'Cannot merge a person with themselves', code: 'VALIDATION_ERROR' });
+    if (String(sourceId) === String(target_id)) return res.status(400).json({ error: 'Cannot merge a person with themselves', code: 'VALIDATION_ERROR' });
 
     const sourceResult = await db.query('SELECT name, aliases FROM people WHERE id = $1', [sourceId]);
     if (!sourceResult.rows.length) return res.status(404).json({ error: 'Source person not found', code: 'NOT_FOUND' });
