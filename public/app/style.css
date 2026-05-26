@@ -394,7 +394,12 @@ p  { line-height: 1.65; }
 /* ──────────────────────────────────────────
    HOME VIEW
    ────────────────────────────────────────── */
-.home-view { padding: 0 16px 24px; }
+.home-view {
+  padding: 0 16px 24px;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - var(--top-bar-height) - var(--nav-height));
+}
 
 .greeting-section {
   padding: 20px 0 16px;
@@ -413,8 +418,8 @@ p  { line-height: 1.65; }
   bottom: 0;
   display: flex;
   gap: 10px;
-  /* Bleed past home-view padding to go full width */
-  margin: 20px -16px 0;
+  /* Bleed past home-view padding to go full width; auto top pushes to bottom when content is short */
+  margin: auto -16px 0;
   padding: 10px 16px 14px;
   background: var(--color-bg);
   /* Soft shadow upward so it lifts off content */
@@ -1423,7 +1428,7 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
   .entry-cards-grid .entry-preview-card { margin-bottom: 0; }
 
   /* Quick bar bleeds past the wider desktop padding */
-  .home-quick-bar { margin: 20px -28px 0; padding: 10px 28px 14px; }
+  .home-quick-bar { margin: auto -28px 0; padding: 10px 28px 14px; }
   .home-quick-btn { height: 56px; }
 }
 

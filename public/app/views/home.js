@@ -18,10 +18,11 @@ export class HomeView {
       hour < 17 ? 'Good afternoon' :
       hour < 21 ? 'Good evening' : 'Good night';
 
-    // Group entries by date
+    // Normalise date — API may return "2026-05-26T00:00:00.000Z" or "2026-05-26"
+    const normDate = d => String(d).split('T')[0];
     const today = new Date().toISOString().split('T')[0];
-    const todayEntries  = entries.filter(e => e.date === today);
-    const recentEntries = entries.filter(e => e.date !== today).slice(0, 4);
+    const todayEntries  = entries.filter(e => normDate(e.date) === today);
+    const recentEntries = entries.filter(e => normDate(e.date) !== today).slice(0, 4);
 
     container.innerHTML = `
       <div class="home-view">
@@ -128,8 +129,9 @@ function getDateLabel() {
 }
 
 function formatEntryDate(dateStr, timeOfDay) {
+  const d = String(dateStr).split('T')[0];
   const today = new Date().toISOString().split('T')[0];
   const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-  const label = dateStr === today ? 'Today' : dateStr === yesterday ? 'Yesterday' : new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  const label = d === today ? 'Today' : d === yesterday ? 'Yesterday' : new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   return timeOfDay ? `${label} · ${timeOfDay}` : label;
 }

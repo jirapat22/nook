@@ -206,6 +206,7 @@ export class PersonView {
 
         <div class="entry-detail-actions">
           <button class="btn btn-secondary btn-sm" id="edit-person-btn">Edit</button>
+          <button class="btn btn-secondary btn-sm" id="merge-person-btn">Merge into…</button>
           <button class="btn btn-danger btn-sm" id="delete-person-btn">Delete</button>
         </div>
       </div>
@@ -220,6 +221,61 @@ export class PersonView {
     });
     container.querySelector('#edit-person-btn').addEventListener('click', () => {
       this.showEditModal(person);
+    });
+    container.querySelector('#merge-person-btn').addEventListener('click', () => {
+      this.showMergeModal(person);
+    });
+  }
+
+  async showMergeModal(person) {
+    let people;
+    try {
+      people = await api.get('/api/people');
+    } catch {
+      showToast('Could not load people', 'error');
+      return;
+    }
+    const others = people.filter(p => p.id !== person.id);
+    if (!others.length) {
+      showToast('No other people to merge into', '');
+      return;
+    }
+    const modal = document.createElement('div');
+    modal.className = 'modal-backdrop';
+    modal.innerHTML = `
+      <div class="modal-sheet">
+        <div class="modal-handle"></div>
+        <div class="modal-title">Merge ${person.name} into…</div>
+        <p style="font-size:0.875rem;color:var(--color-text-muted);margin-bottom:16px">
+          <strong>${person.name}</strong> will be deleted. Their mentions &amp; name will move to the chosen person.
+        </p>
+        <div class="form-group">
+          <label class="form-label">Merge into</label>
+          <select class="select input" id="merge-target">
+            ${others.map(p => `<option value="${p.id}">${p.name}${Array.isArray(p.aliases) && p.aliases.length ? ` (${p.aliases.join(', ')})` : ''}</option>`).join('')}
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="merge-cancel">Cancel</button>
+          <button class="btn btn-danger" id="merge-confirm">Merge &amp; delete ${person.name}</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    modal.querySelector('#merge-cancel').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    modal.querySelector('#merge-confirm').addEventListener('click', async () => {
+      const targetId = modal.querySelector('#merge-target').value;
+      const targetName = others.find(p => String(p.id) === String(targetId))?.name || 'them';
+      if (!confirm(`Merge "${person.name}" into "${targetName}"?\nThis cannot be undone — ${person.name} will be deleted.`)) return;
+      try {
+        await api.post(`/api/people/${this.personId}/merge`, { target_id: targetId });
+        modal.remove();
+        showToast(`Merged ${person.name} into ${targetName} ✓`, 'success');
+        location.hash = `#person/${targetId}`;
+      } catch {
+        showToast('Could not merge people', 'error');
+      }
     });
   }
 

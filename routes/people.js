@@ -157,6 +157,47 @@ router.get('/:id/sentiment-trend', async (req, res) => {
   }
 });
 
+// POST /api/people/:id/merge — merge source person into target
+router.post('/:id/merge', async (req, res) => {
+  try {
+    const sourceId = parseInt(req.params.id);
+    const { target_id } = req.body;
+    if (!target_id) return res.status(400).json({ error: 'target_id is required', code: 'VALIDATION_ERROR' });
+    if (sourceId === parseInt(target_id)) return res.status(400).json({ error: 'Cannot merge a person with themselves', code: 'VALIDATION_ERROR' });
+
+    const sourceResult = await db.query('SELECT name, aliases FROM people WHERE id = $1', [sourceId]);
+    if (!sourceResult.rows.length) return res.status(404).json({ error: 'Source person not found', code: 'NOT_FOUND' });
+
+    const targetResult = await db.query('SELECT name, aliases FROM people WHERE id = $1', [target_id]);
+    if (!targetResult.rows.length) return res.status(404).json({ error: 'Target person not found', code: 'NOT_FOUND' });
+
+    const sourceName = sourceResult.rows[0].name;
+    const sourceAliases = sourceResult.rows[0].aliases || [];
+    const targetName = targetResult.rows[0].name;
+    const targetAliases = targetResult.rows[0].aliases || [];
+
+    // Add source name + source aliases to target aliases (deduplicated, exclude target name itself)
+    const newAliasSet = new Set([...targetAliases, sourceName, ...sourceAliases]);
+    newAliasSet.delete(targetName);
+    const newAliases = [...newAliasSet];
+
+    // Move all mentions from source to target
+    await db.query('UPDATE person_mentions SET person_id = $1 WHERE person_id = $2', [target_id, sourceId]);
+
+    // Update target aliases
+    await db.query('UPDATE people SET aliases = $1, updated_at = NOW() WHERE id = $2', [JSON.stringify(newAliases), target_id]);
+
+    // Delete source person
+    await db.query('DELETE FROM people WHERE id = $1', [sourceId]);
+
+    const updated = await db.query('SELECT * FROM people WHERE id = $1', [target_id]);
+    res.json({ merged: true, person: updated.rows[0] });
+  } catch (err) {
+    console.error('POST /api/people/:id/merge error:', err);
+    res.status(500).json({ error: 'Failed to merge people', code: 'DB_ERROR' });
+  }
+});
+
 // POST /api/people/link-mention — link an AI-detected person mention to an entry
 router.post('/link-mention', async (req, res) => {
   try {
