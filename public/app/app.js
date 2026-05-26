@@ -217,6 +217,7 @@ function renderShell() {
             <line x1="12" y1="5" x2="12" y2="19"/>
             <line x1="5" y1="12" x2="19" y2="12"/>
           </svg>
+          <span class="nav-new-label">New entry</span>
         </div>
       </a>
       <a class="nav-item" href="#insights" data-view="insights" aria-label="Insights">

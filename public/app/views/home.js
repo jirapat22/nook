@@ -68,7 +68,7 @@ export class HomeView {
           <a href="#calendar">See all</a>
         </div>
         ${todayEntries.length
-          ? todayEntries.map(e => entryCard(e)).join('')
+          ? `<div class="entry-cards-grid">${todayEntries.map(e => entryCard(e)).join('')}</div>`
           : `<div class="empty-state" style="padding:32px 0">
                <div class="empty-state-icon">🌿</div>
                <h3>Your nook is quiet today</h3>
@@ -81,7 +81,7 @@ export class HomeView {
           <h3>Recent</h3>
           <a href="#calendar">Calendar</a>
         </div>
-        ${recentEntries.map(e => entryCard(e)).join('')}
+        <div class="entry-cards-grid">${recentEntries.map(e => entryCard(e)).join('')}</div>
         ` : ''}
       </div>
     `;

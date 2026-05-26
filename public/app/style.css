@@ -1368,16 +1368,138 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
    RESPONSIVE
    ────────────────────────────────────────── */
 @media (min-width: 640px) {
-  /* Keep quick-start as 2 columns — 4 looks cramped in the 520px frame */
   .mood-tracker-grid { grid-template-columns: repeat(4, 1fr); }
 }
 
-/* On very small screens, full-width app */
+/* ── Mobile: full-bleed, no shadow ── */
 @media (max-width: 520px) {
   #app-shell { box-shadow: none; }
   body { background: var(--color-bg); }
 }
 
+/* ── Desktop layout (≥ 760px) ── */
+@media (min-width: 760px) {
+  body {
+    align-items: flex-start;
+    justify-content: center;
+  }
+
+  #app-shell {
+    max-width: 1100px;
+    width: 100%;
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    grid-template-rows: var(--top-bar-height) auto 1fr;
+    grid-template-areas:
+      "topbar  topbar"
+      "offline offline"
+      "sidenav content";
+  }
+
+  .top-bar        { grid-area: topbar; }
+  .offline-banner { grid-area: offline; }
+
+  /* ── Sidebar navigation ── */
+  .bottom-nav {
+    grid-area: sidenav;
+    flex-direction: column;
+    height: auto;
+    width: 220px;
+    border-top: none;
+    border-right: 1px solid var(--color-border-light);
+    padding: 16px 10px 24px;
+    align-items: stretch;
+    gap: 2px;
+    overflow-y: auto;
+  }
+
+  .nav-item {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 10px 14px;
+    border-radius: var(--radius-md);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    height: auto;
+    min-height: 44px;
+    color: var(--color-text-muted);
+  }
+  .nav-item:hover { background: var(--color-surface-offset); color: var(--color-text); }
+  .nav-item.active { background: var(--color-primary-light); color: var(--color-primary); }
+  .nav-item svg { width: 20px; height: 20px; flex-shrink: 0; }
+  .nav-item span { font-size: 0.9375rem; }
+
+  /* New Entry — full-width pill button at top of sidebar */
+  .nav-item--new {
+    flex: 0 0 auto;
+    order: -1;
+    margin-bottom: 12px;
+    padding: 0;
+    border-radius: var(--radius-md);
+  }
+  .nav-item--new .nav-new-btn {
+    width: 100%;
+    height: 44px;
+    border-radius: var(--radius-md);
+    background: var(--color-primary);
+    color: white;
+    gap: 8px;
+    box-shadow: var(--shadow-sm);
+    padding: 0 16px;
+  }
+  .nav-item--new .nav-new-btn svg { width: 18px; height: 18px; }
+  .nav-new-label { display: inline; font-size: 0.9375rem; font-weight: 600; }
+
+  /* ── Content area ── */
+  .app-content {
+    grid-area: content;
+    padding-bottom: 32px;
+  }
+
+  /* ── View padding & layout ── */
+  .home-view    { padding: 0 28px 24px; }
+  .people-view  { padding: 0 28px 24px; }
+  .entry-detail { padding: 0 28px 24px; max-width: 720px; }
+  .person-profile { padding: 0 28px 24px; }
+  .entry-view   { max-width: 660px; margin: 0 auto; padding: 0 8px; }
+
+  /* Page headers larger */
+  .page-header h1 { font-size: 1.6rem; }
+
+  /* ── People: 2-column card grid ── */
+  .people-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .person-card  { padding: 16px 18px; }
+  .person-avatar { width: 50px; height: 50px; font-size: 1.1rem; }
+
+  /* ── Home: 2-column entry grid ── */
+  .entry-cards-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .entry-cards-grid .entry-preview-card { margin-bottom: 0; }
+
+  /* ── Other views ── */
+  .insights-view  { padding: 0 28px 24px; }
+  .calendar-view  { padding: 0 28px 24px; }
+  .settings-view  { padding: 0 28px 24px; }
+}
+
+/* ── Large desktop (≥ 1024px) — even more breathing room ── */
+@media (min-width: 1024px) {
+  #app-shell { max-width: 1200px; }
+  .bottom-nav { width: 240px; padding: 20px 14px 28px; }
+  #app-shell { grid-template-columns: 240px 1fr; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* Hide the new-entry label text on mobile */
+.nav-new-label { display: none; }
