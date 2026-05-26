@@ -43,6 +43,9 @@ router.get('/mood-trends', async (req, res) => {
 });
 
 // GET /api/insights/correlations
+// Excludes AI-inferred moods (mood_source = 'ai_detected') from correlations.
+// Reason: correlations imply causation. Building those on AI guesses
+// (which sometimes misread tone) creates false patterns. Confirmed moods only.
 router.get('/correlations', async (req, res) => {
   try {
     const result = await db.query(`
@@ -56,15 +59,19 @@ router.get('/correlations', async (req, res) => {
       FROM entries e,
         jsonb_array_elements_text(e.life_areas) la(area)
       WHERE e.mood_overall IS NOT NULL
+        AND (e.mood_source IS NULL OR e.mood_source != 'ai_detected')
         AND jsonb_array_length(e.life_areas) > 0
       GROUP BY la.area
       HAVING COUNT(*) >= 3
       ORDER BY avg_mood DESC NULLS LAST
     `);
 
-    // Overall average to compare against
+    // Overall average uses same filter so the delta is apples-to-apples
     const overall = await db.query(`
-      SELECT ROUND(AVG(mood_overall), 1) as global_avg FROM entries WHERE mood_overall IS NOT NULL
+      SELECT ROUND(AVG(mood_overall), 1) as global_avg
+      FROM entries
+      WHERE mood_overall IS NOT NULL
+        AND (mood_source IS NULL OR mood_source != 'ai_detected')
     `);
     const globalAvg = parseFloat(overall.rows[0]?.global_avg) || 5;
 
@@ -180,6 +187,7 @@ router.get('/day-patterns', async (req, res) => {
         COUNT(*)::int                       as entry_count
       FROM entries
       WHERE mood_overall IS NOT NULL
+        AND (mood_source IS NULL OR mood_source != 'ai_detected')
       GROUP BY EXTRACT(DOW FROM date), TO_CHAR(date, 'Day')
       ORDER BY day_of_week ASC
     `);

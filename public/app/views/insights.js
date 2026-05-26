@@ -200,6 +200,7 @@ export class InsightsView {
     return `
       <div class="chart-card">
         <h3>🔗 Life Area Correlations</h3>
+        <p class="text-xs text-faint mb-8">Based on entries where you confirmed the mood yourself.</p>
         ${top.map(c => {
           const delta = c.delta;
           const sign = delta > 0 ? '+' : '';

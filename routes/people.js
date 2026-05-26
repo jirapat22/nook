@@ -201,15 +201,49 @@ router.post('/:id/merge', async (req, res) => {
 // POST /api/people/link-mention — link an AI-detected person mention to an entry
 router.post('/link-mention', async (req, res) => {
   try {
-    const { person_id, entry_id, context, sentiment_score, facts_extracted = [], emotion_toward } = req.body;
+    const { person_id, entry_id, context, sentiment_score, facts_extracted = [], emotion_toward, link_method } = req.body;
     const result = await db.query(`
-      INSERT INTO person_mentions (person_id, entry_id, context, sentiment_score, facts_extracted, emotion_toward)
-      VALUES ($1, $2, $3, $4, $5, $6) RETURNING *
-    `, [person_id, entry_id, context, sentiment_score, JSON.stringify(facts_extracted), emotion_toward]);
+      INSERT INTO person_mentions (person_id, entry_id, context, sentiment_score, facts_extracted, emotion_toward, link_method)
+      VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *
+    `, [person_id, entry_id, context, sentiment_score, JSON.stringify(facts_extracted), emotion_toward, link_method || 'exact']);
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('link-mention error:', err);
     res.status(500).json({ error: 'Failed to link mention', code: 'DB_ERROR' });
+  }
+});
+
+// PUT /api/people/mention/:id — change the person a mention is linked to
+// Used by the "wrong person?" undo flow
+router.put('/mention/:id', async (req, res) => {
+  try {
+    const { person_id, link_method } = req.body;
+    if (!person_id) return res.status(400).json({ error: 'person_id required', code: 'VALIDATION_ERROR' });
+
+    const result = await db.query(
+      `UPDATE person_mentions SET person_id = $1, link_method = COALESCE($2, link_method) WHERE id = $3 RETURNING *`,
+      [person_id, link_method, req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Mention not found', code: 'NOT_FOUND' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('PUT /api/people/mention/:id error:', err);
+    res.status(500).json({ error: 'Failed to update mention', code: 'DB_ERROR' });
+  }
+});
+
+// DELETE /api/people/mention/:id — unlink a mention entirely
+router.delete('/mention/:id', async (req, res) => {
+  try {
+    const result = await db.query(
+      `DELETE FROM person_mentions WHERE id = $1 RETURNING id`,
+      [req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Mention not found', code: 'NOT_FOUND' });
+    res.json({ deleted: result.rows[0].id });
+  } catch (err) {
+    console.error('DELETE /api/people/mention/:id error:', err);
+    res.status(500).json({ error: 'Failed to delete mention', code: 'DB_ERROR' });
   }
 });
 

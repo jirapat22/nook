@@ -22,28 +22,47 @@ router.get('/', async (req, res) => {
       conditions.push(`tags @> $${idx++}::jsonb`);
       params.push(JSON.stringify([tag]));
     }
+    // Full-text search using search_vector (GIN-indexed). Falls back to ILIKE
+    // for very short queries or punctuation-heavy queries that tsquery handles poorly.
+    let rankSelect = '';
+    let orderBy = 'date DESC, created_at DESC';
     if (search) {
-      conditions.push(`(
-        cleaned_content ILIKE $${idx} OR
-        raw_transcript  ILIKE $${idx} OR
-        ai_summary      ILIKE $${idx} OR
-        key_themes::text ILIKE $${idx} OR
-        tags::text       ILIKE $${idx}
-      )`);
-      params.push(`%${search}%`);
-      idx++;
+      const trimmed = search.trim();
+      const useFTS = trimmed.length >= 3 && /\w/.test(trimmed);
+      if (useFTS) {
+        conditions.push(`(
+          search_vector @@ plainto_tsquery('english', $${idx})
+          OR cleaned_content ILIKE $${idx + 1}
+          OR ai_summary ILIKE $${idx + 1}
+        )`);
+        rankSelect = `, ts_rank(search_vector, plainto_tsquery('english', $${idx})) as search_rank`;
+        orderBy = 'search_rank DESC NULLS LAST, date DESC, created_at DESC';
+        params.push(trimmed);
+        params.push(`%${trimmed}%`);
+        idx += 2;
+      } else {
+        conditions.push(`(
+          cleaned_content ILIKE $${idx} OR
+          raw_transcript  ILIKE $${idx} OR
+          ai_summary      ILIKE $${idx} OR
+          key_themes::text ILIKE $${idx} OR
+          tags::text       ILIKE $${idx}
+        )`);
+        params.push(`%${trimmed}%`);
+        idx++;
+      }
     }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const query = `
       SELECT
         id, date, time_of_day, created_at, updated_at, is_backdated,
-        ai_summary, key_themes, important_today, action_items,
+        ai_summary, key_themes, important_today, action_items, action_items_state,
         mood_overall, mood_energy, mood_happiness, mood_anxiety,
-        life_areas, tags, entry_mode, has_love_life_content
+        life_areas, tags, entry_mode, has_love_life_content${rankSelect}
       FROM entries
       ${where}
-      ORDER BY date DESC, created_at DESC
+      ORDER BY ${orderBy}
       LIMIT $${idx++} OFFSET $${idx++}
     `;
     params.push(parseInt(limit), parseInt(offset));
@@ -258,6 +277,48 @@ router.put('/:id', async (req, res) => {
   }
 });
 
+// PUT /api/entries/:id/action-item — toggle done state of one action item
+router.put('/:id/action-item', async (req, res) => {
+  try {
+    const { text, done } = req.body;
+    if (!text) return res.status(400).json({ error: 'text is required', code: 'VALIDATION_ERROR' });
+
+    const result = await db.query(
+      `UPDATE entries
+         SET action_items_state = COALESCE(action_items_state, '{}'::jsonb) || jsonb_build_object($1::text, $2::boolean),
+             updated_at = NOW()
+       WHERE id = $3
+       RETURNING action_items_state`,
+      [text, !!done, req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Entry not found', code: 'NOT_FOUND' });
+    res.json({ action_items_state: result.rows[0].action_items_state });
+  } catch (err) {
+    console.error('PUT action-item error:', err);
+    res.status(500).json({ error: 'Failed to update action item', code: 'DB_ERROR' });
+  }
+});
+
+// GET /api/entries/action-items/pending — outstanding action items from recent entries
+router.get('/action-items/pending', async (req, res) => {
+  try {
+    const days = parseInt(req.query.days) || 14;
+    const limit = parseInt(req.query.limit) || 5;
+    const result = await db.query(`
+      SELECT e.id as entry_id, e.date as entry_date, ai.value as text
+      FROM entries e, jsonb_array_elements_text(e.action_items) ai(value)
+      WHERE e.date >= CURRENT_DATE - ($1 || ' days')::interval
+        AND COALESCE((e.action_items_state ->> ai.value)::boolean, false) = false
+      ORDER BY e.date DESC, e.created_at DESC
+      LIMIT $2
+    `, [days, limit]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('GET pending action-items error:', err);
+    res.status(500).json({ error: 'Failed to load pending action items', code: 'DB_ERROR' });
+  }
+});
+
 // DELETE /api/entries/:id
 router.delete('/:id', async (req, res) => {
   try {
@@ -272,6 +333,19 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// Pure string arithmetic on YYYY-MM-DD — no Date object, no timezone interference
+function previousDay(yyyymmdd) {
+  const [y, m, d] = yyyymmdd.split('-').map(Number);
+  // Date.UTC handles month/year rollover correctly. We never read back local
+  // fields, only the UTC parts we just set — so server timezone is irrelevant.
+  const t = Date.UTC(y, m - 1, d - 1);
+  const dt = new Date(t);
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
 // Helper: update streak count in settings
 async function updateStreak(newDate) {
   try {
@@ -281,17 +355,18 @@ async function updateStreak(newDate) {
     const lastDate = lastRow.rows[0]?.value;
     const currentStreak = parseInt(streakRow.rows[0]?.value) || 0;
 
-    const today = new Date(newDate);
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    const yesterdayStr = previousDay(newDate);
 
     let newStreak = currentStreak;
     if (!lastDate || lastDate === 'null') {
       newStreak = 1;
     } else if (lastDate === `"${yesterdayStr}"` || lastDate === yesterdayStr) {
       newStreak = currentStreak + 1;
-    } else if (lastDate !== `"${newDate}"` && lastDate !== newDate) {
+    } else if (lastDate === `"${newDate}"` || lastDate === newDate) {
+      // Same day — don't change streak (multiple entries one day still counts as 1 day)
+      newStreak = currentStreak;
+    } else {
+      // Gap — streak broken
       newStreak = 1;
     }
 

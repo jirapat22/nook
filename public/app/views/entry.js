@@ -478,6 +478,7 @@ export class EntryView {
       const newPeople = [];
       const ambiguous = [];
       const fuzzy     = [];
+      const autoLinked = []; // { person, chosen, candidates } for post-save undo toast
 
       for (const person of mentioned) {
         const nameLC = person.name.toLowerCase();
@@ -494,12 +495,28 @@ export class EntryView {
             person_id: exactMatches[0].id, entry_id: entryId,
             context: person.context, sentiment_score: person.sentiment,
             facts_extracted: person.facts_extracted || [], emotion_toward: person.emotion_toward,
+            link_method: 'exact',
           }).catch(() => {});
         } else if (exactMatches.length > 1) {
-          // Same name → ask which one
-          ambiguous.push({ person, matches: exactMatches });
+          // Same name — try context scoring before falling back to a modal
+          const scored = exactMatches.map(p => ({ p, s: scoreCandidate(p, person, this.rawContent || '') }))
+            .sort((a, b) => b.s - a.s);
+          const top = scored[0], runnerUp = scored[1];
+          // Decisive: top is 2× runner-up AND scored at least 10
+          const decisive = top.s >= 10 && top.s >= runnerUp.s * 2;
+          if (decisive) {
+            const link = await api.post('/api/people/link-mention', {
+              person_id: top.p.id, entry_id: entryId,
+              context: person.context, sentiment_score: person.sentiment,
+              facts_extracted: person.facts_extracted || [], emotion_toward: person.emotion_toward,
+              link_method: 'auto_scored',
+            }).catch(() => null);
+            if (link) autoLinked.push({ mention: person, chosen: top.p, candidates: exactMatches, mentionId: link.id });
+          } else {
+            ambiguous.push({ person, matches: exactMatches });
+          }
         } else {
-          // 2. Fuzzy match — catch nicknames like "Raph" → "Rafaella"
+          // 2. Fuzzy match — catch nicknames like "Raph" → "Rafaella", "Mike" → "Michael"
           const fuzzyMatches = existing.filter(p => {
             const allNames = [p.name, ...(Array.isArray(p.aliases) ? p.aliases : [])].map(n => n.toLowerCase());
             return allNames.some(n => nameSimilar(nameLC, n));
@@ -512,7 +529,7 @@ export class EntryView {
         }
       }
 
-      // Handle exact-same-name ambiguity
+      // Handle exact-same-name ambiguity (when scoring wasn't decisive)
       for (const { person, matches } of ambiguous) {
         await this.showAmbiguousPrompt(person, matches, entryId);
       }
@@ -522,7 +539,80 @@ export class EntryView {
         if (chosen === 'new') newPeople.push(person);
       }
       if (newPeople.length) this.showPeoplePrompt(newPeople, entryId);
+
+      // Show undo toast for auto-scored picks so user can correct mistakes
+      if (autoLinked.length) this.showAutoLinkUndoToast(autoLinked, entryId);
     } catch (err) { console.warn('People linking error:', err); }
+  }
+
+  showAutoLinkUndoToast(autoLinked, entryId) {
+    document.querySelector('.auto-link-toast')?.remove();
+    const toast = document.createElement('div');
+    toast.className = 'auto-link-toast';
+    const lines = autoLinked.map(a =>
+      `<div class="auto-link-line">Linked <strong>${a.mention.name}</strong> as <strong>${a.chosen.name}</strong>${a.chosen.relationship_type ? ` (${a.chosen.relationship_type})` : ''} <button class="auto-link-change" data-idx="${autoLinked.indexOf(a)}">Wrong person?</button></div>`
+    ).join('');
+    toast.innerHTML = `
+      <div class="auto-link-body">
+        ${lines}
+        <button class="auto-link-dismiss" aria-label="Dismiss">×</button>
+      </div>`;
+    document.body.appendChild(toast);
+
+    toast.querySelector('.auto-link-dismiss').addEventListener('click', () => toast.remove());
+    toast.querySelectorAll('.auto-link-change').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const idx = parseInt(btn.dataset.idx);
+        const item = autoLinked[idx];
+        toast.remove();
+        await this.showRepickPersonModal(item.mention, item.candidates, item.mentionId, entryId);
+      });
+    });
+    setTimeout(() => toast.remove(), 15000);
+  }
+
+  // Modal to repick which person a mention is linked to
+  showRepickPersonModal(mention, candidates, mentionId, entryId) {
+    return new Promise(resolve => {
+      document.querySelector('.modal-backdrop')?.remove();
+      const modal = document.createElement('div');
+      modal.className = 'modal-backdrop';
+      modal.innerHTML = `
+        <div class="modal-sheet">
+          <div class="modal-handle"></div>
+          <div class="modal-title">Which ${mention.name}?</div>
+          <p style="font-size:0.875rem;color:var(--color-text-muted);margin-bottom:16px">
+            "${mention.context || mention.name}" — pick the right person.
+          </p>
+          ${candidates.map(m => `
+            <button class="btn btn-secondary" data-id="${m.id}"
+              style="width:100%;margin-bottom:8px;text-align:left;display:flex;justify-content:space-between;align-items:center">
+              <div>
+                <div><strong>${m.name}</strong></div>
+                ${m.relationship_type ? `<div style="font-size:0.75rem;color:var(--color-text-faint)">${m.relationship_type}${m.mention_count ? ` · ${m.mention_count} mentions` : ''}</div>` : ''}
+              </div>
+            </button>`).join('')}
+          <button class="btn btn-ghost btn-sm" id="repick-cancel" style="width:100%;margin-top:4px">Cancel</button>
+        </div>`;
+      document.body.appendChild(modal);
+
+      const cleanup = () => { modal.remove(); resolve(); };
+      modal.querySelector('#repick-cancel').addEventListener('click', cleanup);
+      modal.addEventListener('click', e => { if (e.target === modal) cleanup(); });
+
+      candidates.forEach(m => {
+        modal.querySelector(`[data-id="${m.id}"]`).addEventListener('click', async () => {
+          modal.remove();
+          try {
+            await api.put(`/api/people/mention/${mentionId}`, { person_id: m.id, link_method: 'manual' });
+            showToast(`Updated — now linked to ${m.name}`, 'success');
+          } catch {
+            showToast('Could not update link', 'error');
+          }
+          resolve();
+        });
+      });
+    });
   }
 
   showDidYouMeanPrompt(person, candidates, entryId) {
@@ -559,6 +649,7 @@ export class EntryView {
             person_id: m.id, entry_id: entryId,
             context: person.context, sentiment_score: person.sentiment,
             facts_extracted: person.facts_extracted || [], emotion_toward: person.emotion_toward,
+            link_method: 'fuzzy_confirmed',
           }).catch(() => {});
           resolve('linked');
         });
@@ -580,9 +671,13 @@ export class EntryView {
           </p>
           ${matches.map(m => `
             <button class="btn btn-secondary" data-id="${m.id}"
-              style="width:100%;margin-bottom:8px;text-align:left;display:flex;justify-content:space-between;align-items:center">
-              <strong>${m.name}</strong>
-              ${m.relationship_type ? `<span style="color:var(--color-text-faint);font-size:0.8rem">${m.relationship_type}</span>` : ''}
+              style="width:100%;margin-bottom:8px;text-align:left;padding:12px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                <strong>${m.name}</strong>
+                ${m.relationship_type ? `<span style="color:var(--color-text-faint);font-size:0.75rem">${m.relationship_type}</span>` : ''}
+              </div>
+              ${m.mention_count ? `<div style="font-size:0.7rem;color:var(--color-text-faint)">${m.mention_count} mention${m.mention_count !== 1 ? 's' : ''}${m.last_mentioned ? ' · last ' + new Date(m.last_mentioned).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}</div>` : ''}
+              ${m.notes ? `<div style="font-size:0.7rem;color:var(--color-text-muted);margin-top:2px;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${m.notes}</div>` : ''}
             </button>`).join('')}
           <button class="btn btn-ghost btn-sm" id="ambig-skip" style="width:100%;margin-top:4px">Skip</button>
         </div>`;
@@ -599,6 +694,7 @@ export class EntryView {
             person_id: m.id, entry_id: entryId,
             context: person.context, sentiment_score: person.sentiment,
             facts_extracted: person.facts_extracted || [], emotion_toward: person.emotion_toward,
+            link_method: 'manual',
           }).catch(() => {});
           resolve();
         });
@@ -627,6 +723,7 @@ export class EntryView {
             person_id: created.id, entry_id: entryId,
             context: p.context, sentiment_score: p.sentiment,
             facts_extracted: p.facts_extracted || [], emotion_toward: p.emotion_toward,
+            link_method: 'new_person',
           });
         } catch {}
       }
@@ -664,7 +761,12 @@ export class EntryView {
 
           ${themes.length ? `<div class="mb-12"><div class="ai-section-label">Themes</div><div class="tags-row">${themes.map(t=>`<span class="chip chip-primary">${t}</span>`).join('')}</div></div>` : ''}
           ${tags.length   ? `<div class="mb-12"><div class="ai-section-label">Tags</div><div class="tags-row">${tags.map(t=>`<span class="chip">${t}</span>`).join('')}</div></div>` : ''}
-          ${entry.action_items?.length ? `<div class="mb-12"><div class="ai-section-label">Action items</div><div class="action-items-list">${entry.action_items.map(i=>`<div class="action-item"><input type="checkbox"><span>${i}</span></div>`).join('')}</div></div>` : ''}
+          ${entry.action_items?.length ? `<div class="mb-12"><div class="ai-section-label">Action items</div><div class="action-items-list">${entry.action_items.map(i => {
+            const text = typeof i === 'string' ? i : (i.text || '');
+            const done = typeof i === 'object' && i !== null ? !!i.done : !!(entry.action_items_state && entry.action_items_state[text]);
+            const esc = text.replace(/"/g, '&quot;');
+            return `<label class="action-item${done ? ' done' : ''}"><input type="checkbox" data-text="${esc}" ${done ? 'checked' : ''}><span>${text}</span></label>`;
+          }).join('')}</div></div>` : ''}
 
           <div class="entry-detail-actions" id="entry-actions">
             <button class="btn btn-secondary btn-sm" id="edit-btn">Edit</button>
@@ -673,6 +775,23 @@ export class EntryView {
         </div>`;
 
       container.querySelector('#back-btn').addEventListener('click', () => history.back());
+
+      // Wire up action item checkboxes to persist their state
+      container.querySelectorAll('.action-item input[type="checkbox"]').forEach(cb => {
+        cb.addEventListener('change', async () => {
+          const text = cb.dataset.text;
+          const done = cb.checked;
+          cb.closest('.action-item').classList.toggle('done', done);
+          try {
+            await api.put(`/api/entries/${this.entryId}/action-item`, { text, done });
+          } catch {
+            // Revert UI if save failed
+            cb.checked = !done;
+            cb.closest('.action-item').classList.toggle('done', !done);
+            showToast('Could not save — try again', 'error');
+          }
+        });
+      });
 
       // Load reflection questions asynchronously (non-blocking)
       this.loadReflectionQuestions(container);
@@ -789,10 +908,71 @@ function formatDate(d) {
   return new Date(y, m - 1, day).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
 }
 
-// Returns true if two names are likely the same person (nickname / prefix detection)
-// e.g. "raph" ~ "rafaella", "raf" ~ "rafaella", "ella" ~ "rafaella"
+// Common English nickname ↔ formal-name pairs. Lowercase, bidirectional.
+// Used to bridge "Mike" → "Michael" which prefix/substring matching misses.
+const NICKNAME_GROUPS = [
+  ['michael', 'mike', 'mick', 'mickey'],
+  ['robert', 'bob', 'bobby', 'rob', 'robbie'],
+  ['william', 'bill', 'billy', 'will', 'willie'],
+  ['richard', 'rick', 'ricky', 'dick'],
+  ['elizabeth', 'liz', 'lizzy', 'beth', 'betty', 'eliza', 'ellie', 'libby'],
+  ['henry', 'hank', 'harry'],
+  ['james', 'jim', 'jimmy', 'jamie'],
+  ['john', 'jack', 'johnny'],
+  ['jonathan', 'jon', 'jonny'],
+  ['margaret', 'peggy', 'maggie', 'meg'],
+  ['sarah', 'sally', 'sara'],
+  ['thomas', 'tom', 'tommy'],
+  ['nicholas', 'nick', 'nicky'],
+  ['anthony', 'tony'],
+  ['steven', 'stephen', 'steve', 'stevie'],
+  ['christopher', 'chris', 'christie'],
+  ['christina', 'chris', 'tina', 'christy'],
+  ['alexander', 'alex', 'al', 'xander'],
+  ['alexandra', 'alex', 'sandra', 'sasha'],
+  ['samuel', 'sam', 'sammy'],
+  ['samantha', 'sam', 'sammy'],
+  ['edward', 'ed', 'eddie', 'ted', 'teddy'],
+  ['daniel', 'dan', 'danny'],
+  ['benjamin', 'ben', 'benji'],
+  ['joseph', 'joe', 'joey'],
+  ['matthew', 'matt', 'matty'],
+  ['andrew', 'andy', 'drew'],
+  ['patricia', 'pat', 'patty', 'tricia'],
+  ['rebecca', 'becky', 'becca'],
+  ['katherine', 'kate', 'katie', 'kathy', 'kat'],
+  ['catherine', 'cathy', 'kate', 'katie', 'cat'],
+  ['jennifer', 'jen', 'jenny'],
+  ['stephanie', 'steph', 'stephie'],
+  ['charles', 'charlie', 'chuck'],
+  ['dorothy', 'dot', 'dotty', 'dory'],
+  ['rafaella', 'raf', 'raph', 'ella', 'rafa'],
+  ['gabriella', 'gabby', 'ella', 'gabi'],
+  ['isabella', 'isa', 'bella', 'izzy'],
+];
+
+// Lookup map: nickname → set of canonical/alternative forms
+const NICKNAME_MAP = (() => {
+  const map = new Map();
+  for (const group of NICKNAME_GROUPS) {
+    for (const name of group) {
+      if (!map.has(name)) map.set(name, new Set());
+      group.forEach(n => { if (n !== name) map.get(name).add(n); });
+    }
+  }
+  return map;
+})();
+
+function isNicknameOf(a, b) {
+  const set = NICKNAME_MAP.get(a);
+  return set ? set.has(b) : false;
+}
+
+// Returns true if two names are likely the same person.
+// Handles: exact, prefix/substring, common nicknames (Mike↔Michael), first-3-chars heuristic.
 function nameSimilar(a, b) {
   if (a === b) return false; // exact match handled separately
+  if (isNicknameOf(a, b)) return true; // explicit nickname mapping
   const minLen = 3;
   if (a.length < minLen || b.length < minLen) return false;
   // One is a prefix of the other (min 3 chars)
@@ -802,4 +982,49 @@ function nameSimilar(a, b) {
   // First 3 chars match and lengths are close (within 6 chars)
   if (a.slice(0, 3) === b.slice(0, 3) && Math.abs(a.length - b.length) <= 6) return true;
   return false;
+}
+
+// Score how well a candidate person matches a mention's context.
+// Used to auto-pick when multiple people share the same name.
+// Returns a number — higher is better. The caller compares top vs runner-up.
+function scoreCandidate(person, mention, entryContent) {
+  let score = 0;
+  const ctx = (mention.context || '').toLowerCase();
+  const fullText = (entryContent + ' ' + ctx).toLowerCase();
+
+  // 1. Relationship-type keyword match in context (huge signal)
+  // e.g. "my colleague Mike" + person.relationship_type === 'colleague'
+  const rel = (person.relationship_type || '').toLowerCase();
+  if (rel && rel !== 'unknown') {
+    const relWords = {
+      colleague: ['colleague', 'coworker', 'work', 'office', 'team', 'boss', 'manager'],
+      friend:    ['friend', 'mate', 'buddy', 'pal'],
+      family:    ['mum', 'mom', 'dad', 'sister', 'brother', 'aunt', 'uncle', 'cousin', 'family'],
+      partner:   ['partner', 'boyfriend', 'girlfriend', 'husband', 'wife', 'spouse'],
+      crush:     ['crush', 'date', 'flirt'],
+      mentor:    ['mentor', 'coach', 'teacher', 'advisor'],
+    };
+    const keywords = relWords[rel] || [rel];
+    if (keywords.some(k => fullText.includes(k))) score += 30;
+  }
+
+  // 2. Fact overlap — if a known fact about this person appears in the entry
+  const facts = Array.isArray(person.all_facts) ? person.all_facts : [];
+  for (const fact of facts) {
+    const factWords = fact.toLowerCase().split(/\s+/).filter(w => w.length > 4);
+    if (factWords.some(w => fullText.includes(w))) score += 8;
+  }
+
+  // 3. Recency — last_mentioned within 30 days gets a small boost
+  if (person.last_mentioned) {
+    const daysAgo = (Date.now() - new Date(person.last_mentioned).getTime()) / 86400000;
+    if (daysAgo < 7)       score += 6;
+    else if (daysAgo < 30) score += 3;
+  }
+
+  // 4. Frequency — people you mention more often slightly more likely
+  const mentions = parseInt(person.mention_count) || 0;
+  score += Math.min(5, Math.log2(mentions + 1));
+
+  return Math.round(score * 10) / 10;
 }

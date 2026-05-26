@@ -136,6 +136,53 @@ router.post('/analyze', async (req, res) => {
       }
     } catch { /* non-fatal — analysis still works */ }
 
+    // Fetch existing themes and tags so AI reuses them instead of creating duplicates.
+    // Without this, "work stress" and "stress at work" become separate tags forever.
+    let existingTagsContext = '';
+    try {
+      const tagsResult = await db.query(`
+        SELECT 'theme' as kind, t.value, COUNT(*)::int as cnt
+        FROM entries e, jsonb_array_elements_text(e.key_themes) t(value)
+        WHERE e.date >= CURRENT_DATE - INTERVAL '90 days'
+        GROUP BY t.value
+        UNION ALL
+        SELECT 'tag' as kind, t.value, COUNT(*)::int as cnt
+        FROM entries e, jsonb_array_elements_text(e.tags) t(value)
+        WHERE e.date >= CURRENT_DATE - INTERVAL '90 days'
+        GROUP BY t.value
+        ORDER BY cnt DESC LIMIT 40
+      `);
+      if (tagsResult.rows.length) {
+        const themes = tagsResult.rows.filter(r => r.kind === 'theme').map(r => r.value);
+        const tags   = tagsResult.rows.filter(r => r.kind === 'tag').map(r => r.value);
+        const blocks = [];
+        if (themes.length) blocks.push(`Existing themes: ${themes.join(', ')}`);
+        if (tags.length)   blocks.push(`Existing tags: ${tags.join(', ')}`);
+        existingTagsContext = `\n\n${blocks.join('\n')}\nIMPORTANT: If a theme or tag in the entry matches or is similar to one above (e.g. "work-stress" vs "work stress" vs "stress at work"), REUSE the exact existing wording. Only invent new themes/tags for genuinely new topics.`;
+      }
+    } catch { /* non-fatal */ }
+
+    // Fetch last 7 days of entries for pattern detection
+    let recentContext = '';
+    try {
+      const recentResult = await db.query(`
+        SELECT date, ai_summary, key_themes, mood_overall
+        FROM entries
+        WHERE date >= CURRENT_DATE - INTERVAL '7 days'
+        ORDER BY date DESC, created_at DESC
+        LIMIT 10
+      `);
+      if (recentResult.rows.length) {
+        const lines = recentResult.rows.map(e => {
+          const d = String(e.date).split('T')[0];
+          const themes = Array.isArray(e.key_themes) && e.key_themes.length ? ` [${e.key_themes.join(', ')}]` : '';
+          const mood = e.mood_overall != null ? ` (mood ${e.mood_overall}/10)` : '';
+          return `${d}: ${e.ai_summary || '(no summary)'}${themes}${mood}`;
+        }).join('\n');
+        recentContext = `\n\nRecent entries (last 7 days, for spotting patterns):\n${lines}\nIf this new entry continues a pattern from above (recurring theme, same mood dip, same person/situation coming up again), set followup_question to gently name the pattern — like a friend who noticed.`;
+      }
+    } catch { /* non-fatal */ }
+
     const systemPrompt = `You are Nook, a warm and insightful personal journal assistant.
 Analyze the user's journal entry and return a JSON object with EXACTLY this structure:
 {
@@ -169,7 +216,7 @@ Analyze the user's journal entry and return a JSON object with EXACTLY this stru
 For mood scores use 0-10 integer or null if genuinely unclear. Life areas should be from: Health & Fitness, Work & Career, Relationships & Social, Personal Growth, Creativity, Finance, Travel & Adventure, Mental Health, Family, Love Life, Hobbies, Home & Lifestyle.
 For people_mentioned, each item: { "name": string, "context": string, "facts_extracted": [], "sentiment": -5 to 5, "emotion_toward": string }
 missing_fields should list important fields that couldn't be determined.
-followup_question should be ONE warm, natural follow-up question (or null if nothing important is missing).${knownPeopleContext}`;
+followup_question should be ONE warm, natural follow-up question (or null if nothing important is missing).${knownPeopleContext}${existingTagsContext}${recentContext}`;
 
     const messages = [
       { role: 'system', content: systemPrompt },

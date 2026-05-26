@@ -65,6 +65,7 @@ export class PeopleView {
         <div class="form-group">
           <label class="form-label">Nicknames &amp; aliases</label>
           <input type="text" class="input" id="person-aliases" value="${(prefill.aliases || []).join(', ')}" placeholder="e.g. Raf, Ella — separate with commas">
+          <div id="nickname-suggestions" style="margin-top:6px"></div>
           <div style="font-size:0.75rem;color:var(--color-text-faint);margin-top:4px">Nook will recognise all of these names in your entries</div>
         </div>
         <div class="form-group">
@@ -109,10 +110,89 @@ export class PeopleView {
       }
     });
 
-    modal.querySelector('#person-name').focus();
+    // Auto-suggest common nicknames as the user types the name
+    const nameInput      = modal.querySelector('#person-name');
+    const aliasesInput   = modal.querySelector('#person-aliases');
+    const suggestionsDiv = modal.querySelector('#nickname-suggestions');
+    const updateSuggestions = () => {
+      const name = nameInput.value.trim().toLowerCase();
+      const currentAliases = aliasesInput.value.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+      const suggestions = getNicknamesFor(name).filter(n => !currentAliases.includes(n));
+      if (!suggestions.length) { suggestionsDiv.innerHTML = ''; return; }
+      suggestionsDiv.innerHTML = `
+        <div style="font-size:0.7rem;color:var(--color-text-muted);margin-bottom:4px">Also known as:</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">
+          ${suggestions.map(n => `<button type="button" class="nickname-suggest" data-name="${n}">+ ${n}</button>`).join('')}
+        </div>`;
+      suggestionsDiv.querySelectorAll('.nickname-suggest').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const current = aliasesInput.value.trim();
+          const prefix  = current && !current.endsWith(',') ? current + ', ' : current;
+          aliasesInput.value = prefix + btn.dataset.name;
+          updateSuggestions();
+        });
+      });
+    };
+    nameInput.addEventListener('input', updateSuggestions);
+    aliasesInput.addEventListener('input', updateSuggestions);
+    updateSuggestions();
+
+    nameInput.focus();
   }
 
   destroy() {}
+}
+
+// Common English nickname ↔ formal-name pairs (lowercase, bidirectional).
+// Kept in sync with entry.js NICKNAME_GROUPS — duplicated rather than imported
+// to avoid an extra HTTP round-trip in this small app.
+const NICKNAME_GROUPS = [
+  ['michael', 'mike', 'mick', 'mickey'],
+  ['robert', 'bob', 'bobby', 'rob', 'robbie'],
+  ['william', 'bill', 'billy', 'will', 'willie'],
+  ['richard', 'rick', 'ricky', 'dick'],
+  ['elizabeth', 'liz', 'lizzy', 'beth', 'betty', 'eliza', 'ellie', 'libby'],
+  ['henry', 'hank', 'harry'],
+  ['james', 'jim', 'jimmy', 'jamie'],
+  ['john', 'jack', 'johnny'],
+  ['jonathan', 'jon', 'jonny'],
+  ['margaret', 'peggy', 'maggie', 'meg'],
+  ['sarah', 'sally', 'sara'],
+  ['thomas', 'tom', 'tommy'],
+  ['nicholas', 'nick', 'nicky'],
+  ['anthony', 'tony'],
+  ['steven', 'stephen', 'steve', 'stevie'],
+  ['christopher', 'chris', 'christie'],
+  ['christina', 'chris', 'tina', 'christy'],
+  ['alexander', 'alex', 'al', 'xander'],
+  ['alexandra', 'alex', 'sandra', 'sasha'],
+  ['samuel', 'sam', 'sammy'],
+  ['samantha', 'sam', 'sammy'],
+  ['edward', 'ed', 'eddie', 'ted', 'teddy'],
+  ['daniel', 'dan', 'danny'],
+  ['benjamin', 'ben', 'benji'],
+  ['joseph', 'joe', 'joey'],
+  ['matthew', 'matt', 'matty'],
+  ['andrew', 'andy', 'drew'],
+  ['patricia', 'pat', 'patty', 'tricia'],
+  ['rebecca', 'becky', 'becca'],
+  ['katherine', 'kate', 'katie', 'kathy', 'kat'],
+  ['catherine', 'cathy', 'kate', 'katie', 'cat'],
+  ['jennifer', 'jen', 'jenny'],
+  ['stephanie', 'steph', 'stephie'],
+  ['charles', 'charlie', 'chuck'],
+  ['dorothy', 'dot', 'dotty', 'dory'],
+  ['rafaella', 'raf', 'raph', 'ella', 'rafa'],
+  ['gabriella', 'gabby', 'ella', 'gabi'],
+  ['isabella', 'isa', 'bella', 'izzy'],
+];
+
+function getNicknamesFor(name) {
+  if (!name || name.length < 3) return [];
+  // Only suggest from the FIRST word (handles "Mike Smith" → still suggests Michael)
+  const firstWord = name.split(/\s+/)[0].toLowerCase();
+  const group = NICKNAME_GROUPS.find(g => g.includes(firstWord));
+  return group ? group.filter(n => n !== firstWord) : [];
 }
 
 export class PersonView {

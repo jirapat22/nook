@@ -16,12 +16,25 @@ export class SettingsView {
       ? settings.groq_api_key : '';
     const reminderEnabled = settings.reminder_enabled === 'true' || settings.reminder_enabled === true;
     const reminderTime = (settings.reminder_time || '"21:00"').replace(/"/g, '');
+    const userName = typeof settings.user_name === 'string'
+      ? settings.user_name.replace(/^"|"$/g, '')
+      : 'there';
     const notifSupported = 'Notification' in window;
     const notifGranted = notifSupported && Notification.permission === 'granted';
 
     container.innerHTML = `
       <div class="settings-view">
         <div class="page-header"><h1>Settings</h1></div>
+
+        <!-- Profile -->
+        <div class="settings-section-title">Profile</div>
+        <div class="card">
+          <div class="form-label mb-8">What should Nook call you?</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" class="input" id="user-name-input" value="${userName}" placeholder="Your name" maxlength="40" style="flex:1">
+            <button class="btn btn-primary btn-sm" id="save-user-name">Save</button>
+          </div>
+        </div>
 
         <!-- Theme -->
         <div class="settings-section-title">Appearance</div>
@@ -208,6 +221,17 @@ export class SettingsView {
         scheduleReminder({ reminder_enabled: true, reminder_time: reminderTime }).catch(() => {});
       } else {
         showToast('Notifications blocked — check browser settings', 'error');
+      }
+    });
+
+    // Save user name
+    container.querySelector('#save-user-name').addEventListener('click', async () => {
+      const name = container.querySelector('#user-name-input').value.trim() || 'there';
+      try {
+        await api.put('/api/settings/user_name', { value: name });
+        showToast(`Got it — hi ${name} 🌿`, 'success');
+      } catch {
+        showToast('Could not save name', 'error');
       }
     });
 

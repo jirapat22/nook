@@ -4,13 +4,22 @@ export class HomeView {
   constructor() {}
 
   async mount(container) {
-    const [entries, streakData, onThisDay] = await Promise.all([
+    // Compute today FIRST so it's available in all subsequent calls
+    const today = new Date().toISOString().split('T')[0];
+
+    const [entries, streakData, onThisDay, settings, pendingActions] = await Promise.all([
       api.get('/api/entries?limit=10').catch(() => []),
       api.get('/api/insights/streaks').catch(() => ({ current: 0 })),
       api.get(`/api/entries/on-this-day?date=${today}`).catch(() => []),
+      api.get('/api/settings').catch(() => ({})),
+      api.get('/api/entries/action-items/pending?days=14&limit=3').catch(() => []),
     ]);
 
     updateStreakDisplay(streakData.current || 0);
+
+    const userName = typeof settings.user_name === 'string'
+      ? settings.user_name.replace(/^"|"$/g, '')
+      : 'there';
 
     const hour = new Date().getHours();
     const greeting =
@@ -21,14 +30,13 @@ export class HomeView {
 
     // Normalise date — API may return "2026-05-26T00:00:00.000Z" or "2026-05-26"
     const normDate = d => String(d).split('T')[0];
-    const today = new Date().toISOString().split('T')[0];
     const todayEntries  = entries.filter(e => normDate(e.date) === today);
     const recentEntries = entries.filter(e => normDate(e.date) !== today).slice(0, 4);
 
     container.innerHTML = `
       <div class="home-view">
         <div class="greeting-section">
-          <h2>${greeting}, Jirapat ✨</h2>
+          <h2>${greeting}, ${userName} ✨</h2>
           <p class="greeting-sub">${getDateLabel()}</p>
         </div>
 
@@ -62,6 +70,14 @@ export class HomeView {
         </div>
         <div class="entry-cards-grid">${recentEntries.map(e => entryCard(e)).join('')}</div>
         ` : ''}
+
+        ${pendingActions.length ? `
+        <div class="section-header mt-16">
+          <h3>✅ Still on your mind?</h3>
+        </div>
+        <div class="pending-actions-list">
+          ${pendingActions.map(a => pendingActionCard(a)).join('')}
+        </div>` : ''}
 
         ${onThisDay.length ? `
         <div class="section-header mt-16">
@@ -107,6 +123,26 @@ export class HomeView {
       });
     });
 
+    // Pending action items: click checkbox to mark done, click text to open entry
+    container.querySelectorAll('.pending-action').forEach(item => {
+      const cb = item.querySelector('input[type="checkbox"]');
+      cb?.addEventListener('change', async () => {
+        const entryId = item.dataset.entryId;
+        const text = item.dataset.text;
+        item.classList.add('done');
+        try {
+          await api.put(`/api/entries/${entryId}/action-item`, { text, done: true });
+          setTimeout(() => item.remove(), 400);
+        } catch {
+          item.classList.remove('done');
+          cb.checked = false;
+        }
+      });
+      item.querySelector('.pending-action-text')?.addEventListener('click', () => {
+        location.hash = `#new-entry/${item.dataset.entryId}`;
+      });
+    });
+
   }
 
   destroy() {}
@@ -130,6 +166,25 @@ function entryCard(entry) {
       </div>
       <p class="entry-card-summary">${entry.ai_summary || entry.important_today || 'Entry recorded'}</p>
       ${themes.length ? `<div class="entry-card-tags">${themes.map(t => `<span class="entry-card-tag">${t}</span>`).join('')}</div>` : ''}
+    </div>`;
+}
+
+function pendingActionCard(a) {
+  const date = String(a.entry_date).split('T')[0];
+  const [y, m, d] = date.split('-').map(Number);
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+  const yStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth()+1).padStart(2,'0')}-${String(yesterday.getDate()).padStart(2,'0')}`;
+  const label = date === todayStr ? 'Today' : date === yStr ? 'Yesterday' : new Date(y, m - 1, d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  const escText = String(a.text).replace(/"/g, '&quot;');
+  return `
+    <div class="pending-action" data-entry-id="${a.entry_id}" data-text="${escText}">
+      <label class="pending-action-checkbox"><input type="checkbox"></label>
+      <div class="pending-action-text">
+        <div class="pending-action-label">${a.text}</div>
+        <div class="pending-action-date">from ${label}</div>
+      </div>
     </div>`;
 }
 

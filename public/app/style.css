@@ -685,11 +685,46 @@ p  { line-height: 1.65; }
 .action-item {
   display: flex; align-items: flex-start; gap: 8px;
   font-size: 0.9rem;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
 }
+.action-item.done { opacity: 0.5; }
+.action-item.done span { text-decoration: line-through; color: var(--color-text-muted); }
 .action-item input[type="checkbox"] {
   margin-top: 2px; flex-shrink: 0;
   accent-color: var(--color-primary);
   width: 16px; height: 16px;
+  cursor: pointer;
+}
+
+/* "Still on your mind?" cards on home view */
+.pending-actions-list {
+  display: flex; flex-direction: column; gap: 8px;
+  margin-top: 8px;
+}
+.pending-action {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  transition: all 0.3s ease;
+}
+.pending-action.done { opacity: 0; transform: translateX(-12px); }
+.pending-action-checkbox input {
+  margin-top: 2px;
+  accent-color: var(--color-primary);
+  width: 18px; height: 18px;
+  cursor: pointer;
+}
+.pending-action-text { flex: 1; cursor: pointer; }
+.pending-action-label {
+  font-size: 0.9rem; color: var(--color-text);
+  line-height: 1.4;
+}
+.pending-action-date {
+  font-size: 0.7rem; color: var(--color-text-faint);
+  margin-top: 2px;
 }
 .tags-row { display: flex; flex-wrap: wrap; gap: 6px; }
 
@@ -1164,6 +1199,62 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
 }
 .people-prompt p { font-size: 0.9375rem; color: var(--color-text); margin-bottom: 10px; }
 .people-prompt-actions { display: flex; gap: 8px; }
+
+/* Auto-link undo toast — shown after a same-name mention is auto-resolved */
+.auto-link-toast {
+  position: fixed;
+  bottom: calc(var(--nav-height) + 8px);
+  left: 50%; transform: translateX(-50%);
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: 150;
+  width: min(380px, calc(100vw - 24px));
+  animation: slideUp 0.3s ease;
+}
+.auto-link-body { padding: 12px 14px; position: relative; }
+.auto-link-line {
+  font-size: 0.875rem;
+  color: var(--color-text);
+  padding: 6px 0;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  border-bottom: 1px solid var(--color-border-light);
+}
+.auto-link-line:last-child { border-bottom: none; }
+.auto-link-change {
+  background: none; border: none;
+  color: var(--color-primary);
+  font-size: 0.75rem; font-weight: 600;
+  cursor: pointer;
+  padding: 4px 6px; border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+.auto-link-change:hover { background: var(--color-primary-light); }
+.auto-link-dismiss {
+  position: absolute; top: 4px; right: 6px;
+  background: none; border: none;
+  color: var(--color-text-faint); font-size: 1.2rem;
+  cursor: pointer; padding: 2px 8px;
+  line-height: 1;
+}
+
+/* Nickname suggestion chips in Add/Edit person modal */
+.nickname-suggest {
+  background: var(--color-surface-offset);
+  border: 1px solid var(--color-border-light);
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  padding: 3px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.nickname-suggest:hover {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
 
 /* ──────────────────────────────────────────
    SETTINGS VIEW
