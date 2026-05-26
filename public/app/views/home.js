@@ -7,7 +7,7 @@ export class HomeView {
     const [entries, streakData, onThisDay] = await Promise.all([
       api.get('/api/entries?limit=10').catch(() => []),
       api.get('/api/insights/streaks').catch(() => ({ current: 0 })),
-      api.get('/api/entries/on-this-day').catch(() => []),
+      api.get(`/api/entries/on-this-day?date=${today}`).catch(() => []),
     ]);
 
     updateStreakDisplay(streakData.current || 0);

@@ -23,7 +23,13 @@ router.get('/', async (req, res) => {
       params.push(JSON.stringify([tag]));
     }
     if (search) {
-      conditions.push(`(cleaned_content ILIKE $${idx} OR raw_transcript ILIKE $${idx} OR ai_summary ILIKE $${idx})`);
+      conditions.push(`(
+        cleaned_content ILIKE $${idx} OR
+        raw_transcript  ILIKE $${idx} OR
+        ai_summary      ILIKE $${idx} OR
+        key_themes::text ILIKE $${idx} OR
+        tags::text       ILIKE $${idx}
+      )`);
       params.push(`%${search}%`);
       idx++;
     }
@@ -81,9 +87,13 @@ router.get('/calendar/:year/:month', async (req, res) => {
 });
 
 // GET /api/entries/on-this-day — entries from the same calendar day in past years
+// Accepts ?date=YYYY-MM-DD (client's local date) to avoid server UTC vs user timezone mismatch
 router.get('/on-this-day', async (req, res) => {
   try {
-    const today = new Date();
+    const dateStr = (req.query.date && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date))
+      ? req.query.date
+      : new Date().toISOString().split('T')[0];
+    const [year, month, day] = dateStr.split('-').map(Number);
     const result = await db.query(`
       SELECT id, date, time_of_day, ai_summary, important_today,
              mood_overall, key_themes, has_love_life_content
@@ -93,7 +103,7 @@ router.get('/on-this-day', async (req, res) => {
         AND date::date < $3::date
       ORDER BY date DESC
       LIMIT 5
-    `, [today.getMonth() + 1, today.getDate(), today.toISOString().split('T')[0]]);
+    `, [month, day, dateStr]);
     res.json(result.rows);
   } catch (err) {
     console.error('GET /api/entries/on-this-day error:', err);

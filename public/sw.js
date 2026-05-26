@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nook-v10';
+const CACHE_NAME = 'nook-v11';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -15,6 +15,7 @@ const STATIC_ASSETS = [
   '/app/components/aiPanel.js',
   '/app/components/loveLifeSection.js',
   '/app/views/search.js',
+  '/app/views/person.js',
   '/manifest.json',
   '/icons/icon.svg',
 ];
