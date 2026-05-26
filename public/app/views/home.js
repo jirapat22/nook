@@ -30,29 +30,6 @@ export class HomeView {
           <p class="greeting-sub">${getDateLabel()}</p>
         </div>
 
-        <div class="quick-start">
-          <button class="quick-start-btn qs-primary" id="voice-entry-btn">
-            <span class="qs-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:28px;height:28px">
-                <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
-                <path d="M19 10v2a7 7 0 01-14 0v-2"/>
-                <line x1="12" y1="19" x2="12" y2="23"/>
-                <line x1="8" y1="23" x2="16" y2="23"/>
-              </svg>
-            </span>
-            Voice Entry
-          </button>
-          <button class="quick-start-btn" id="text-entry-btn">
-            <span class="qs-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:28px;height:28px">
-                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
-                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
-              </svg>
-            </span>
-            Text Entry
-          </button>
-        </div>
-
         ${streakData.current > 0 ? `
         <div class="streak-widget">
           <div class="streak-widget-info">
@@ -83,6 +60,26 @@ export class HomeView {
         </div>
         <div class="entry-cards-grid">${recentEntries.map(e => entryCard(e)).join('')}</div>
         ` : ''}
+
+        <!-- Sticky quick-action bar: Text left, Voice right -->
+        <div class="home-quick-bar">
+          <button class="home-quick-btn" id="text-entry-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+            <span>Text</span>
+          </button>
+          <button class="home-quick-btn home-quick-voice" id="voice-entry-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
+              <path d="M19 10v2a7 7 0 01-14 0v-2"/>
+              <line x1="12" y1="19" x2="12" y2="23"/>
+              <line x1="8" y1="23" x2="16" y2="23"/>
+            </svg>
+            <span>Voice</span>
+          </button>
+        </div>
       </div>
     `;
 
