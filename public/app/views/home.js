@@ -4,9 +4,10 @@ export class HomeView {
   constructor() {}
 
   async mount(container) {
-    const [entries, streakData] = await Promise.all([
+    const [entries, streakData, onThisDay] = await Promise.all([
       api.get('/api/entries?limit=10').catch(() => []),
       api.get('/api/insights/streaks').catch(() => ({ current: 0 })),
+      api.get('/api/entries/on-this-day').catch(() => []),
     ]);
 
     updateStreakDisplay(streakData.current || 0);
@@ -62,6 +63,14 @@ export class HomeView {
         <div class="entry-cards-grid">${recentEntries.map(e => entryCard(e)).join('')}</div>
         ` : ''}
 
+        ${onThisDay.length ? `
+        <div class="section-header mt-16">
+          <h3>📅 On this day</h3>
+        </div>
+        <div class="on-this-day-list">
+          ${onThisDay.map(e => onThisDayCard(e)).join('')}
+        </div>` : ''}
+
         <!-- Sticky quick-action bar: Text left, Voice right -->
         <div class="home-quick-bar">
           <button class="home-quick-btn" id="text-entry-btn">
@@ -97,6 +106,7 @@ export class HomeView {
         location.hash = `#new-entry/${card.dataset.id}`;
       });
     });
+
   }
 
   destroy() {}
@@ -120,6 +130,23 @@ function entryCard(entry) {
       </div>
       <p class="entry-card-summary">${entry.ai_summary || entry.important_today || 'Entry recorded'}</p>
       ${themes.length ? `<div class="entry-card-tags">${themes.map(t => `<span class="entry-card-tag">${t}</span>`).join('')}</div>` : ''}
+    </div>`;
+}
+
+function onThisDayCard(entry) {
+  const d    = String(entry.date).split('T')[0];
+  const year = new Date(d).getFullYear();
+  const mood = entry.mood_overall;
+  const moodClass = mood == null ? 'none' : mood >= 7 ? 'high' : mood >= 4 ? 'mid' : 'low';
+  const summary = entry.ai_summary || entry.important_today || 'Entry recorded';
+
+  return `
+    <div class="on-this-day-card entry-preview-card" data-id="${entry.id}">
+      <div class="entry-card-header">
+        <span class="entry-card-date on-this-day-year">${year}</span>
+        ${mood != null ? `<span class="entry-card-mood"><span class="mood-dot ${moodClass}"></span>${mood}/10</span>` : ''}
+      </div>
+      <p class="entry-card-summary">${summary}</p>
     </div>`;
 }
 

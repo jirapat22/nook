@@ -80,6 +80,27 @@ router.get('/calendar/:year/:month', async (req, res) => {
   }
 });
 
+// GET /api/entries/on-this-day — entries from the same calendar day in past years
+router.get('/on-this-day', async (req, res) => {
+  try {
+    const today = new Date();
+    const result = await db.query(`
+      SELECT id, date, time_of_day, ai_summary, important_today,
+             mood_overall, key_themes, has_love_life_content
+      FROM entries
+      WHERE EXTRACT(MONTH FROM date) = $1
+        AND EXTRACT(DAY FROM date) = $2
+        AND date::date < $3::date
+      ORDER BY date DESC
+      LIMIT 5
+    `, [today.getMonth() + 1, today.getDate(), today.toISOString().split('T')[0]]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('GET /api/entries/on-this-day error:', err);
+    res.status(500).json({ error: 'Failed to fetch on-this-day entries', code: 'DB_ERROR' });
+  }
+});
+
 // GET /api/entries/:id — single entry with full data
 router.get('/:id', async (req, res) => {
   try {
