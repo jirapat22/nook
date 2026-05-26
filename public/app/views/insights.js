@@ -309,7 +309,8 @@ export class InsightsView {
     try {
       const data = await api.get('/api/entries?limit=365');
       const counts = {};
-      data.forEach(e => { counts[e.date] = (counts[e.date] || 0) + 1; });
+      // Normalize date keys — API returns "2026-05-26T00:00:00.000Z", need "2026-05-26"
+      data.forEach(e => { const key = String(e.date).split('T')[0]; counts[key] = (counts[key] || 0) + 1; });
       const maxCount = Math.max(1, ...Object.values(counts));
 
       // Last 84 days (12 weeks) in a 7-col grid
@@ -381,5 +382,7 @@ function statBox(label, value, icon) {
 }
 
 function formatShortDate(dateStr) {
-  return new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  // Use local date constructor to avoid UTC off-by-one in UTC+7
+  const [y, m, d] = String(dateStr).split('T')[0].split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }

@@ -232,5 +232,7 @@ export class CalendarView {
 }
 
 function formatDate(dateStr) {
-  return new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  // Use local date constructor to avoid UTC off-by-one in UTC+7
+  const [y, m, d] = String(dateStr).split('T')[0].split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }

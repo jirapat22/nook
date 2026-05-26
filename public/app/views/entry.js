@@ -784,7 +784,9 @@ function getTimeOfDay() {
   return 'night';
 }
 function formatDate(d) {
-  return new Date(d).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+  // Use local date constructor to avoid UTC off-by-one in UTC+7
+  const [y, m, day] = String(d).split('T')[0].split('-').map(Number);
+  return new Date(y, m - 1, day).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
 }
 
 // Returns true if two names are likely the same person (nickname / prefix detection)
