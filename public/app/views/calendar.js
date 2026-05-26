@@ -69,7 +69,8 @@ export class CalendarView {
     try {
       const data = await api.get(`/api/entries/calendar/${this.year}/${this.month}`);
       this.calendarData = {};
-      data.forEach(d => { this.calendarData[d.date] = d; });
+      // Normalize date keys — API may return "2026-05-26T00:00:00.000Z" or "2026-05-26"
+      data.forEach(d => { this.calendarData[String(d.date).split('T')[0]] = d; });
     } catch {
       this.calendarData = {};
     }
@@ -82,7 +83,9 @@ export class CalendarView {
     const firstDay = new Date(this.year, this.month - 1, 1).getDay();
     const daysInMonth = new Date(this.year, this.month, 0).getDate();
     const daysInPrevMonth = new Date(this.year, this.month - 1, 0).getDate();
-    const todayStr = new Date().toISOString().split('T')[0];
+    // Use local date (not UTC) — toISOString() can be yesterday in UTC+7 before 7am
+    const _n = new Date();
+    const todayStr = `${_n.getFullYear()}-${String(_n.getMonth()+1).padStart(2,'0')}-${String(_n.getDate()).padStart(2,'0')}`;
 
     let html = '';
 
@@ -104,9 +107,10 @@ export class CalendarView {
       }
 
       html += `
-        <div class="cal-day${isToday ? ' today' : ''}" data-date="${dateStr}">
+        <div class="cal-day${isToday ? ' today' : ''}${data ? ' has-entries' : ''}" data-date="${dateStr}">
           <span class="cal-day-num">${d}</span>
           ${data ? `<span class="cal-day-dot ${dotClass}"></span>` : ''}
+          ${data?.entry_count > 1 ? `<span class="cal-day-count">${data.entry_count}</span>` : ''}
           ${data?.has_love_life ? '<span class="cal-day-love">💕</span>' : ''}
         </div>`;
     }
@@ -136,7 +140,9 @@ export class CalendarView {
 
     try {
       const entries = await api.get(`/api/entries?date=${date}`);
-      const formatted = new Date(date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+      // Parse as local date (not UTC) to avoid off-by-one-day in UTC+7
+      const [dy, dm, dd] = date.split('-').map(Number);
+      const formatted = new Date(dy, dm - 1, dd).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
 
       if (!entries.length) {
         panel.innerHTML = `
