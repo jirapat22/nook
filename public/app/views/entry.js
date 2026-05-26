@@ -467,40 +467,95 @@ export class EntryView {
   async linkPeopleMentions(entryId, mentioned) {
     try {
       const existing = await api.get('/api/people');
-      const newPeople   = [];
-      const ambiguous   = [];
+      const newPeople = [];
+      const ambiguous = [];
+      const fuzzy     = [];
 
       for (const person of mentioned) {
         const nameLC = person.name.toLowerCase();
 
-        // Match by primary name OR any alias (case-insensitive)
-        const matches = existing.filter(p => {
+        // 1. Exact match — primary name OR any alias
+        const exactMatches = existing.filter(p => {
           if (p.name.toLowerCase() === nameLC) return true;
           const aliases = Array.isArray(p.aliases) ? p.aliases : [];
           return aliases.some(a => a.toLowerCase() === nameLC);
         });
 
-        if (matches.length === 1) {
-          // Clear one-to-one match
+        if (exactMatches.length === 1) {
           await api.post('/api/people/link-mention', {
-            person_id: matches[0].id, entry_id: entryId,
+            person_id: exactMatches[0].id, entry_id: entryId,
             context: person.context, sentiment_score: person.sentiment,
             facts_extracted: person.facts_extracted || [], emotion_toward: person.emotion_toward,
           }).catch(() => {});
-        } else if (matches.length > 1) {
-          // Multiple people share this name — ask the user which one
-          ambiguous.push({ person, matches });
+        } else if (exactMatches.length > 1) {
+          // Same name → ask which one
+          ambiguous.push({ person, matches: exactMatches });
         } else {
-          newPeople.push(person);
+          // 2. Fuzzy match — catch nicknames like "Raph" → "Rafaella"
+          const fuzzyMatches = existing.filter(p => {
+            const allNames = [p.name, ...(Array.isArray(p.aliases) ? p.aliases : [])].map(n => n.toLowerCase());
+            return allNames.some(n => nameSimilar(nameLC, n));
+          });
+          if (fuzzyMatches.length > 0) {
+            fuzzy.push({ person, matches: fuzzyMatches });
+          } else {
+            newPeople.push(person);
+          }
         }
       }
 
-      // Show disambiguation prompts first (one at a time, chained)
+      // Handle exact-same-name ambiguity
       for (const { person, matches } of ambiguous) {
         await this.showAmbiguousPrompt(person, matches, entryId);
       }
+      // Handle fuzzy "Did you mean?" — one at a time
+      for (const { person, matches } of fuzzy) {
+        const chosen = await this.showDidYouMeanPrompt(person, matches, entryId);
+        if (chosen === 'new') newPeople.push(person);
+      }
       if (newPeople.length) this.showPeoplePrompt(newPeople, entryId);
     } catch (err) { console.warn('People linking error:', err); }
+  }
+
+  showDidYouMeanPrompt(person, candidates, entryId) {
+    return new Promise(resolve => {
+      document.querySelector('.modal-backdrop')?.remove();
+      const modal = document.createElement('div');
+      modal.className = 'modal-backdrop';
+      modal.innerHTML = `
+        <div class="modal-sheet">
+          <div class="modal-handle"></div>
+          <div class="modal-title">Did you mean…?</div>
+          <p style="font-size:0.875rem;color:var(--color-text-muted);margin-bottom:16px">
+            You mentioned <strong>${person.name}</strong> — is this one of these people?
+          </p>
+          ${candidates.map(m => `
+            <button class="btn btn-secondary" data-id="${m.id}"
+              style="width:100%;margin-bottom:8px;text-align:left;display:flex;justify-content:space-between;align-items:center">
+              <strong>${m.name}</strong>
+              ${m.relationship_type ? `<span style="color:var(--color-text-faint);font-size:0.8rem">${m.relationship_type}</span>` : ''}
+            </button>`).join('')}
+          <button class="btn btn-ghost btn-sm" id="dym-new" style="width:100%;margin-top:4px">
+            No — "${person.name}" is someone new
+          </button>
+        </div>`;
+      document.body.appendChild(modal);
+
+      modal.querySelector('#dym-new').addEventListener('click', () => { modal.remove(); resolve('new'); });
+      modal.addEventListener('click', e => { if (e.target === modal) { modal.remove(); resolve('skip'); } });
+
+      candidates.forEach(m => {
+        modal.querySelector(`[data-id="${m.id}"]`).addEventListener('click', async () => {
+          modal.remove();
+          await api.post('/api/people/link-mention', {
+            person_id: m.id, entry_id: entryId,
+            context: person.context, sentiment_score: person.sentiment,
+            facts_extracted: person.facts_extracted || [], emotion_toward: person.emotion_toward,
+          }).catch(() => {});
+          resolve('linked');
+        });
+      });
+    });
   }
 
   showAmbiguousPrompt(person, matches, entryId) {
@@ -680,4 +735,19 @@ function getTimeOfDay() {
 }
 function formatDate(d) {
   return new Date(d).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+}
+
+// Returns true if two names are likely the same person (nickname / prefix detection)
+// e.g. "raph" ~ "rafaella", "raf" ~ "rafaella", "ella" ~ "rafaella"
+function nameSimilar(a, b) {
+  if (a === b) return false; // exact match handled separately
+  const minLen = 3;
+  if (a.length < minLen || b.length < minLen) return false;
+  // One is a prefix of the other (min 3 chars)
+  if (b.startsWith(a) || a.startsWith(b)) return true;
+  // One is contained in the other (e.g. "ella" inside "rafaella")
+  if (b.includes(a) || a.includes(b)) return true;
+  // First 3 chars match and lengths are close (within 6 chars)
+  if (a.slice(0, 3) === b.slice(0, 3) && Math.abs(a.length - b.length) <= 6) return true;
+  return false;
 }
