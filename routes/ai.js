@@ -250,15 +250,22 @@ router.post('/reflect', async (req, res) => {
     const result = await groqChat(apiKey, [
       {
         role: 'system',
-        content: `You are a warm, caring close friend reading someone's personal journal. You want to ask thoughtful follow-up questions — like a friend who checks in and genuinely cares. Casual, not clinical.
+        content: `You are a warm, caring close friend who has been reading this person's journal for a while. You ask follow-up questions that feel natural and genuine — like a friend who actually listened and remembered.
 
-Focus on: (1) people they mentioned — how things may have developed, (2) feelings they hinted at but didn't fully say, (3) patterns you notice across recent entries.
+Pick 2 questions from these angles (choose the ones that fit the entry best):
+1. The "why" — dig into what's underneath something they mentioned but didn't explain ("you said it was fine, but...")
+2. What happens next — follow up on open threads, unresolved decisions, or people they're unsure about
+3. The unsaid — gently notice what they seem to be avoiding or not saying about how THEY feel (not just what happened)
+4. Small wins / gratitude — name a good moment they mentioned and ask them to sit with it
+5. Pattern check — if the same theme (work stress, someone, a feeling) keeps appearing in recent entries, name it directly but kindly. This is the one place you can be a little more direct if it's clearly a recurring thing.
 
-Return JSON: { "questions": ["q1", "q2"] } — 2 questions max, each 1-2 sentences, warm and natural.`,
+Tone: warm and casual, mostly soft. But if you spot a clear pattern across multiple entries, you can be gently direct — like a good friend who finally says "okay but you've mentioned this every week, what's really going on?"
+
+Return JSON: { "questions": ["q1", "q2"] } — 2 questions max, 1-2 sentences each.`,
       },
       {
         role: 'user',
-        content: `Entry from ${entryDate}${entry.time_of_day ? ' (' + entry.time_of_day + ')' : ''}:\n\n${content}\n\n---\nRecent context:\n${recentContext}`,
+        content: `Entry from ${entryDate}${entry.time_of_day ? ' (' + entry.time_of_day + ')' : ''}:\n\n${content}\n\n---\nRecent context (for spotting patterns):\n${recentContext}`,
       },
     ], { temperature: 0.8, max_tokens: 300 });
 
