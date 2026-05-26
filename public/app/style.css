@@ -1377,101 +1377,20 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
   body { background: var(--color-bg); }
 }
 
-/* ── Desktop layout (≥ 760px) ── */
+/* ── Desktop layout (≥ 760px) — wider shell, bottom nav stays ── */
 @media (min-width: 760px) {
-  body { align-items: flex-start; justify-content: center; }
+  /* Wider container — no sidebar, nav stays at the bottom */
+  #app-shell { max-width: 900px; }
 
-  /* Shell: 2-column grid */
-  #app-shell {
-    max-width: 1100px;
-    width: 100%;
-    height: 100dvh;
-    overflow: hidden;
-    display: grid;
-    grid-template-columns: 220px 1fr;
-    grid-template-rows: var(--top-bar-height) auto 1fr;
-    grid-template-areas:
-      "topbar  topbar"
-      "offline offline"
-      "sidenav content";
-  }
-
-  .top-bar        { grid-area: topbar; }
-  .offline-banner { grid-area: offline; }
-
-  /* ── Sidebar: use high-specificity selectors to beat base styles ── */
-  #app-shell .bottom-nav {
-    grid-area: sidenav;
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    height: auto;        /* beats height: var(--nav-height) */
-    width: 220px;
-    position: static;   /* beats position: sticky */
-    border-top: none;
-    border-right: 1px solid var(--color-border-light);
-    padding: 14px 10px 24px;
-    gap: 2px;
-    overflow-y: auto;
-    flex-shrink: 0;
-  }
-
-  #app-shell .bottom-nav .nav-item {
-    flex: 0 0 auto;       /* beats flex: 1 — no more height-stretching */
-    flex-direction: row;  /* icon left, label right */
-    justify-content: flex-start;
-    align-items: center;
-    gap: 11px;
-    padding: 10px 13px;
-    border-radius: var(--radius-md);
-    font-size: 0.9rem;
-    font-weight: 500;
-    min-height: 42px;
-    color: var(--color-text-muted);
-  }
-  #app-shell .bottom-nav .nav-item:hover  { background: var(--color-surface-offset); color: var(--color-text); }
-  #app-shell .bottom-nav .nav-item.active { background: var(--color-primary-light);  color: var(--color-primary); }
-  #app-shell .bottom-nav .nav-item svg    { width: 19px; height: 19px; flex-shrink: 0; }
-  #app-shell .bottom-nav .nav-item span   { font-size: 0.9rem; }
-
-  /* New Entry → full-width primary button at top of sidebar */
-  #app-shell .bottom-nav .nav-item--new {
-    flex: 0 0 auto;
-    order: -1;
-    margin-bottom: 10px;
-    padding: 0;
-  }
-  #app-shell .bottom-nav .nav-item--new .nav-new-btn {
-    width: 100%;
-    height: 42px;
-    border-radius: var(--radius-md);
-    background: var(--color-primary);
-    color: white;
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 9px;
-    padding: 0 14px;
-    box-shadow: var(--shadow-sm);
-  }
-  #app-shell .bottom-nav .nav-item--new .nav-new-btn svg { width: 17px; height: 17px; }
-  #app-shell .bottom-nav .nav-item--new:hover .nav-new-btn { background: var(--color-primary-hover); }
-
-  /* ── Content area ── */
-  #app-shell .app-content {
-    grid-area: content;
-    padding-bottom: 32px; /* remove nav-height offset */
-  }
-
-  /* Show "New entry" text — hidden on mobile */
-  .nav-new-label { display: inline; font-size: 0.9rem; font-weight: 600; }
-
-  /* ── View padding ── */
+  /* More breathing room in content views */
   .home-view, .people-view, .insights-view,
   .calendar-view, .settings-view { padding: 0 28px 24px; }
-  .entry-view     { max-width: 660px; margin: 0 auto; padding: 0 12px; }
+  .entry-view     { max-width: 660px; margin: 0 auto; padding: 0 16px; }
   .entry-detail   { padding: 0 28px 24px; }
   .person-profile { padding: 0 28px 24px; }
+
+  /* Nav labels always visible on desktop */
+  .nav-item { font-size: 0.75rem; }
 
   /* ── People: 2-column card grid ── */
   .people-list { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -1485,16 +1404,9 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
 
 /* ── Large desktop (≥ 1024px) ── */
 @media (min-width: 1024px) {
-  #app-shell {
-    max-width: 1200px;
-    grid-template-columns: 240px 1fr;
-  }
-  #app-shell .bottom-nav { width: 240px; padding: 18px 12px 28px; }
+  #app-shell { max-width: 1000px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
-
-/* Mobile: hide the "New entry" sidebar label */
-.nav-new-label { display: none; }
