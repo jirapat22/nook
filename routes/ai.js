@@ -267,7 +267,8 @@ CRITICAL VOICE RULES:
 - NEVER write "The user is feeling..." or "The user mentions..." in these fields. Only ai_summary can be third-person.
 
 For mood scores use 0-10 integer or null if genuinely unclear. Life areas should be from: Health & Fitness, Work & Career, Relationships & Social, Personal Growth, Creativity, Finance, Travel & Adventure, Mental Health, Family, Love Life, Hobbies, Home & Lifestyle.
-For people_mentioned, each item: { "name": string, "context": string, "facts_extracted": [], "sentiment": -5 to 5, "emotion_toward": string }
+For people_mentioned, each item: { "name": string, "context": string, "facts_extracted": [], "sentiment": -5 to 5, "emotion_toward": string, "inferred_relationship": one of: "friend" | "family" | "crush" | "partner" | "colleague" | "mentor" | "acquaintance" | "unknown" }
+  - inferred_relationship: best guess based on how the user talks about them. Words like "my friend", "mum", "boss", "colleague" are strong signals. Use "unknown" only when there's no clue.
 missing_fields should list important fields that couldn't be determined.
 followup_question should be ONE warm, natural follow-up question (or null if nothing important is missing).${knownPeopleContext}${personMemoryContext}${existingTagsContext}${recentContext}`;
 

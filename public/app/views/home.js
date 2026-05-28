@@ -28,10 +28,31 @@ export class HomeView {
       hour < 17 ? 'Good afternoon' :
       hour < 21 ? 'Good evening' : 'Good night';
 
-    // Normalise date — API may return "2026-05-26T00:00:00.000Z" or "2026-05-26"
+    // Group entries by date bucket so multiple-per-day are visually organised
+    // (was: 'Today' section + jumbled 'Recent' grid — hard to scan)
     const normDate = d => String(d).split('T')[0];
-    const todayEntries  = entries.filter(e => normDate(e.date) === today);
-    const recentEntries = entries.filter(e => normDate(e.date) !== today).slice(0, 4);
+    const yesterdayStr = previousDay(today);
+    const sevenDaysAgo = nDaysAgo(today, 7);
+
+    const todayEntries     = entries.filter(e => normDate(e.date) === today);
+    const yesterdayEntries = entries.filter(e => normDate(e.date) === yesterdayStr);
+    const thisWeekEntries  = entries.filter(e => {
+      const d = normDate(e.date);
+      return d !== today && d !== yesterdayStr && d >= sevenDaysAgo;
+    });
+    const earlierEntries   = entries.filter(e => normDate(e.date) < sevenDaysAgo).slice(0, 3);
+
+    // Sort each bucket by created_at DESC (server already returns this order)
+    const renderBucket = (label, items) => items.length ? `
+      <div class="date-bucket">
+        <div class="date-bucket-header">
+          <h3>${label}</h3>
+          <span class="date-bucket-count">${items.length} ${items.length === 1 ? 'entry' : 'entries'}</span>
+        </div>
+        <div class="date-bucket-list">
+          ${items.map(e => entryCard(e)).join('')}
+        </div>
+      </div>` : '';
 
     container.innerHTML = `
       <div class="home-view">
@@ -50,26 +71,17 @@ export class HomeView {
           <div class="streak-widget-icon">🔥</div>
         </div>` : ''}
 
-        <div class="section-header">
-          <h3>Today</h3>
-          <a href="#calendar">See all</a>
-        </div>
-        ${todayEntries.length
-          ? `<div class="entry-cards-grid">${todayEntries.map(e => entryCard(e)).join('')}</div>`
-          : `<div class="empty-state" style="padding:32px 0">
-               <div class="empty-state-icon">🌿</div>
-               <h3>Your nook is quiet today</h3>
-               <p>Ready to add something?</p>
-             </div>`
-        }
+        ${todayEntries.length === 0 && yesterdayEntries.length === 0 ? `
+          <div class="empty-state" style="padding:32px 0">
+            <div class="empty-state-icon">🌿</div>
+            <h3>Your nook is quiet today</h3>
+            <p>Ready to add something?</p>
+          </div>` : ''}
 
-        ${recentEntries.length ? `
-        <div class="section-header mt-16">
-          <h3>Recent</h3>
-          <a href="#calendar">Calendar</a>
-        </div>
-        <div class="entry-cards-grid">${recentEntries.map(e => entryCard(e)).join('')}</div>
-        ` : ''}
+        ${renderBucket('Today', todayEntries)}
+        ${renderBucket('Yesterday', yesterdayEntries)}
+        ${renderBucket('Earlier this week', thisWeekEntries)}
+        ${renderBucket('Earlier', earlierEntries)}
 
         ${pendingActions.length ? `
         <div class="section-header mt-16">
@@ -123,20 +135,21 @@ export class HomeView {
       });
     });
 
-    // Pending action items: click checkbox to mark done, click text to open entry
+    // Pending action items: three buttons (Done / Still going / Not doing)
     container.querySelectorAll('.pending-action').forEach(item => {
-      const cb = item.querySelector('input[type="checkbox"]');
-      cb?.addEventListener('change', async () => {
-        const entryId = item.dataset.entryId;
-        const text = item.dataset.text;
-        item.classList.add('done');
-        try {
-          await api.put(`/api/entries/${entryId}/action-item`, { text, done: true });
-          setTimeout(() => item.remove(), 400);
-        } catch {
-          item.classList.remove('done');
-          cb.checked = false;
-        }
+      item.querySelectorAll('.pending-action-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const state = btn.dataset.state;
+          const entryId = item.dataset.entryId;
+          const text = item.dataset.text;
+          item.classList.add('done'); // reuse fade animation
+          try {
+            await api.put(`/api/entries/${entryId}/action-item`, { text, state });
+            setTimeout(() => item.remove(), 400);
+          } catch {
+            item.classList.remove('done');
+          }
+        });
       });
       item.querySelector('.pending-action-text')?.addEventListener('click', () => {
         location.hash = `#new-entry/${item.dataset.entryId}`;
@@ -152,16 +165,15 @@ function entryCard(entry) {
   const mood = entry.mood_overall;
   const moodClass = mood == null ? 'none' : mood >= 7 ? 'high' : mood >= 4 ? 'mid' : 'low';
   const themes = Array.isArray(entry.key_themes) ? entry.key_themes.slice(0, 3) : [];
-  // Prefer exact clock time over generic "morning/afternoon" if we have created_at
+  // In the date-bucketed view, the date is the bucket header — just show time.
   const clockTime = entry.created_at
     ? new Date(entry.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-    : null;
-  const dateStr = formatEntryDate(entry.date, clockTime || entry.time_of_day);
+    : (entry.time_of_day || '');
 
   return `
     <div class="entry-preview-card" data-id="${entry.id}">
       <div class="entry-card-header">
-        <span class="entry-card-date">${dateStr}</span>
+        <span class="entry-card-date">${clockTime}</span>
         <span class="entry-card-mood">
           <span class="mood-dot ${moodClass}"></span>
           ${mood != null ? mood + '/10' : ''}
@@ -171,6 +183,18 @@ function entryCard(entry) {
       <p class="entry-card-summary">${entry.ai_summary || entry.important_today || 'Entry recorded'}</p>
       ${themes.length ? `<div class="entry-card-tags">${themes.map(t => `<span class="entry-card-tag">${t}</span>`).join('')}</div>` : ''}
     </div>`;
+}
+
+// YYYY-MM-DD arithmetic — server timezone irrelevant
+function previousDay(yyyymmdd) {
+  const [y, m, d] = yyyymmdd.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d - 1));
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,'0')}-${String(dt.getUTCDate()).padStart(2,'0')}`;
+}
+function nDaysAgo(yyyymmdd, n) {
+  const [y, m, d] = yyyymmdd.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d - n));
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,'0')}-${String(dt.getUTCDate()).padStart(2,'0')}`;
 }
 
 function pendingActionCard(a) {
@@ -184,10 +208,14 @@ function pendingActionCard(a) {
   const escText = String(a.text).replace(/"/g, '&quot;');
   return `
     <div class="pending-action" data-entry-id="${a.entry_id}" data-text="${escText}">
-      <label class="pending-action-checkbox"><input type="checkbox"></label>
       <div class="pending-action-text">
         <div class="pending-action-label">${a.text}</div>
         <div class="pending-action-date">from ${label}</div>
+      </div>
+      <div class="pending-action-btns">
+        <button class="pending-action-btn pending-done" data-state="done" title="Done">✓ Done</button>
+        <button class="pending-action-btn pending-snooze" data-state="snoozed" title="Snooze 7 days">📌 Still</button>
+        <button class="pending-action-btn pending-dismiss" data-state="dismissed" title="Not doing">✕ Not now</button>
       </div>
     </div>`;
 }

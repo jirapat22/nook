@@ -107,8 +107,12 @@ ALTER TABLE people ADD COLUMN IF NOT EXISTS aliases JSONB DEFAULT '[]';
 -- Values: 'exact', 'alias', 'fuzzy_confirmed', 'auto_scored', 'manual', 'new_person'
 ALTER TABLE person_mentions ADD COLUMN IF NOT EXISTS link_method VARCHAR(20);
 
--- Action item completion state: { "<item text>": true, ... } stored on the entry
+-- Action item completion state: { "<item text>": 'done' | 'snoozed' | 'dismissed' }
+-- Legacy: 'true' boolean → treated as 'done' for backward compat
 ALTER TABLE entries ADD COLUMN IF NOT EXISTS action_items_state JSONB DEFAULT '{}';
+
+-- When a snoozed item should resurface: { "<item text>": "YYYY-MM-DD" }
+ALTER TABLE entries ADD COLUMN IF NOT EXISTS action_items_snooze_until JSONB DEFAULT '{}';
 
 -- First-person diary summary (e.g. "Today I thought about X, Y, Z").
 -- Distinct from ai_summary (short overview) and cleaned_content (verbatim cleanup).

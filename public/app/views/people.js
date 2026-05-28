@@ -1,7 +1,10 @@
 import { api, showToast } from '../app.js';
 
 export class PeopleView {
-  constructor() {}
+  constructor() {
+    this.activeFilter = 'all';
+    this.people = [];
+  }
 
   async mount(container) {
     this.container = container;
@@ -14,6 +17,7 @@ export class PeopleView {
           </div>
           <button class="btn btn-primary btn-sm" id="add-person-btn">+ Add</button>
         </div>
+        <div class="people-filter-bar" id="people-filter-bar"></div>
         <div id="people-list-container"></div>
       </div>
     `;
@@ -27,8 +31,9 @@ export class PeopleView {
     listContainer.innerHTML = '<div class="loading-spinner"></div>';
 
     try {
-      const people = await api.get('/api/people');
-      if (!people.length) {
+      this.people = await api.get('/api/people');
+      if (!this.people.length) {
+        this.container.querySelector('#people-filter-bar').innerHTML = '';
         listContainer.innerHTML = `
           <div class="empty-state">
             <div class="empty-state-icon">👥</div>
@@ -40,15 +45,54 @@ export class PeopleView {
         return;
       }
 
-      listContainer.innerHTML = `<div class="people-list">${people.map(p => personCard(p)).join('')}</div>`;
-      listContainer.querySelectorAll('.person-card').forEach(card => {
-        card.addEventListener('click', () => {
-          location.hash = `#person/${card.dataset.id}`;
-        });
-      });
+      this.renderFilterBar();
+      this.renderList();
     } catch {
       listContainer.innerHTML = `<div class="empty-state"><div class="empty-state-icon">😕</div><p>Could not load people</p></div>`;
     }
+  }
+
+  renderFilterBar() {
+    // Count people per relationship type and only show chips for groups that exist
+    const counts = { all: this.people.length };
+    for (const p of this.people) {
+      const rel = p.relationship_type || 'unknown';
+      counts[rel] = (counts[rel] || 0) + 1;
+    }
+    const groups = ['all', 'friend', 'family', 'partner', 'crush', 'colleague', 'mentor', 'acquaintance', 'unknown'];
+    const chips = groups.filter(g => counts[g] > 0).map(g => `
+      <button class="people-filter-chip ${this.activeFilter === g ? 'active' : ''}" data-filter="${g}">
+        ${g === 'all' ? 'All' : g[0].toUpperCase() + g.slice(1)}
+        <span class="people-filter-count">${counts[g]}</span>
+      </button>`).join('');
+    const bar = this.container.querySelector('#people-filter-bar');
+    bar.innerHTML = chips;
+    bar.querySelectorAll('.people-filter-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        this.activeFilter = chip.dataset.filter;
+        this.renderFilterBar();
+        this.renderList();
+      });
+    });
+  }
+
+  renderList() {
+    const listContainer = this.container.querySelector('#people-list-container');
+    const filtered = this.activeFilter === 'all'
+      ? this.people
+      : this.people.filter(p => (p.relationship_type || 'unknown') === this.activeFilter);
+
+    if (!filtered.length) {
+      listContainer.innerHTML = `<div class="empty-state" style="padding:24px 0"><p class="text-muted">No people in this category yet.</p></div>`;
+      return;
+    }
+
+    listContainer.innerHTML = `<div class="people-list">${filtered.map(p => personCard(p)).join('')}</div>`;
+    listContainer.querySelectorAll('.person-card').forEach(card => {
+      card.addEventListener('click', () => {
+        location.hash = `#person/${card.dataset.id}`;
+      });
+    });
   }
 
   showAddModal(prefill = {}) {

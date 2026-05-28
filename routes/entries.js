@@ -278,22 +278,50 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// PUT /api/entries/:id/action-item — toggle done state of one action item
+// PUT /api/entries/:id/action-item — set state of one action item
+// Body: { text, state: 'done' | 'snoozed' | 'dismissed' | 'pending', snooze_days?: 7 }
 router.put('/:id/action-item', async (req, res) => {
   try {
-    const { text, done } = req.body;
-    if (!text) return res.status(400).json({ error: 'text is required', code: 'VALIDATION_ERROR' });
+    const { text, state, snooze_days = 7 } = req.body;
+    // Backward compat: accept legacy { done: bool }
+    let finalState = state;
+    if (finalState === undefined && req.body.done !== undefined) {
+      finalState = req.body.done ? 'done' : 'pending';
+    }
+    if (!text || !finalState) return res.status(400).json({ error: 'text and state are required', code: 'VALIDATION_ERROR' });
+    if (!['done', 'snoozed', 'dismissed', 'pending'].includes(finalState)) {
+      return res.status(400).json({ error: 'invalid state', code: 'VALIDATION_ERROR' });
+    }
+
+    // Compute snooze_until if snoozing
+    let snoozeUntilUpdate = null;
+    if (finalState === 'snoozed') {
+      const d = new Date();
+      d.setDate(d.getDate() + Number(snooze_days));
+      snoozeUntilUpdate = d.toISOString().split('T')[0];
+    }
+
+    const params = [text, finalState, req.params.id];
+    let snoozeSql = '';
+    if (snoozeUntilUpdate) {
+      snoozeSql = `, action_items_snooze_until = COALESCE(action_items_snooze_until, '{}'::jsonb) || jsonb_build_object($1::text, $4::text)`;
+      params.push(snoozeUntilUpdate);
+    } else {
+      // Clear any prior snooze date for this item when state is not snoozed
+      snoozeSql = `, action_items_snooze_until = COALESCE(action_items_snooze_until, '{}'::jsonb) - $1::text`;
+    }
 
     const result = await db.query(
       `UPDATE entries
-         SET action_items_state = COALESCE(action_items_state, '{}'::jsonb) || jsonb_build_object($1::text, $2::boolean),
+         SET action_items_state = COALESCE(action_items_state, '{}'::jsonb) || jsonb_build_object($1::text, $2::text)
+             ${snoozeSql},
              updated_at = NOW()
        WHERE id = $3
-       RETURNING action_items_state`,
-      [text, !!done, req.params.id]
+       RETURNING action_items_state, action_items_snooze_until`,
+      params
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Entry not found', code: 'NOT_FOUND' });
-    res.json({ action_items_state: result.rows[0].action_items_state });
+    res.json(result.rows[0]);
   } catch (err) {
     console.error('PUT action-item error:', err);
     res.status(500).json({ error: 'Failed to update action item', code: 'DB_ERROR' });
@@ -338,15 +366,22 @@ function getTimeOfDayServer() {
 }
 
 // GET /api/entries/action-items/pending — outstanding action items from recent entries
+// Excludes items that are: done, dismissed, or snoozed-until-future
+// (Legacy 'true' boolean state is treated as 'done' for backward compat)
 router.get('/action-items/pending', async (req, res) => {
   try {
     const days = parseInt(req.query.days) || 14;
     const limit = parseInt(req.query.limit) || 5;
     const result = await db.query(`
-      SELECT e.id as entry_id, e.date as entry_date, ai.value as text
+      SELECT e.id as entry_id, e.date as entry_date, ai.value as text,
+             (e.action_items_state ->> ai.value) as state
       FROM entries e, jsonb_array_elements_text(e.action_items) ai(value)
       WHERE e.date >= CURRENT_DATE - ($1 || ' days')::interval
-        AND COALESCE((e.action_items_state ->> ai.value)::boolean, false) = false
+        AND COALESCE(e.action_items_state ->> ai.value, '') NOT IN ('done', 'dismissed', 'true')
+        AND (
+          (e.action_items_state ->> ai.value) IS DISTINCT FROM 'snoozed'
+          OR COALESCE((e.action_items_snooze_until ->> ai.value)::date, CURRENT_DATE) <= CURRENT_DATE
+        )
       ORDER BY e.date DESC, e.created_at DESC
       LIMIT $2
     `, [days, limit]);

@@ -16,6 +16,10 @@ export class EntryView {
     this.container = null;
     this.moodOverrides = {};
     this.rawContent = '';
+    // In-flow followups: { question, text } pairs captured during the analyze loop.
+    // Saved as the entry's followups[] array so they remain distinct sub-blocks
+    // instead of being concatenated into raw_transcript (which destroyed structure).
+    this.inflowFollowups = [];
 
     // BUG FIX: 'voice' should activate 'drive' mode, not a separate mode
     if (params[0] === 'voice') this.mode = 'drive';
@@ -452,10 +456,15 @@ export class EntryView {
       const answer = input.value.trim();
       if (!answer) return;
       this.followupRound++;
+      // Track Q&A separately so it ends up in followups[] on save,
+      // not concatenated into raw_transcript (which fragmented the entry)
+      this.inflowFollowups.push({ question, text: answer });
       this.conversationHistory.push({ role: 'assistant', content: question });
       this.conversationHistory.push({ role: 'user', content: answer });
       section.innerHTML = '<div class="loading-spinner"></div>';
-      await this.analyzeContent(this.rawContent + '\n\nFollow-up answer: ' + answer);
+      // Pass combined context to AI for next-round analysis, but don't mutate rawContent
+      const combined = this.rawContent + '\n\n' + this.inflowFollowups.map(f => `Q: ${f.question}\nA: ${f.text}`).join('\n\n');
+      await this.analyzeContent(combined);
     };
 
     section.querySelector('#followup-send').addEventListener('click', send);
@@ -483,6 +492,7 @@ export class EntryView {
     this.analysis = null;
     this.followupRound = 0;
     this.conversationHistory = [];
+    this.inflowFollowups = [];
     ['#followup-section','#ai-panel-section','#love-section','#mood-section'].forEach(sel => {
       const el = this.container.querySelector(sel);
       if (el) el.innerHTML = '';
@@ -551,6 +561,12 @@ export class EntryView {
     try {
       const saved = await api.post('/api/entries', payload);
       this.clearDraft();
+      // Persist any in-flow follow-up Q&As as proper sub-blocks
+      for (const fu of this.inflowFollowups) {
+        try {
+          await api.post(`/api/entries/${saved.id}/followup`, { text: fu.text, question: fu.question });
+        } catch { /* non-fatal — main entry already saved */ }
+      }
       showToast('Entry saved. Your nook remembers. 🌿', 'success');
       if (a.people_mentioned?.length) await this.linkPeopleMentions(saved.id, a.people_mentioned);
       setTimeout(() => { location.hash = '#home'; }, 1200);
@@ -805,21 +821,70 @@ export class EntryView {
     document.body.appendChild(prompt);
     prompt.querySelector('#pp-yes').addEventListener('click', async () => {
       prompt.remove();
+      // Show a single modal per person, prefilled with AI's inferred relationship
+      // so the user just confirms or tweaks (instead of silently creating as 'unknown')
       for (const p of people) {
-        try {
-          const created = await api.post('/api/people', { name: p.name, relationship_type: 'unknown', notes: '' });
-          await api.post('/api/people/link-mention', {
-            person_id: created.id, entry_id: entryId,
-            context: p.context, sentiment_score: p.sentiment,
-            facts_extracted: p.facts_extracted || [], emotion_toward: p.emotion_toward,
-            link_method: 'new_person',
-          });
-        } catch {}
+        await this.showAddPersonConfirm(p, entryId);
       }
-      showToast('People added!', 'success');
     });
     prompt.querySelector('#pp-no').addEventListener('click', () => prompt.remove());
     setTimeout(() => prompt.remove(), 12000);
+  }
+
+  showAddPersonConfirm(person, entryId) {
+    return new Promise(resolve => {
+      const validRels = ['friend','family','crush','partner','colleague','mentor','acquaintance','unknown'];
+      const inferred = validRels.includes(person.inferred_relationship) ? person.inferred_relationship : 'unknown';
+      const modal = document.createElement('div');
+      modal.className = 'modal-backdrop';
+      modal.innerHTML = `
+        <div class="modal-sheet">
+          <div class="modal-handle"></div>
+          <div class="modal-title">Add ${person.name}?</div>
+          ${person.context ? `<p style="font-size:0.85rem;color:var(--color-text-muted);margin-bottom:12px;font-style:italic">"${person.context}"</p>` : ''}
+          <div class="form-group">
+            <label class="form-label">Relationship ${inferred !== 'unknown' ? `<span style="font-size:0.7rem;color:var(--color-primary);font-weight:600">· AI guessed: ${inferred}</span>` : ''}</label>
+            <select class="select input" id="confirm-rel">
+              ${validRels.map(t => `<option value="${t}" ${t === inferred ? 'selected' : ''}>${t[0].toUpperCase() + t.slice(1)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Notes (optional)</label>
+            <textarea class="textarea" id="confirm-notes" placeholder="${person.facts_extracted?.join(', ') || 'Anything you want to remember...'}" style="min-height:60px"></textarea>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost btn-sm" id="confirm-skip">Skip</button>
+            <button class="btn btn-primary" id="confirm-add">Add ${person.name}</button>
+          </div>
+        </div>`;
+      document.body.appendChild(modal);
+
+      const cleanup = () => { modal.remove(); resolve(); };
+      modal.querySelector('#confirm-skip').addEventListener('click', cleanup);
+      modal.addEventListener('click', e => { if (e.target === modal) cleanup(); });
+      modal.querySelector('#confirm-add').addEventListener('click', async () => {
+        const rel = modal.querySelector('#confirm-rel').value;
+        const notes = modal.querySelector('#confirm-notes').value.trim();
+        modal.remove();
+        try {
+          const created = await api.post('/api/people', {
+            name: person.name,
+            relationship_type: rel,
+            notes,
+          });
+          await api.post('/api/people/link-mention', {
+            person_id: created.id, entry_id: entryId,
+            context: person.context, sentiment_score: person.sentiment,
+            facts_extracted: person.facts_extracted || [], emotion_toward: person.emotion_toward,
+            link_method: 'new_person',
+          });
+          showToast(`Added ${person.name} ✓`, 'success');
+        } catch {
+          showToast(`Couldn't add ${person.name}`, 'error');
+        }
+        resolve();
+      });
+    });
   }
 
   // ── Detail view ──────────────────────────────────────────────
@@ -855,6 +920,7 @@ export class EntryView {
           ${entry.ai_summary ? `<div class="card mb-12"><p class="font-display text-muted" style="font-style:italic">${entry.ai_summary}</p></div>` : ''}
 
           <!-- Main first-person diary block -->
+          ${firstPerson || userEdit ? `<div class="ai-section-label">Today, in your words</div>` : ''}
           <div class="entry-content-block" id="entry-content-display">${mainContent}</div>
 
           <!-- Edit mode for main content (hidden by default) -->
@@ -912,7 +978,8 @@ export class EntryView {
 
           ${entry.action_items?.length ? `<div class="mb-12"><div class="ai-section-label">Action items</div><div class="action-items-list">${entry.action_items.map(i => {
             const text = typeof i === 'string' ? i : (i.text || '');
-            const done = typeof i === 'object' && i !== null ? !!i.done : !!(entry.action_items_state && entry.action_items_state[text]);
+            const st = entry.action_items_state && entry.action_items_state[text];
+            const done = st === 'done' || st === true;
             const esc = text.replace(/"/g, '&quot;');
             return `<label class="action-item${done ? ' done' : ''}"><input type="checkbox" data-text="${esc}" ${done ? 'checked' : ''}><span>${text}</span></label>`;
           }).join('')}</div></div>` : ''}
@@ -956,7 +1023,7 @@ export class EntryView {
           const done = cb.checked;
           cb.closest('.action-item').classList.toggle('done', done);
           try {
-            await api.put(`/api/entries/${this.entryId}/action-item`, { text, done });
+            await api.put(`/api/entries/${this.entryId}/action-item`, { text, state: done ? 'done' : 'pending' });
           } catch {
             // Revert UI if save failed
             cb.checked = !done;
