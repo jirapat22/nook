@@ -328,6 +328,91 @@ router.put('/:id/action-item', async (req, res) => {
   }
 });
 
+// GET /api/entries/mood-cleanup/preview — count how many entries would be touched
+// by the cleanup, so the UI can show "this will affect N entries" before commit.
+router.get('/mood-cleanup/preview', async (req, res) => {
+  try {
+    // Same conditions as the cleanup, but counts only
+    const overall = await db.query(`
+      SELECT COUNT(*)::int AS n
+      FROM entries
+      WHERE mood_overall = 5
+        AND (mood_source = 'ai_detected' OR mood_source IS NULL)
+    `);
+    const subDims = await db.query(`
+      SELECT COUNT(*)::int AS n
+      FROM entries
+      WHERE (mood_source = 'ai_detected' OR mood_source IS NULL)
+        AND (
+          (CASE WHEN mood_energy = 5         THEN 1 ELSE 0 END +
+           CASE WHEN mood_happiness = 5      THEN 1 ELSE 0 END +
+           CASE WHEN mood_anxiety = 5        THEN 1 ELSE 0 END +
+           CASE WHEN mood_confidence = 5     THEN 1 ELSE 0 END +
+           CASE WHEN mood_motivation = 5     THEN 1 ELSE 0 END +
+           CASE WHEN mood_social_battery = 5 THEN 1 ELSE 0 END +
+           CASE WHEN mood_physical = 5       THEN 1 ELSE 0 END +
+           CASE WHEN mood_focus = 5          THEN 1 ELSE 0 END) >= 3
+        )
+    `);
+    res.json({
+      overall_5s: overall.rows[0].n,
+      entries_with_3plus_sub_5s: subDims.rows[0].n,
+    });
+  } catch (err) {
+    console.error('mood-cleanup/preview error:', err);
+    res.status(500).json({ error: 'Preview failed', code: 'DB_ERROR' });
+  }
+});
+
+// POST /api/entries/mood-cleanup — apply the same safeguard the analyze endpoint
+// uses on new entries to clean up existing AI-defaulted moods.
+// NEVER touches mood_source = 'user_edited' entries.
+router.post('/mood-cleanup', async (req, res) => {
+  try {
+    // Rule 1: null mood_overall=5 for AI-detected entries (5/10 is the LLM hedge)
+    const r1 = await db.query(`
+      UPDATE entries SET mood_overall = NULL, updated_at = NOW()
+      WHERE mood_overall = 5
+        AND (mood_source = 'ai_detected' OR mood_source IS NULL)
+      RETURNING id
+    `);
+
+    // Rule 2: entries with 3+ sub-dimensions exactly 5 → null all the 5s
+    const r2 = await db.query(`
+      UPDATE entries SET
+        mood_energy         = CASE WHEN mood_energy = 5         THEN NULL ELSE mood_energy         END,
+        mood_happiness      = CASE WHEN mood_happiness = 5      THEN NULL ELSE mood_happiness      END,
+        mood_anxiety        = CASE WHEN mood_anxiety = 5        THEN NULL ELSE mood_anxiety        END,
+        mood_confidence     = CASE WHEN mood_confidence = 5     THEN NULL ELSE mood_confidence     END,
+        mood_motivation     = CASE WHEN mood_motivation = 5     THEN NULL ELSE mood_motivation     END,
+        mood_social_battery = CASE WHEN mood_social_battery = 5 THEN NULL ELSE mood_social_battery END,
+        mood_physical       = CASE WHEN mood_physical = 5       THEN NULL ELSE mood_physical       END,
+        mood_focus          = CASE WHEN mood_focus = 5          THEN NULL ELSE mood_focus          END,
+        updated_at = NOW()
+      WHERE (mood_source = 'ai_detected' OR mood_source IS NULL)
+        AND (
+          (CASE WHEN mood_energy = 5         THEN 1 ELSE 0 END +
+           CASE WHEN mood_happiness = 5      THEN 1 ELSE 0 END +
+           CASE WHEN mood_anxiety = 5        THEN 1 ELSE 0 END +
+           CASE WHEN mood_confidence = 5     THEN 1 ELSE 0 END +
+           CASE WHEN mood_motivation = 5     THEN 1 ELSE 0 END +
+           CASE WHEN mood_social_battery = 5 THEN 1 ELSE 0 END +
+           CASE WHEN mood_physical = 5       THEN 1 ELSE 0 END +
+           CASE WHEN mood_focus = 5          THEN 1 ELSE 0 END) >= 3
+        )
+      RETURNING id
+    `);
+
+    res.json({
+      overall_nulled: r1.rowCount,
+      entries_sub_dims_nulled: r2.rowCount,
+    });
+  } catch (err) {
+    console.error('mood-cleanup error:', err);
+    res.status(500).json({ error: 'Cleanup failed', code: 'DB_ERROR' });
+  }
+});
+
 // POST /api/entries/:id/followup — append a reflection follow-up to an existing entry
 router.post('/:id/followup', async (req, res) => {
   try {

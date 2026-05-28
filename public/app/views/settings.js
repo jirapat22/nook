@@ -106,6 +106,18 @@ export class SettingsView {
           <button class="btn btn-primary btn-sm mt-12" id="save-api-key">Save key</button>
         </div>
 
+        <!-- Mood cleanup -->
+        <div class="settings-section-title">Mood cleanup</div>
+        <div class="card">
+          <p class="text-sm" style="margin-bottom:10px">
+            Some old entries have <strong>5/10</strong> ratings the AI guessed at when it
+            actually didn't know. This clears those (only AI-rated ones — your own
+            confirmed ratings stay).
+          </p>
+          <div id="mood-cleanup-preview" style="font-size:0.8rem;color:var(--color-text-muted);margin-bottom:10px"></div>
+          <button class="btn btn-secondary btn-sm" id="mood-cleanup-btn">Clean up default moods</button>
+        </div>
+
         <!-- Tag / Theme management -->
         <div class="settings-section-title">Manage tags &amp; themes</div>
         <div class="card">
@@ -250,6 +262,39 @@ export class SettingsView {
         showToast('Could not save name', 'error');
       }
     });
+
+    // Mood cleanup — preview + commit
+    const moodPreviewEl = container.querySelector('#mood-cleanup-preview');
+    const moodBtn       = container.querySelector('#mood-cleanup-btn');
+    const loadMoodPreview = async () => {
+      try {
+        const p = await api.get('/api/entries/mood-cleanup/preview');
+        const totalTouched = (p.overall_5s || 0) + (p.entries_with_3plus_sub_5s || 0);
+        if (totalTouched === 0) {
+          moodPreviewEl.textContent = '✓ Nothing to clean up — your mood data looks healthy.';
+          moodBtn.disabled = true;
+        } else {
+          moodPreviewEl.innerHTML = `Will clear <strong>${p.overall_5s}</strong> "overall 5/10" rating${p.overall_5s !== 1 ? 's' : ''} and <strong>${p.entries_with_3plus_sub_5s}</strong> entr${p.entries_with_3plus_sub_5s !== 1 ? 'ies' : 'y'} where the AI picked 5/10 on 3+ dimensions.`;
+          moodBtn.disabled = false;
+        }
+      } catch {
+        moodPreviewEl.textContent = '';
+      }
+    };
+    moodBtn.addEventListener('click', async () => {
+      if (!confirm('Clear AI-guessed mood values from old entries?\n\nYour own confirmed ratings will NOT be touched.')) return;
+      moodBtn.disabled = true;
+      moodBtn.textContent = 'Cleaning…';
+      try {
+        const r = await api.post('/api/entries/mood-cleanup', {});
+        showToast(`Cleaned ${r.overall_nulled} overall + ${r.entries_sub_dims_nulled} entries ✓`, 'success');
+        await loadMoodPreview();
+      } catch {
+        showToast('Cleanup failed', 'error');
+      }
+      moodBtn.textContent = 'Clean up default moods';
+    });
+    loadMoodPreview();
 
     // Tag/theme management
     const tagField   = container.querySelector('#tag-field');
