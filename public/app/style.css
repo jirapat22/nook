@@ -1266,6 +1266,177 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
   line-height: 1;
 }
 
+/* Onboarding (first-run setup) */
+.onboarding-view {
+  min-height: calc(100dvh - var(--top-bar-height) - var(--nav-height));
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.onboarding-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  padding: 28px 24px;
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+.onboarding-progress {
+  display: flex; justify-content: center; gap: 8px;
+  margin-bottom: 24px;
+}
+.onboarding-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--color-border-light);
+  transition: all 0.2s ease;
+}
+.onboarding-dot.active { background: var(--color-primary); width: 24px; border-radius: 4px; }
+.onboarding-dot.done   { background: var(--color-primary); opacity: 0.5; }
+.onboarding-emoji { font-size: 2.5rem; margin-bottom: 8px; }
+.onboarding-view h1 { font-size: 1.4rem; margin: 0 0 10px; color: var(--color-text); }
+.onboarding-sub {
+  font-size: 0.95rem; color: var(--color-text-muted);
+  line-height: 1.5;
+  margin: 0 0 12px;
+}
+.onboarding-sub a { color: var(--color-primary); }
+.onboarding-input {
+  width: 100%;
+  margin-top: 8px;
+  font-size: 1rem;
+}
+.onboarding-toggle-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 0;
+  font-size: 0.95rem;
+  color: var(--color-text);
+  cursor: pointer;
+}
+.onboarding-toggle-row input { width: 18px; height: 18px; accent-color: var(--color-primary); }
+.onboarding-next, .onboarding-skip { display: block; width: 100%; margin-top: 16px; }
+.onboarding-actions {
+  display: flex; gap: 10px;
+  margin-top: 20px;
+}
+.onboarding-actions .btn-ghost { flex-shrink: 0; }
+.onboarding-actions .btn-primary { flex: 1; }
+
+/* Tag/theme management list in Settings */
+.tag-manage-list {
+  display: flex; flex-direction: column;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.tag-manage-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--color-border-light);
+}
+.tag-manage-row:last-child { border-bottom: none; }
+.tag-manage-name {
+  flex: 1;
+  font-size: 0.875rem;
+  color: var(--color-text);
+}
+.tag-manage-count {
+  font-size: 0.72rem;
+  color: var(--color-text-faint);
+  font-variant-numeric: tabular-nums;
+  min-width: 30px;
+  text-align: right;
+}
+.tag-manage-row .btn-ghost {
+  padding: 4px 8px;
+  font-size: 0.75rem;
+}
+
+/* Top-people widget on Insights */
+.top-people-list { display: flex; flex-direction: column; gap: 6px; }
+.top-person-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-offset);
+  text-decoration: none;
+  color: inherit;
+  transition: all 0.15s ease;
+}
+.top-person-row:hover {
+  background: var(--color-primary-light);
+}
+.top-person-avatar {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: white;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 600; font-size: 0.85rem;
+  flex-shrink: 0;
+}
+.top-person-info { flex: 1; min-width: 0; }
+.top-person-name {
+  font-size: 0.9rem; font-weight: 600;
+  color: var(--color-text);
+}
+.top-person-meta {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+}
+.top-person-sentiment {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+/* Small ✏️ button in entry detail meta row for editing mood */
+.meta-edit-btn {
+  background: none;
+  border: 1px solid var(--color-border-light);
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.meta-edit-btn:hover { color: var(--color-primary); border-color: var(--color-primary); }
+
+/* Mood edit modal rows */
+.mood-edit-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-border-light);
+}
+.mood-edit-row:last-of-type { border-bottom: none; }
+.mood-edit-header {
+  display: flex; align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.mood-edit-label {
+  flex: 1;
+  font-size: 0.9rem;
+  color: var(--color-text);
+}
+.mood-edit-val {
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.mood-edit-val.muted { color: var(--color-text-faint); font-weight: 400; }
+.mood-edit-clear {
+  background: none;
+  border: 1px solid var(--color-border-light);
+  color: var(--color-text-faint);
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  cursor: pointer;
+  line-height: 1;
+  font-size: 0.9rem;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.mood-edit-clear:hover { color: var(--color-text); }
+.mood-edit-slider { width: 100%; }
+
 /* Mood slider value when AI didn't infer it (shows — instead of 5) */
 .mood-slider-value.muted { color: var(--color-text-faint); }
 

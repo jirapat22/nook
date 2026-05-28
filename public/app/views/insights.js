@@ -49,13 +49,14 @@ export class InsightsView {
     content.innerHTML = '<div class="loading-spinner"></div>';
 
     try {
-      const [moodTrends, correlations, streaks, topicFreq, dayPatterns, loveLife] = await Promise.all([
+      const [moodTrends, correlations, streaks, topicFreq, dayPatterns, loveLife, topPeople] = await Promise.all([
         api.get(`/api/insights/mood-trends?range=${this.range}`).catch(() => []),
         api.get('/api/insights/correlations').catch(() => []),
         api.get('/api/insights/streaks').catch(() => ({ current: 0, longest: 0, total_days: 0 })),
         api.get(`/api/insights/topic-frequency?range=${this.range}`).catch(() => []),
         api.get('/api/insights/day-patterns').catch(() => []),
         api.get(`/api/insights/love-life-trends?range=${this.range}`).catch(() => []),
+        api.get(`/api/insights/top-people?range=${this.range}`).catch(() => []),
       ]);
 
       content.innerHTML = `
@@ -63,6 +64,7 @@ export class InsightsView {
         ${this.renderWeeklySummarySection()}
         ${this.renderMoodChartSection(moodTrends)}
         ${this.renderCorrelationsSection(correlations)}
+        ${this.renderTopPeopleSection(topPeople)}
         ${this.renderTopicFreqSection(topicFreq)}
         ${this.renderDayPatternsSection(dayPatterns)}
         ${this.renderHeatmapSection()}
@@ -211,6 +213,33 @@ export class InsightsView {
             ${delta != null ? `<div class="insight-delta ${cls}">${sign}${delta} vs your average</div>` : ''}
           </div>`;
         }).join('')}
+      </div>`;
+  }
+
+  // ── Top mentioned people ─────────────────────────────────────
+  renderTopPeopleSection(people) {
+    if (!people.length) return '';
+    return `
+      <div class="chart-card">
+        <h3>👥 People on your mind</h3>
+        <p class="text-xs text-faint mb-8">Who you mentioned most this period — tap to open their profile.</p>
+        <div class="top-people-list">
+          ${people.map(p => {
+            const initials = p.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+            const sent = parseFloat(p.avg_sentiment) || 0;
+            const sentClass = sent > 1 ? 'pos' : sent < -1 ? 'neg' : 'neu';
+            const sentIcon  = sent > 1 ? '😊' : sent < -1 ? '😟' : '😐';
+            return `
+              <a href="#person/${p.id}" class="top-person-row">
+                <div class="top-person-avatar">${initials}</div>
+                <div class="top-person-info">
+                  <div class="top-person-name">${p.name}</div>
+                  <div class="top-person-meta">${p.relationship_type || '—'} · ${p.mention_count} mention${p.mention_count !== 1 ? 's' : ''}</div>
+                </div>
+                <div class="top-person-sentiment ${sentClass}">${sentIcon}</div>
+              </a>`;
+          }).join('')}
+        </div>
       </div>`;
   }
 

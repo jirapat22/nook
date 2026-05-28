@@ -933,6 +933,7 @@ export class EntryView {
             <span>${formatDate(entry.date)}</span>
             ${createdTime ? `<span>· ${createdTime}</span>` : entry.time_of_day ? `<span>· ${entry.time_of_day}</span>` : ''}
             ${entry.mood_overall != null ? `<span class="mood-dot ${moodClass}"></span><span>${entry.mood_overall}/10</span>` : ''}
+            <button class="meta-edit-btn" id="edit-mood-btn" title="Edit mood">${entry.mood_overall != null ? '✏️' : '+ mood'}</button>
             ${entry.is_backdated ? '<span class="backdated-label">Added after the fact</span>' : ''}
           </div>
 
@@ -1015,6 +1016,11 @@ export class EntryView {
       });
       container.querySelector('#entry-next-btn')?.addEventListener('click', () => {
         if (next) location.hash = `#new-entry/${next.id}`;
+      });
+
+      // Edit mood — opens a modal with sliders for each dimension
+      container.querySelector('#edit-mood-btn')?.addEventListener('click', () => {
+        this.showMoodEditModal(entry, container);
       });
 
       // Edit AI fields (themes/tags/life areas)
@@ -1112,6 +1118,100 @@ export class EntryView {
     } catch {
       container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">😕</div><h3>Entry not found</h3><a href="#home" class="btn btn-primary btn-sm mt-12">Go home</a></div>`;
     }
+  }
+
+  // Modal to edit mood values on a saved entry. Marks mood_source as
+  // 'user_edited' so insights know these are confirmed, not AI guesses.
+  showMoodEditModal(entry, parentContainer) {
+    const dims = [
+      { key: 'mood_overall',        label: 'Overall' },
+      { key: 'mood_energy',         label: 'Energy' },
+      { key: 'mood_happiness',      label: 'Happiness' },
+      { key: 'mood_anxiety',        label: 'Anxiety' },
+      { key: 'mood_confidence',     label: 'Confidence' },
+      { key: 'mood_motivation',     label: 'Motivation' },
+      { key: 'mood_social_battery', label: 'Social' },
+      { key: 'mood_physical',       label: 'Physical' },
+      { key: 'mood_focus',          label: 'Focus' },
+    ];
+    const modal = document.createElement('div');
+    modal.className = 'modal-backdrop';
+    modal.innerHTML = `
+      <div class="modal-sheet" style="max-height:85vh;overflow-y:auto">
+        <div class="modal-handle"></div>
+        <div class="modal-title">Edit mood</div>
+        <p style="font-size:0.8rem;color:var(--color-text-muted);margin-bottom:12px">
+          Set a value, or tap × to leave it blank.
+        </p>
+        ${dims.map(d => {
+          const val = entry[d.key];
+          const hasVal = val != null;
+          return `
+            <div class="mood-edit-row" data-dim="${d.key}">
+              <div class="mood-edit-header">
+                <span class="mood-edit-label">${d.label}</span>
+                <span class="mood-edit-val ${hasVal ? '' : 'muted'}" id="mood-edit-val-${d.key}">${hasVal ? val + '/10' : '—'}</span>
+                <button class="mood-edit-clear" data-dim="${d.key}" title="Clear">×</button>
+              </div>
+              <input type="range" class="range-slider mood-edit-slider"
+                min="0" max="10" step="1"
+                value="${hasVal ? val : 5}"
+                data-dim="${d.key}"
+                data-touched="${hasVal ? 'true' : 'false'}">
+            </div>`;
+        }).join('')}
+        <div class="modal-actions" style="margin-top:16px">
+          <button class="btn btn-secondary" id="mood-edit-cancel">Cancel</button>
+          <button class="btn btn-primary" id="mood-edit-save">Save</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+
+    // Slider input updates the displayed value and marks touched
+    modal.querySelectorAll('.mood-edit-slider').forEach(s => {
+      s.addEventListener('input', e => {
+        const v = parseInt(e.target.value);
+        const dim = s.dataset.dim;
+        const valEl = modal.querySelector(`#mood-edit-val-${dim}`);
+        if (valEl) { valEl.textContent = v + '/10'; valEl.classList.remove('muted'); }
+        s.dataset.touched = 'true';
+      });
+    });
+
+    // × clear button restores the muted "—" state
+    modal.querySelectorAll('.mood-edit-clear').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const dim = btn.dataset.dim;
+        const slider = modal.querySelector(`.mood-edit-slider[data-dim="${dim}"]`);
+        const valEl  = modal.querySelector(`#mood-edit-val-${dim}`);
+        slider.value = '5';
+        slider.dataset.touched = 'false';
+        if (valEl) { valEl.textContent = '—'; valEl.classList.add('muted'); }
+      });
+    });
+
+    modal.querySelector('#mood-edit-cancel').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+
+    modal.querySelector('#mood-edit-save').addEventListener('click', async () => {
+      const payload = { mood_source: 'user_edited' };
+      modal.querySelectorAll('.mood-edit-slider').forEach(s => {
+        payload[s.dataset.dim] = s.dataset.touched === 'true' ? parseInt(s.value) : null;
+      });
+      const saveBtn = modal.querySelector('#mood-edit-save');
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+      try {
+        await api.put(`/api/entries/${this.entryId}`, payload);
+        modal.remove();
+        showToast('Mood updated ✓', 'success');
+        await this.mountDetailView(parentContainer);
+      } catch {
+        showToast('Could not save mood', 'error');
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+      }
+    });
   }
 
   // Modal to write a follow-up reflection that appends to the original entry

@@ -11,6 +11,7 @@ import { PersonView }   from './views/person.js';
 import { SettingsView } from './views/settings.js';
 import { SearchView }   from './views/search.js';
 import { DayView }      from './views/day.js';
+import { OnboardingView } from './views/onboarding.js';
 
 // ── Global state ───────────────────────────────────────────
 export const AppState = {
@@ -147,15 +148,40 @@ const routes = {
   'settings': SettingsView,
   'search':   SearchView,
   'day':      DayView,
+  'onboarding': OnboardingView,
 };
 
 let currentView = null;
+
+// Redirects to onboarding on first launch (only once)
+let _onboardingChecked = false;
+async function maybeRedirectToOnboarding() {
+  if (_onboardingChecked) return false;
+  _onboardingChecked = true;
+  try {
+    const s = await api.get('/api/settings');
+    const done = s.onboarding_complete === true || s.onboarding_complete === 'true';
+    if (done) return false;
+    // Treat as fresh install if neither name nor API key configured
+    const name = (typeof s.user_name === 'string' ? s.user_name : '').replace(/^"|"$/g, '');
+    const key  = (typeof s.groq_api_key === 'string' ? s.groq_api_key : '').replace(/^"|"$/g, '');
+    const isFresh = (!name || name === 'there') && (!key || key === 'null');
+    if (isFresh) {
+      location.hash = '#onboarding';
+      return true;
+    }
+  } catch {}
+  return false;
+}
 
 async function handleRoute() {
   const hash = location.hash.slice(1) || 'home';
   const parts = hash.split('/');
   const viewName = parts[0];
   const params = parts.slice(1);
+
+  // First-launch check (only runs once per page load)
+  if (viewName !== 'onboarding' && await maybeRedirectToOnboarding()) return;
 
   const ViewClass = routes[viewName];
   if (!ViewClass) {

@@ -198,6 +198,31 @@ router.get('/day-patterns', async (req, res) => {
   }
 });
 
+// GET /api/insights/top-people?range=30d — most-mentioned people in the period
+router.get('/top-people', async (req, res) => {
+  try {
+    const interval = rangeToInterval(req.query.range || '30d');
+    const result = await db.query(`
+      SELECT
+        p.id, p.name, p.relationship_type,
+        COUNT(pm.id)::int                 AS mention_count,
+        ROUND(AVG(pm.sentiment_score), 1) AS avg_sentiment,
+        MAX(e.date)                       AS last_mentioned_date
+      FROM person_mentions pm
+      JOIN people p   ON p.id = pm.person_id
+      JOIN entries e  ON e.id = pm.entry_id
+      WHERE e.date >= CURRENT_DATE - INTERVAL '${interval}'
+      GROUP BY p.id, p.name, p.relationship_type
+      ORDER BY mention_count DESC, last_mentioned_date DESC
+      LIMIT 8
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('top-people error:', err);
+    res.status(500).json({ error: 'Failed to load top people', code: 'DB_ERROR' });
+  }
+});
+
 // GET /api/insights/love-life-trends
 router.get('/love-life-trends', async (req, res) => {
   try {

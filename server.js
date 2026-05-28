@@ -9,6 +9,7 @@ const entriesRouter = require('./routes/entries');
 const aiRouter = require('./routes/ai');
 const insightsRouter = require('./routes/insights');
 const peopleRouter = require('./routes/people');
+const tagsRouter = require('./routes/tags');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -119,6 +120,7 @@ app.use('/api/entries', entriesRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/insights', insightsRouter);
 app.use('/api/people', peopleRouter);
+app.use('/api/tags', tagsRouter);
 
 // SPA fallback — serve index.html for any unknown route
 app.get('*', (req, res) => {

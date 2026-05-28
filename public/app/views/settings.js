@@ -106,6 +106,22 @@ export class SettingsView {
           <button class="btn btn-primary btn-sm mt-12" id="save-api-key">Save key</button>
         </div>
 
+        <!-- Tag / Theme management -->
+        <div class="settings-section-title">Manage tags &amp; themes</div>
+        <div class="card">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+            <select class="select input" id="tag-field" style="flex:1">
+              <option value="tags">Tags</option>
+              <option value="key_themes">Themes</option>
+              <option value="life_areas">Life areas</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" id="tag-refresh">Refresh</button>
+          </div>
+          <div id="tag-list-container">
+            <p class="text-sm text-muted">Loading…</p>
+          </div>
+        </div>
+
         <!-- Export -->
         <div class="settings-section-title">Data</div>
         <div class="card">
@@ -234,6 +250,52 @@ export class SettingsView {
         showToast('Could not save name', 'error');
       }
     });
+
+    // Tag/theme management
+    const tagField   = container.querySelector('#tag-field');
+    const tagListEl  = container.querySelector('#tag-list-container');
+    const loadTags = async () => {
+      tagListEl.innerHTML = '<p class="text-sm text-muted">Loading…</p>';
+      try {
+        const tags = await api.get(`/api/tags?field=${tagField.value}`);
+        if (!tags.length) {
+          tagListEl.innerHTML = '<p class="text-sm text-faint">No tags yet.</p>';
+          return;
+        }
+        tagListEl.innerHTML = `<div class="tag-manage-list">${tags.map(t => `
+          <div class="tag-manage-row" data-tag="${t.tag.replace(/"/g, '&quot;')}">
+            <span class="tag-manage-name">${t.tag}</span>
+            <span class="tag-manage-count">${t.count}×</span>
+            <button class="btn btn-ghost btn-sm tag-rename-btn">Rename</button>
+            <button class="btn btn-ghost btn-sm tag-delete-btn">×</button>
+          </div>`).join('')}</div>`;
+
+        tagListEl.querySelectorAll('.tag-rename-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const tag = btn.closest('.tag-manage-row').dataset.tag;
+            const next = prompt(`Rename "${tag}" to:`, tag);
+            if (!next || next.trim() === '' || next === tag) return;
+            api.put('/api/tags/rename', { field: tagField.value, from: tag, to: next.trim() })
+              .then(r => { showToast(`Renamed ${r.updated} entries ✓`, 'success'); loadTags(); })
+              .catch(() => showToast('Could not rename', 'error'));
+          });
+        });
+        tagListEl.querySelectorAll('.tag-delete-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const tag = btn.closest('.tag-manage-row').dataset.tag;
+            if (!confirm(`Delete "${tag}" from all entries?`)) return;
+            api.delete(`/api/tags?field=${tagField.value}&tag=${encodeURIComponent(tag)}`)
+              .then(r => { showToast(`Removed from ${r.updated} entries ✓`, 'success'); loadTags(); })
+              .catch(() => showToast('Could not delete', 'error'));
+          });
+        });
+      } catch {
+        tagListEl.innerHTML = '<p class="text-sm text-faint">Could not load.</p>';
+      }
+    };
+    tagField.addEventListener('change', loadTags);
+    container.querySelector('#tag-refresh').addEventListener('click', loadTags);
+    loadTags();
 
     // JSON export
     container.querySelector('#export-json-btn').addEventListener('click', () => {
