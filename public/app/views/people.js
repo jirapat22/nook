@@ -102,6 +102,16 @@ export class PeopleView {
       <div class="modal-sheet">
         <div class="modal-handle"></div>
         <div class="modal-title">Add person</div>
+        <div class="form-group photo-upload-group">
+          <div class="photo-upload-preview" id="photo-preview">
+            <span class="photo-upload-initials">?</span>
+          </div>
+          <div class="photo-upload-actions">
+            <label class="btn btn-secondary btn-sm" for="photo-file-input">📷 Add photo</label>
+            <button type="button" class="btn btn-ghost btn-sm hidden" id="photo-remove">Remove</button>
+            <input type="file" id="photo-file-input" accept="image/*" style="display:none">
+          </div>
+        </div>
         <div class="form-group">
           <label class="form-label">Full name</label>
           <input type="text" class="input" id="person-name" value="${prefill.name || ''}" placeholder="e.g. Rafaella, Mum, Work Alex">
@@ -134,6 +144,35 @@ export class PeopleView {
 
     modal.querySelector('#modal-cancel').addEventListener('click', () => modal.remove());
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    // Photo upload handling
+    let photoDataUrl = prefill.photo_url || null;
+    const preview = modal.querySelector('#photo-preview');
+    const removeBtn = modal.querySelector('#photo-remove');
+    const nameInputForInitials = () => modal.querySelector('#person-name').value;
+    const setPreview = (url) => {
+      if (url) {
+        preview.innerHTML = `<img src="${url}" alt="">`;
+        removeBtn.classList.remove('hidden');
+      } else {
+        const initials = (nameInputForInitials() || '?').split(' ').map(n => n[0] || '').join('').slice(0, 2).toUpperCase();
+        preview.innerHTML = `<span class="photo-upload-initials">${initials || '?'}</span>`;
+        removeBtn.classList.add('hidden');
+      }
+    };
+    setPreview(photoDataUrl);
+    modal.querySelector('#person-name')?.addEventListener('input', () => { if (!photoDataUrl) setPreview(null); });
+    modal.querySelector('#photo-file-input').addEventListener('change', async e => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        photoDataUrl = await resizeImageToDataUrl(file, 240);
+        setPreview(photoDataUrl);
+      } catch {
+        showToast('Could not load image', 'error');
+      }
+    });
+    removeBtn.addEventListener('click', () => { photoDataUrl = null; setPreview(null); });
+
     modal.querySelector('#modal-save').addEventListener('click', async () => {
       const name = modal.querySelector('#person-name').value.trim();
       if (!name) { showToast('Name is required', ''); return; }
@@ -145,6 +184,7 @@ export class PeopleView {
           aliases,
           relationship_type: modal.querySelector('#person-type').value,
           notes: modal.querySelector('#person-notes').value.trim(),
+          photo_url: photoDataUrl,
         });
         modal.remove();
         showToast('Person added!', 'success');
@@ -231,6 +271,32 @@ const NICKNAME_GROUPS = [
   ['isabella', 'isa', 'bella', 'izzy'],
 ];
 
+// Read an image file, downscale to fit in `maxSize` px (longest side), return
+// data URL. Keeps photo storage tiny (~10-30KB JPEG) so we can keep them inline
+// in the database without needing object storage.
+function resizeImageToDataUrl(file, maxSize = 240) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', 0.82));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function getNicknamesFor(name) {
   if (!name || name.length < 3) return [];
   // Only suggest from the FIRST word (handles "Mike Smith" → still suggests Michael)
@@ -269,7 +335,7 @@ export class PersonView {
         <div class="back-btn" id="back-btn">← People</div>
 
         <div class="person-profile-header">
-          <div class="person-profile-avatar">${initials}</div>
+          <div class="person-profile-avatar${person.photo_url ? ' has-photo' : ''}">${person.photo_url ? `<img src="${person.photo_url}" alt="">` : initials}</div>
           <div class="person-profile-title">
             <h2>${person.name}</h2>
             <p>${person.relationship_type ? capitalize(person.relationship_type) : 'Person'} · ${person.mention_count || 0} mention${person.mention_count !== 1 ? 's' : ''}</p>
@@ -407,10 +473,21 @@ export class PersonView {
     const existingAliases = Array.isArray(person.aliases) ? person.aliases : [];
     const modal = document.createElement('div');
     modal.className = 'modal-backdrop';
+    const initials = person.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
     modal.innerHTML = `
       <div class="modal-sheet">
         <div class="modal-handle"></div>
         <div class="modal-title">Edit ${person.name}</div>
+        <div class="form-group photo-upload-group">
+          <div class="photo-upload-preview" id="edit-photo-preview">
+            ${person.photo_url ? `<img src="${person.photo_url}" alt="">` : `<span class="photo-upload-initials">${initials}</span>`}
+          </div>
+          <div class="photo-upload-actions">
+            <label class="btn btn-secondary btn-sm" for="edit-photo-file">📷 ${person.photo_url ? 'Change' : 'Add'} photo</label>
+            <button type="button" class="btn btn-ghost btn-sm ${person.photo_url ? '' : 'hidden'}" id="edit-photo-remove">Remove</button>
+            <input type="file" id="edit-photo-file" accept="image/*" style="display:none">
+          </div>
+        </div>
         <div class="form-group">
           <label class="form-label">Full name</label>
           <input type="text" class="input" id="edit-name" value="${person.name}">
@@ -441,16 +518,49 @@ export class PersonView {
     document.body.appendChild(modal);
     modal.querySelector('#edit-cancel').addEventListener('click', () => modal.remove());
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    // Photo upload in edit modal
+    let photoDataUrl = person.photo_url || null;
+    let photoChanged = false; // only send photo_url if user touched it
+    const preview = modal.querySelector('#edit-photo-preview');
+    const removeBtn = modal.querySelector('#edit-photo-remove');
+    const renderPreview = () => {
+      if (photoDataUrl) {
+        preview.innerHTML = `<img src="${photoDataUrl}" alt="">`;
+        removeBtn.classList.remove('hidden');
+      } else {
+        preview.innerHTML = `<span class="photo-upload-initials">${initials}</span>`;
+        removeBtn.classList.add('hidden');
+      }
+    };
+    modal.querySelector('#edit-photo-file').addEventListener('change', async e => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        photoDataUrl = await resizeImageToDataUrl(file, 240);
+        photoChanged = true;
+        renderPreview();
+      } catch {
+        showToast('Could not load image', 'error');
+      }
+    });
+    removeBtn.addEventListener('click', () => {
+      photoDataUrl = null;
+      photoChanged = true;
+      renderPreview();
+    });
+
     modal.querySelector('#edit-save').addEventListener('click', async () => {
       const aliases = modal.querySelector('#edit-aliases').value
         .split(',').map(s => s.trim()).filter(s => s.length > 0);
+      const payload = {
+        name: modal.querySelector('#edit-name').value.trim(),
+        aliases,
+        relationship_type: modal.querySelector('#edit-type').value,
+        notes: modal.querySelector('#edit-notes').value.trim(),
+      };
+      if (photoChanged) payload.photo_url = photoDataUrl;
       try {
-        await api.put(`/api/people/${this.personId}`, {
-          name: modal.querySelector('#edit-name').value.trim(),
-          aliases,
-          relationship_type: modal.querySelector('#edit-type').value,
-          notes: modal.querySelector('#edit-notes').value.trim(),
-        });
+        await api.put(`/api/people/${this.personId}`, payload);
         modal.remove();
         const updated = await api.get(`/api/people/${this.personId}`);
         this.renderProfile(this.container, updated);
@@ -474,10 +584,11 @@ function personCard(p) {
   const sentiment = parseFloat(p.avg_sentiment) || 0;
   const sentCls = sentiment > 1 ? 'sentiment-positive' : sentiment < -1 ? 'sentiment-negative' : 'sentiment-neutral';
   const sentIcon = sentiment > 1 ? '😊' : sentiment < -1 ? '😟' : '😐';
+  const avatarInner = p.photo_url ? `<img src="${p.photo_url}" alt="">` : initials;
 
   return `
     <div class="person-card" data-id="${p.id}">
-      <div class="person-avatar">${initials}</div>
+      <div class="person-avatar${p.photo_url ? ' has-photo' : ''}">${avatarInner}</div>
       <div class="person-info">
         <div class="person-name">${p.name}</div>
         <div class="person-meta">

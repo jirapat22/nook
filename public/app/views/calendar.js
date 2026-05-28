@@ -42,7 +42,8 @@ export class CalendarView {
     main.innerHTML = `
       <div class="calendar-nav">
         <button class="cal-nav-btn" id="prev-month">‹</button>
-        <h2 id="cal-month-label"></h2>
+        <button class="cal-month-label-btn" id="cal-month-label" type="button" title="Jump to month"></button>
+        <input type="month" id="cal-month-jumper" class="cal-month-jumper" aria-label="Jump to month">
         <button class="cal-nav-btn" id="next-month">›</button>
       </div>
       <div class="calendar-grid">
@@ -58,6 +59,24 @@ export class CalendarView {
 
     main.querySelector('#prev-month').addEventListener('click', () => this.changeMonth(-1));
     main.querySelector('#next-month').addEventListener('click', () => this.changeMonth(1));
+
+    // Year/month jumper — click the month label to open native picker
+    const jumper = main.querySelector('#cal-month-jumper');
+    main.querySelector('#cal-month-label').addEventListener('click', () => {
+      jumper.value = `${this.year}-${String(this.month).padStart(2, '0')}`;
+      // Prefer showPicker() where available; fall back to click+focus
+      try { jumper.showPicker(); }
+      catch { jumper.click(); jumper.focus(); }
+    });
+    jumper.addEventListener('change', () => {
+      const v = jumper.value; // "YYYY-MM"
+      if (!v) return;
+      const [y, m] = v.split('-').map(Number);
+      this.year = y;
+      this.month = m;
+      this.container.querySelector('#day-panel').innerHTML = '';
+      this.loadAndRenderDays();
+    });
 
     await this.loadAndRenderDays();
   }

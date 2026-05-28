@@ -103,6 +103,10 @@ CREATE INDEX IF NOT EXISTS idx_person_mentions_entry ON person_mentions(entry_id
 -- Aliases support (safe to run on existing databases)
 ALTER TABLE people ADD COLUMN IF NOT EXISTS aliases JSONB DEFAULT '[]';
 
+-- Photo as a data URL (resized client-side to ~200x200 jpeg, ~10-30KB).
+-- Avoids needing object storage for a personal app.
+ALTER TABLE people ADD COLUMN IF NOT EXISTS photo_url TEXT;
+
 -- Track HOW a mention got linked, so we know which to offer "wrong person?" undo for
 -- Values: 'exact', 'alias', 'fuzzy_confirmed', 'auto_scored', 'manual', 'new_person'
 ALTER TABLE person_mentions ADD COLUMN IF NOT EXISTS link_method VARCHAR(20);

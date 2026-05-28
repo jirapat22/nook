@@ -204,7 +204,7 @@ router.get('/top-people', async (req, res) => {
     const interval = rangeToInterval(req.query.range || '30d');
     const result = await db.query(`
       SELECT
-        p.id, p.name, p.relationship_type,
+        p.id, p.name, p.relationship_type, p.photo_url,
         COUNT(pm.id)::int                 AS mention_count,
         ROUND(AVG(pm.sentiment_score), 1) AS avg_sentiment,
         MAX(e.date)                       AS last_mentioned_date
@@ -212,7 +212,7 @@ router.get('/top-people', async (req, res) => {
       JOIN people p   ON p.id = pm.person_id
       JOIN entries e  ON e.id = pm.entry_id
       WHERE e.date >= CURRENT_DATE - INTERVAL '${interval}'
-      GROUP BY p.id, p.name, p.relationship_type
+      GROUP BY p.id, p.name, p.relationship_type, p.photo_url
       ORDER BY mention_count DESC, last_mentioned_date DESC
       LIMIT 8
     `);

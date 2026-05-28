@@ -872,6 +872,34 @@ p  { line-height: 1.65; }
   margin-bottom: 16px;
 }
 .calendar-nav h2 { font-size: 1.15rem; }
+
+/* Clickable month label that triggers a native year/month picker */
+.cal-month-label-btn {
+  background: none;
+  border: none;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--color-text);
+  cursor: pointer;
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition);
+}
+.cal-month-label-btn:hover { background: var(--color-surface-offset); }
+.cal-month-label-btn::after {
+  content: ' ▾';
+  font-size: 0.75rem;
+  color: var(--color-text-faint);
+  margin-left: 4px;
+}
+/* Native <input type="month"> hidden visually but reachable for click/showPicker */
+.cal-month-jumper {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 1px;
+  height: 1px;
+}
 .cal-nav-btn {
   width: 36px; height: 36px;
   border-radius: 50%;
@@ -1349,6 +1377,43 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
 .tag-manage-row .btn-ghost {
   padding: 4px 8px;
   font-size: 0.75rem;
+}
+
+/* Person photo upload — used in Add and Edit person modals */
+.photo-upload-group {
+  display: flex; align-items: center; gap: 14px;
+  margin-bottom: 16px;
+}
+.photo-upload-preview {
+  width: 64px; height: 64px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: white;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 600; font-size: 1.2rem;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.photo-upload-preview img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+}
+.photo-upload-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Make avatars with photos display the img full-bleed */
+.person-avatar.has-photo,
+.person-profile-avatar.has-photo,
+.top-person-avatar.has-photo {
+  padding: 0;
+  overflow: hidden;
+  background: var(--color-surface-offset);
+}
+.person-avatar.has-photo img,
+.person-profile-avatar.has-photo img,
+.top-person-avatar.has-photo img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 /* Top-people widget on Insights */

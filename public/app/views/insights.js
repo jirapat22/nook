@@ -231,7 +231,7 @@ export class InsightsView {
             const sentIcon  = sent > 1 ? '😊' : sent < -1 ? '😟' : '😐';
             return `
               <a href="#person/${p.id}" class="top-person-row">
-                <div class="top-person-avatar">${initials}</div>
+                <div class="top-person-avatar${p.photo_url ? ' has-photo' : ''}">${p.photo_url ? `<img src="${p.photo_url}" alt="">` : initials}</div>
                 <div class="top-person-info">
                   <div class="top-person-name">${p.name}</div>
                   <div class="top-person-meta">${p.relationship_type || '—'} · ${p.mention_count} mention${p.mention_count !== 1 ? 's' : ''}</div>
