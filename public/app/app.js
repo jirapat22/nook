@@ -68,14 +68,41 @@ export function showToast(message, type = '') {
 }
 
 // ── TTS helper ──────────────────────────────────────────────
-export function speak(text, rate = null) {
+// Mobile browsers (iOS especially) are picky about speech synthesis:
+//   - Voices may not be loaded yet on first call
+//   - cancel() before speak() sometimes leaves engine in a bad state on iOS
+//   - speak() only works if there was a recent user gesture (see primeTTS())
+// We wait for voices to load (briefly) and avoid the eager cancel.
+let _voicesReady = null;
+function waitForVoices(timeoutMs = 800) {
+  if (_voicesReady) return _voicesReady;
+  _voicesReady = new Promise(resolve => {
+    if (!window.speechSynthesis) return resolve(false);
+    const v = window.speechSynthesis.getVoices();
+    if (v && v.length) return resolve(true);
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(true); } };
+    window.speechSynthesis.addEventListener('voiceschanged', finish, { once: true });
+    setTimeout(finish, timeoutMs); // hard timeout — speak anyway
+  });
+  return _voicesReady;
+}
+
+export async function speak(text, rate = null) {
   if (!AppState.ttsEnabled) return;
-  if (!window.speechSynthesis) return;
-  window.speechSynthesis.cancel();
+  if (!window.speechSynthesis || !text) return;
+  await waitForVoices();
+  // Don't cancel pre-existing utterances on iOS — that can desync the engine.
+  // If something's actively speaking, just queue ours after it.
   const utter = new SpeechSynthesisUtterance(text);
   utter.rate = rate ?? AppState.ttsSpeed ?? 1;
   utter.pitch = 1;
-  window.speechSynthesis.speak(utter);
+  utter.volume = 1;
+  try {
+    window.speechSynthesis.speak(utter);
+  } catch (err) {
+    console.warn('TTS failed:', err.message);
+  }
 }
 
 // ── Theme ───────────────────────────────────────────────────

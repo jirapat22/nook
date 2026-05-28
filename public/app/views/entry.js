@@ -228,6 +228,13 @@ export class EntryView {
     };
 
     micBtn.onclick = () => {
+      // Prime TTS on this user-gesture so later speak() calls work on mobile.
+      // Mobile browsers refuse to speak unless there's been a recent tap —
+      // by the time the AI follow-up comes back (record → transcribe → analyze),
+      // the original tap is too stale. An empty utterance unlocks the queue
+      // for the rest of the session.
+      this.primeTTS();
+
       if (!this.recorder || !this.recorder.isRecording) {
         this.recorder?.destroy();
         this.recorder = this.buildRecorder({ micBtn, stopBtn, hint, waveform, recStatus, transcript });
@@ -242,17 +249,60 @@ export class EntryView {
     // (handled inside buildRecorder via onKeyword)
   }
 
+  primeTTS() {
+    try {
+      if (!window.speechSynthesis) return;
+      // Cancel anything pending then speak a 0-length utterance to unlock TTS
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(' ');
+      u.volume = 0;
+      window.speechSynthesis.speak(u);
+    } catch {}
+  }
+
+  // Wake Lock — keep the screen on during voice recording.
+  // Browser auto-releases on tab hide; visibilitychange handler re-acquires.
+  async requestWakeLock() {
+    if (!('wakeLock' in navigator)) return;
+    try {
+      this._wakeLock = await navigator.wakeLock.request('screen');
+      this._wakeLock.addEventListener('release', () => { this._wakeLock = null; });
+      // Re-acquire if user switches tabs and comes back while still recording
+      if (!this._wakeLockVisHandler) {
+        this._wakeLockVisHandler = () => {
+          if (document.visibilityState === 'visible' && this.recorder?.isRecording) {
+            this.requestWakeLock();
+          }
+        };
+        document.addEventListener('visibilitychange', this._wakeLockVisHandler);
+      }
+    } catch (err) {
+      console.warn('Wake lock failed:', err.message);
+    }
+  }
+
+  releaseWakeLock() {
+    try { this._wakeLock?.release(); } catch {}
+    this._wakeLock = null;
+    if (this._wakeLockVisHandler) {
+      document.removeEventListener('visibilitychange', this._wakeLockVisHandler);
+      this._wakeLockVisHandler = null;
+    }
+  }
+
   buildRecorder({ micBtn, stopBtn, hint, waveform, recStatus, transcript }) {
     return new VoiceRecorder({
       onStart: () => {
         micBtn.classList.add('recording');
         micBtn.setAttribute('aria-label', 'Recording in progress');
-        hint.textContent = 'Listening… say "done" or tap Stop';
+        hint.textContent = 'Listening… say "stop recording" or tap Stop';
         waveform.classList.remove('hidden');
         recStatus.classList.remove('hidden');
         stopBtn.classList.remove('hidden');
         this.startWaveformAnimation(waveform);
         this.startRecordingTimer(recStatus.querySelector('#rec-time'));
+        // Keep the screen on while recording (Drive mode use case)
+        this.requestWakeLock();
       },
 
       onStop: async (audioBlob) => {
@@ -264,6 +314,8 @@ export class EntryView {
         hint.textContent = 'Processing…';
         this.stopWaveformAnimation();
         this.stopRecordingTimer();
+        // Recording done — let the screen sleep again
+        this.releaseWakeLock();
 
         if (!audioBlob || audioBlob.size === 0) {
           hint.textContent = 'No audio captured — tap to try again';
@@ -1299,6 +1351,7 @@ export class EntryView {
     this.recorder?.destroy();
     this.stopWaveformAnimation();
     this.stopRecordingTimer();
+    this.releaseWakeLock();
   }
 }
 
