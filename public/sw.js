@@ -1,4 +1,5 @@
-const CACHE_NAME = 'nook-v17';
+const CACHE_NAME = 'nook-v18';
+const API_CACHE  = 'nook-api-v1'; // separate cache for GET API responses
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -28,11 +29,12 @@ self.addEventListener('install', event => {
   );
 });
 
-// Activate: clean old caches
+// Activate: clean old caches (keep current static cache + API cache)
 self.addEventListener('activate', event => {
+  const keep = new Set([CACHE_NAME, API_CACHE]);
   event.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+      Promise.all(keys.filter(k => !keep.has(k)).map(k => caches.delete(k)))
     ).then(() => self.clients.claim())
   );
 });
@@ -45,13 +47,31 @@ self.addEventListener('fetch', event => {
   // Only handle same-origin requests
   if (url.origin !== self.location.origin) return;
 
-  // Network-first for API calls
+  // API: stale-while-revalidate for GETs, queue-on-fail for mutations
+  // Previously a 503 deploy hiccup would render every view as empty.
+  // Now: serve last cached body, then refresh in background.
   if (url.pathname.startsWith('/api/')) {
-    event.respondWith(networkFirstWithQueue(request));
+    event.respondWith(handleApi(request));
     return;
   }
 
-  // Cache-first for static assets
+  // HTML navigations: network-first so the just-deployed entrypoint is the
+  // one that gets paired with the freshly-cached JS modules. Fall back to
+  // cached index.html only when actually offline.
+  if (request.mode === 'navigate' || url.pathname === '/' || url.pathname === '/index.html') {
+    event.respondWith(
+      fetch(request).then(response => {
+        if (response.ok) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put('/index.html', clone));
+        }
+        return response;
+      }).catch(() => caches.match('/index.html'))
+    );
+    return;
+  }
+
+  // Static assets: cache-first
   event.respondWith(
     caches.match(request).then(cached => {
       if (cached) return cached;
@@ -62,25 +82,45 @@ self.addEventListener('fetch', event => {
         }
         return response;
       }).catch(() => {
-        // Serve index.html for navigation requests when offline
         if (request.mode === 'navigate') return caches.match('/index.html');
       });
     })
   );
 });
 
-// Network-first with offline queue for mutations
-async function networkFirstWithQueue(request) {
+// API handler: GET → network-first with cache fallback; mutations → queue on failure
+async function handleApi(request) {
+  if (request.method === 'GET') {
+    try {
+      const response = await fetch(request.clone());
+      // Cache successful responses so we can serve them if next deploy hiccups
+      if (response.ok) {
+        const clone = response.clone();
+        caches.open(API_CACHE).then(cache => cache.put(request, clone));
+      }
+      return response;
+    } catch (err) {
+      // Network failed (deploy, brief outage). Serve last known-good response
+      // if we have one — empty UI is worse than slightly stale data.
+      const cached = await caches.match(request, { cacheName: API_CACHE });
+      if (cached) return cached;
+      // Truly never seen this endpoint — return the offline placeholder so the
+      // view's .catch() branch handles it explicitly.
+      return new Response(JSON.stringify({ error: 'offline', offline: true }), {
+        headers: { 'Content-Type': 'application/json' },
+        status: 503,
+      });
+    }
+  }
+
+  // Mutations: try network, queue on failure
   try {
-    const response = await fetch(request.clone());
-    return response;
+    return await fetch(request.clone());
   } catch (err) {
-    // Queue failed mutations
     if (['POST', 'PUT', 'DELETE'].includes(request.method)) {
       await queueRequest(request.clone());
     }
-    // Return offline placeholder for GET
-    return new Response(JSON.stringify({ error: 'offline', offline: true }), {
+    return new Response(JSON.stringify({ error: 'offline', offline: true, queued: true }), {
       headers: { 'Content-Type': 'application/json' },
       status: 503,
     });
