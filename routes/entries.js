@@ -163,6 +163,7 @@ router.post('/', async (req, res) => {
       cleaned_content,
       user_edited_content,
       ai_summary,
+      first_person_summary,
       key_themes = [],
       action_items = [],
       important_today,
@@ -193,7 +194,7 @@ router.post('/', async (req, res) => {
     const result = await db.query(`
       INSERT INTO entries (
         date, time_of_day, raw_transcript, cleaned_content, user_edited_content,
-        ai_summary, key_themes, action_items, important_today,
+        ai_summary, first_person_summary, key_themes, action_items, important_today,
         mood_energy, mood_happiness, mood_anxiety, mood_confidence, mood_motivation,
         mood_social_battery, mood_physical, mood_focus, mood_overall, mood_source,
         life_areas, tags, entry_mode, has_love_life_content,
@@ -201,16 +202,16 @@ router.post('/', async (req, res) => {
         is_backdated
       ) VALUES (
         $1, $2, $3, $4, $5,
-        $6, $7, $8, $9,
-        $10, $11, $12, $13, $14,
-        $15, $16, $17, $18, $19,
-        $20, $21, $22, $23,
-        $24, $25, $26, $27,
-        $28
+        $6, $7, $8, $9, $10,
+        $11, $12, $13, $14, $15,
+        $16, $17, $18, $19, $20,
+        $21, $22, $23, $24,
+        $25, $26, $27, $28,
+        $29
       ) RETURNING *
     `, [
       date, time_of_day, raw_transcript, cleaned_content, user_edited_content,
-      ai_summary, JSON.stringify(key_themes), JSON.stringify(action_items), important_today,
+      ai_summary, first_person_summary, JSON.stringify(key_themes), JSON.stringify(action_items), important_today,
       mood_energy, mood_happiness, mood_anxiety, mood_confidence, mood_motivation,
       mood_social_battery, mood_physical, mood_focus, mood_overall, mood_source,
       JSON.stringify(life_areas), JSON.stringify(tags), entry_mode, has_love_life_content,
@@ -235,7 +236,7 @@ router.put('/:id', async (req, res) => {
   try {
     const fields = [
       'date', 'time_of_day', 'raw_transcript', 'cleaned_content', 'user_edited_content',
-      'ai_summary', 'key_themes', 'action_items', 'important_today',
+      'ai_summary', 'first_person_summary', 'key_themes', 'action_items', 'important_today',
       'mood_energy', 'mood_happiness', 'mood_anxiety', 'mood_confidence', 'mood_motivation',
       'mood_social_battery', 'mood_physical', 'mood_focus', 'mood_overall', 'mood_source',
       'life_areas', 'tags', 'has_love_life_content',
@@ -298,6 +299,43 @@ router.put('/:id/action-item', async (req, res) => {
     res.status(500).json({ error: 'Failed to update action item', code: 'DB_ERROR' });
   }
 });
+
+// POST /api/entries/:id/followup — append a reflection follow-up to an existing entry
+router.post('/:id/followup', async (req, res) => {
+  try {
+    const { text, question } = req.body;
+    if (!text) return res.status(400).json({ error: 'text is required', code: 'VALIDATION_ERROR' });
+
+    const followup = {
+      text,
+      question: question || null,
+      created_at: new Date().toISOString(),
+      time_of_day: getTimeOfDayServer(),
+    };
+
+    const result = await db.query(`
+      UPDATE entries
+         SET followups = COALESCE(followups, '[]'::jsonb) || $1::jsonb,
+             updated_at = NOW()
+       WHERE id = $2
+       RETURNING *
+    `, [JSON.stringify(followup), req.params.id]);
+
+    if (!result.rows.length) return res.status(404).json({ error: 'Entry not found', code: 'NOT_FOUND' });
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('POST /api/entries/:id/followup error:', err);
+    res.status(500).json({ error: 'Failed to add follow-up', code: 'DB_ERROR' });
+  }
+});
+
+function getTimeOfDayServer() {
+  const h = new Date().getHours();
+  if (h < 12) return 'morning';
+  if (h < 17) return 'afternoon';
+  if (h < 21) return 'evening';
+  return 'night';
+}
 
 // GET /api/entries/action-items/pending — outstanding action items from recent entries
 router.get('/action-items/pending', async (req, res) => {

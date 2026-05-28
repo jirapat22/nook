@@ -110,6 +110,14 @@ ALTER TABLE person_mentions ADD COLUMN IF NOT EXISTS link_method VARCHAR(20);
 -- Action item completion state: { "<item text>": true, ... } stored on the entry
 ALTER TABLE entries ADD COLUMN IF NOT EXISTS action_items_state JSONB DEFAULT '{}';
 
+-- First-person diary summary (e.g. "Today I thought about X, Y, Z").
+-- Distinct from ai_summary (short overview) and cleaned_content (verbatim cleanup).
+ALTER TABLE entries ADD COLUMN IF NOT EXISTS first_person_summary TEXT;
+
+-- Follow-up reflections appended to the same entry instead of creating a new one.
+-- Each item: { text, question, created_at, time_of_day }
+ALTER TABLE entries ADD COLUMN IF NOT EXISTS followups JSONB DEFAULT '[]';
+
 -- Full-text search vector + GIN index (covers cleaned content, summary, themes, tags)
 ALTER TABLE entries ADD COLUMN IF NOT EXISTS search_vector tsvector;
 CREATE INDEX IF NOT EXISTS idx_entries_search_vector ON entries USING GIN(search_vector);

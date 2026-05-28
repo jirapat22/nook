@@ -26,6 +26,30 @@ export class EntryView {
     }
   }
 
+  // Draft persistence — guards against accidental nav-away losing voice
+  // or text content before the user explicitly saves.
+  saveDraft(content) {
+    try {
+      localStorage.setItem('nook_draft', JSON.stringify({
+        content, mode: this.mode, savedAt: Date.now(),
+      }));
+    } catch {}
+  }
+  clearDraft() { try { localStorage.removeItem('nook_draft'); } catch {} }
+  loadDraft() {
+    try {
+      const raw = localStorage.getItem('nook_draft');
+      if (!raw) return null;
+      const d = JSON.parse(raw);
+      // Drafts older than 12 hours are stale — discard
+      if (Date.now() - d.savedAt > 12 * 60 * 60 * 1000) {
+        this.clearDraft();
+        return null;
+      }
+      return d;
+    } catch { return null; }
+  }
+
   async mount(container) {
     this.container = container;
 
@@ -57,6 +81,10 @@ export class EntryView {
 
         <div class="date-row">
           <input type="date" class="input" id="entry-date" value="${today}" max="${today}">
+          <div class="quick-date-btns">
+            <button type="button" class="quick-date-btn active" data-date-shift="0">Today</button>
+            <button type="button" class="quick-date-btn" data-date-shift="-1">Yesterday</button>
+          </div>
           <span id="backdated-notice" class="backdated-notice hidden">Added after the fact</span>
         </div>
 
@@ -87,8 +115,28 @@ export class EntryView {
     });
 
     // Date → backdated notice
-    container.querySelector('#entry-date').addEventListener('change', e => {
+    const dateInput = container.querySelector('#entry-date');
+    const syncDateBtns = () => {
+      container.querySelectorAll('.quick-date-btn').forEach(b => b.classList.remove('active'));
+      const shift = (new Date(today) - new Date(dateInput.value)) / 86400000;
+      const match = container.querySelector(`.quick-date-btn[data-date-shift="${-shift}"]`);
+      if (match) match.classList.add('active');
+    };
+    dateInput.addEventListener('change', e => {
       container.querySelector('#backdated-notice').classList.toggle('hidden', e.target.value >= today);
+      syncDateBtns();
+    });
+    // Quick "Today" / "Yesterday" buttons — much faster than the date picker
+    container.querySelectorAll('.quick-date-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const shift = parseInt(btn.dataset.dateShift);
+        const d = new Date(today);
+        d.setDate(d.getDate() + shift);
+        const newDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        dateInput.value = newDate;
+        container.querySelector('#backdated-notice').classList.toggle('hidden', shift === 0);
+        syncDateBtns();
+      });
     });
 
     container.querySelector('#save-btn').addEventListener('click', () => this.saveEntry());
@@ -237,18 +285,28 @@ export class EntryView {
             micBtn.classList.remove('processing');
             return;
           }
+          // SAVE DRAFT IMMEDIATELY so it survives any later failure
           this.rawContent = text;
+          this.saveDraft(text);
+          // Show action bar right now so user can save raw even if AI analysis hangs
+          this.showActionBar();
+          // Show "Save now" CTA prominently while AI thinks
+          hint.textContent = '✓ Got it — adding AI insights…';
           await this.analyzeContent(text);
+          this.clearDraft();
         } catch (err) {
-          showToast('Transcription failed — try typing instead', 'error');
-          transcript.textContent = '(Transcription failed)';
-          // Switch to text mode so they can type it manually
-          const textTab = this.container.querySelector('[data-mode="text"]');
-          if (textTab) textTab.click();
+          showToast('Transcription failed — try recording again or switch to text', 'error');
+          transcript.textContent = '(Transcription failed — tap mic to retry, or use Text tab to type)';
+          transcript.classList.add('placeholder');
+          // Do NOT auto-switch to text mode — that wipes the user's audio attempt
+          // Let them choose to retry voice or manually switch
         }
 
         micBtn.classList.remove('processing');
-        hint.textContent = 'Tap to record again';
+        // Don't overwrite hint if we already set it above with "got it"
+        if (!hint.textContent.startsWith('✓')) {
+          hint.textContent = 'Tap to record again';
+        }
       },
 
       onKeyword: () => {
@@ -305,9 +363,38 @@ export class EntryView {
       sessionStorage.removeItem('reflect_prompt');
       textarea.value = `Thinking about: ${reflectPrompt}\n\n`;
       charCount.textContent = textarea.value.length;
+    } else {
+      // Offer to restore draft from a previously-failed session
+      const draft = this.loadDraft();
+      if (draft && draft.content && draft.content.length > 20) {
+        const banner = document.createElement('div');
+        banner.className = 'draft-restore-banner';
+        banner.innerHTML = `
+          <span>📝 You have an unsaved draft from ${new Date(draft.savedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}.</span>
+          <button class="btn btn-secondary btn-sm" id="draft-restore">Restore</button>
+          <button class="btn btn-ghost btn-sm" id="draft-discard">Discard</button>`;
+        container.prepend(banner);
+        banner.querySelector('#draft-restore').addEventListener('click', () => {
+          textarea.value = draft.content;
+          charCount.textContent = textarea.value.length;
+          banner.remove();
+        });
+        banner.querySelector('#draft-discard').addEventListener('click', () => {
+          this.clearDraft();
+          banner.remove();
+        });
+      }
     }
 
-    textarea.addEventListener('input', () => { charCount.textContent = textarea.value.length; });
+    // Autosave draft as user types (debounced)
+    let saveTimer;
+    textarea.addEventListener('input', () => {
+      charCount.textContent = textarea.value.length;
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        if (textarea.value.length > 20) this.saveDraft(textarea.value);
+      }, 1000);
+    });
 
     analyzeBtn.addEventListener('click', async () => {
       const content = textarea.value.trim();
@@ -438,6 +525,7 @@ export class EntryView {
       raw_transcript: rawContent,
       cleaned_content: a.cleaned_content || rawContent,
       ai_summary: a.ai_summary || null,
+      first_person_summary: a.first_person_summary || null,
       key_themes: a.key_themes || [],
       action_items: a.action_items || [],
       important_today: a.important_today || null,
@@ -462,6 +550,7 @@ export class EntryView {
 
     try {
       const saved = await api.post('/api/entries', payload);
+      this.clearDraft();
       showToast('Entry saved. Your nook remembers. 🌿', 'success');
       if (a.people_mentioned?.length) await this.linkPeopleMentions(saved.id, a.people_mentioned);
       setTimeout(() => { location.hash = '#home'; }, 1200);
@@ -737,30 +826,90 @@ export class EntryView {
   async mountDetailView(container) {
     try {
       const entry   = await api.get(`/api/entries/${this.entryId}`);
-      const content = entry.user_edited_content || entry.cleaned_content || entry.raw_transcript || '';
+      const userEdit = entry.user_edited_content || '';
+      const cleaned  = entry.cleaned_content || '';
+      const raw      = entry.raw_transcript || '';
+      const firstPerson = entry.first_person_summary || '';
+      // Main visible content = user edit (if any) > first-person summary > cleaned > raw
+      const mainContent = userEdit || firstPerson || cleaned || raw || '';
       const themes  = Array.isArray(entry.key_themes) ? entry.key_themes : [];
       const tags    = Array.isArray(entry.tags)        ? entry.tags        : [];
+      const lifeAreas = Array.isArray(entry.life_areas) ? entry.life_areas : [];
+      const followups = Array.isArray(entry.followups) ? entry.followups : [];
       const moodClass = entry.mood_overall == null ? 'none' : entry.mood_overall >= 7 ? 'high' : entry.mood_overall >= 4 ? 'mid' : 'low';
+
+      const createdTime = entry.created_at
+        ? new Date(entry.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+        : null;
 
       container.innerHTML = `
         <div class="entry-detail">
           <div class="back-btn" id="back-btn">← Back</div>
           <div class="entry-detail-meta">
             <span>${formatDate(entry.date)}</span>
-            ${entry.time_of_day ? `<span>· ${entry.time_of_day}</span>` : ''}
+            ${createdTime ? `<span>· ${createdTime}</span>` : entry.time_of_day ? `<span>· ${entry.time_of_day}</span>` : ''}
             ${entry.mood_overall != null ? `<span class="mood-dot ${moodClass}"></span><span>${entry.mood_overall}/10</span>` : ''}
             ${entry.is_backdated ? '<span class="backdated-label">Added after the fact</span>' : ''}
           </div>
+
           ${entry.ai_summary ? `<div class="card mb-12"><p class="font-display text-muted" style="font-style:italic">${entry.ai_summary}</p></div>` : ''}
 
-          <!-- View mode -->
-          <div class="entry-content-block" id="entry-content-display">${content}</div>
+          <!-- Main first-person diary block -->
+          <div class="entry-content-block" id="entry-content-display">${mainContent}</div>
 
-          <!-- Edit mode (hidden by default) -->
+          <!-- Edit mode for main content (hidden by default) -->
           <textarea class="textarea hidden" id="entry-content-edit" style="min-height:200px;margin-bottom:12px"></textarea>
 
-          ${themes.length ? `<div class="mb-12"><div class="ai-section-label">Themes</div><div class="tags-row">${themes.map(t=>`<span class="chip chip-primary">${t}</span>`).join('')}</div></div>` : ''}
-          ${tags.length   ? `<div class="mb-12"><div class="ai-section-label">Tags</div><div class="tags-row">${tags.map(t=>`<span class="chip">${t}</span>`).join('')}</div></div>` : ''}
+          ${(cleaned && cleaned !== mainContent) || (raw && raw !== mainContent) ? `
+            <details class="entry-source-toggle">
+              <summary>Show what I said (original)</summary>
+              ${cleaned && cleaned !== mainContent ? `
+                <div class="ai-section-label" style="margin-top:8px">Cleaned-up version</div>
+                <p class="entry-source-text">${cleaned}</p>` : ''}
+              ${raw && raw !== mainContent && raw !== cleaned ? `
+                <div class="ai-section-label" style="margin-top:8px">Original recording</div>
+                <p class="entry-source-text text-muted" style="font-style:italic">${raw}</p>` : ''}
+            </details>` : ''}
+
+          ${followups.length ? `
+            <div class="followups-section">
+              <div class="ai-section-label" style="margin-bottom:8px">Follow-ups today</div>
+              ${followups.map(f => `
+                <div class="followup-block">
+                  ${f.question ? `<div class="followup-question">💭 ${f.question}</div>` : ''}
+                  <div class="followup-text">${f.text}</div>
+                  <div class="followup-time">${f.time_of_day || ''}${f.created_at ? ' · ' + new Date(f.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''}</div>
+                </div>`).join('')}
+            </div>` : ''}
+
+          <!-- AI-analysis section (themes, tags, life areas) — editable -->
+          <div id="ai-fields-display">
+            ${themes.length ? `<div class="mb-12"><div class="ai-section-label">Themes</div><div class="tags-row">${themes.map(t=>`<span class="chip chip-primary">${t}</span>`).join('')}</div></div>` : ''}
+            ${tags.length   ? `<div class="mb-12"><div class="ai-section-label">Tags</div><div class="tags-row">${tags.map(t=>`<span class="chip">${t}</span>`).join('')}</div></div>` : ''}
+            ${lifeAreas.length ? `<div class="mb-12"><div class="ai-section-label">Life areas</div><div class="tags-row">${lifeAreas.map(t=>`<span class="chip">${t}</span>`).join('')}</div></div>` : ''}
+            ${themes.length || tags.length || lifeAreas.length ? `<button class="btn btn-ghost btn-sm" id="edit-ai-fields">✏️ Edit themes / tags / areas</button>` : ''}
+          </div>
+
+          <!-- Edit AI fields form (hidden) -->
+          <div id="ai-fields-edit" class="hidden">
+            <div class="form-group">
+              <label class="form-label">Themes (comma-separated)</label>
+              <input type="text" class="input" id="edit-themes" value="${themes.join(', ')}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Tags (comma-separated)</label>
+              <input type="text" class="input" id="edit-tags" value="${tags.join(', ')}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Life areas (comma-separated)</label>
+              <input type="text" class="input" id="edit-life-areas" value="${lifeAreas.join(', ')}">
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-secondary btn-sm" id="cancel-ai-edit">Cancel</button>
+              <button class="btn btn-primary btn-sm" id="save-ai-edit">Save</button>
+            </div>
+          </div>
+
           ${entry.action_items?.length ? `<div class="mb-12"><div class="ai-section-label">Action items</div><div class="action-items-list">${entry.action_items.map(i => {
             const text = typeof i === 'string' ? i : (i.text || '');
             const done = typeof i === 'object' && i !== null ? !!i.done : !!(entry.action_items_state && entry.action_items_state[text]);
@@ -775,6 +924,30 @@ export class EntryView {
         </div>`;
 
       container.querySelector('#back-btn').addEventListener('click', () => history.back());
+
+      // Edit AI fields (themes/tags/life areas)
+      container.querySelector('#edit-ai-fields')?.addEventListener('click', () => {
+        container.querySelector('#ai-fields-display').classList.add('hidden');
+        container.querySelector('#ai-fields-edit').classList.remove('hidden');
+      });
+      container.querySelector('#cancel-ai-edit')?.addEventListener('click', () => {
+        container.querySelector('#ai-fields-display').classList.remove('hidden');
+        container.querySelector('#ai-fields-edit').classList.add('hidden');
+      });
+      container.querySelector('#save-ai-edit')?.addEventListener('click', async () => {
+        const parseList = id => container.querySelector(id).value.split(',').map(s => s.trim()).filter(Boolean);
+        try {
+          await api.put(`/api/entries/${this.entryId}`, {
+            key_themes: parseList('#edit-themes'),
+            tags: parseList('#edit-tags'),
+            life_areas: parseList('#edit-life-areas'),
+          });
+          showToast('Updated ✓', 'success');
+          await this.mountDetailView(container);
+        } catch {
+          showToast('Could not save — try again', 'error');
+        }
+      });
 
       // Wire up action item checkboxes to persist their state
       container.querySelectorAll('.action-item input[type="checkbox"]').forEach(cb => {
@@ -849,6 +1022,49 @@ export class EntryView {
     }
   }
 
+  // Modal to write a follow-up reflection that appends to the original entry
+  // (instead of creating a separate new entry, which fragmented related thoughts)
+  showFollowupInputModal(question, parentContainer) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-backdrop';
+    modal.innerHTML = `
+      <div class="modal-sheet">
+        <div class="modal-handle"></div>
+        <div class="modal-title">Add a follow-up thought</div>
+        <p style="font-size:0.875rem;color:var(--color-text-muted);margin-bottom:12px">
+          💭 ${question}
+        </p>
+        <textarea class="textarea" id="followup-input" placeholder="Write what comes up…" style="min-height:140px;margin-bottom:12px"></textarea>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="followup-cancel">Cancel</button>
+          <button class="btn btn-primary" id="followup-save">Add to this entry</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    const input = modal.querySelector('#followup-input');
+    input.focus();
+
+    modal.querySelector('#followup-cancel').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    modal.querySelector('#followup-save').addEventListener('click', async () => {
+      const text = input.value.trim();
+      if (!text) { showToast('Write something first', ''); return; }
+      const saveBtn = modal.querySelector('#followup-save');
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Adding…';
+      try {
+        await api.post(`/api/entries/${this.entryId}/followup`, { text, question });
+        modal.remove();
+        showToast('Added ✓', 'success');
+        await this.mountDetailView(parentContainer);
+      } catch {
+        showToast('Could not add — try again', 'error');
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Add to this entry';
+      }
+    });
+  }
+
   async loadReflectionQuestions(container) {
     const actionsDiv = container.querySelector('#entry-actions');
     if (!actionsDiv) return;
@@ -879,8 +1095,7 @@ export class EntryView {
       `;
       card.querySelectorAll('.reflect-write-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-          sessionStorage.setItem('reflect_prompt', btn.dataset.q);
-          location.hash = '#new-entry/text';
+          this.showFollowupInputModal(btn.dataset.q, container);
         });
       });
     } catch {

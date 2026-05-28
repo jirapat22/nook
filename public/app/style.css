@@ -1239,6 +1239,96 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
   line-height: 1;
 }
 
+/* Quick "Today" / "Yesterday" buttons on new-entry date row */
+.quick-date-btns {
+  display: flex; gap: 6px; margin-left: 8px;
+}
+.quick-date-btn {
+  background: var(--color-surface-offset);
+  border: 1px solid var(--color-border-light);
+  color: var(--color-text-muted);
+  font-size: 0.8rem; font-weight: 500;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.quick-date-btn.active {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+.quick-date-btn:hover:not(.active) {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+/* Expandable "show what I said" toggle on entry detail */
+.entry-source-toggle {
+  background: var(--color-surface-offset);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 0.875rem;
+}
+.entry-source-toggle summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  user-select: none;
+}
+.entry-source-toggle summary:hover { color: var(--color-primary); }
+.entry-source-text {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  margin-top: 4px;
+  color: var(--color-text);
+}
+
+/* Follow-up sub-blocks (reflection answers appended to original entry) */
+.followups-section {
+  margin: 16px 0 12px;
+  padding-left: 12px;
+  border-left: 3px solid var(--color-primary-light);
+}
+.followup-block {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-light);
+}
+.followup-question {
+  font-size: 0.8rem;
+  color: var(--color-primary);
+  font-style: italic;
+  margin-bottom: 6px;
+}
+.followup-text {
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--color-text);
+  white-space: pre-wrap;
+}
+.followup-time {
+  font-size: 0.7rem;
+  color: var(--color-text-faint);
+  margin-top: 4px;
+}
+
+/* Draft restore banner — appears when a previous unsaved entry exists */
+.draft-restore-banner {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  background: var(--color-primary-light);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  margin: 0 0 12px;
+  font-size: 0.875rem;
+  color: var(--color-primary);
+}
+.draft-restore-banner span { flex: 1; min-width: 140px; }
+
 /* Nickname suggestion chips in Add/Edit person modal */
 .nickname-suggest {
   background: var(--color-surface-offset);

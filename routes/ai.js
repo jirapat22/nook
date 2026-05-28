@@ -22,6 +22,11 @@ async function getGroqKey() {
   return null;
 }
 
+// Escape a string so it can be used safely inside a RegExp pattern
+function escapeRegex(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // Helper: call Groq chat completion
 async function groqChat(apiKey, messages, { temperature = 0.3, max_tokens = 2048 } = {}) {
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -123,10 +128,12 @@ router.post('/analyze', async (req, res) => {
 
     // Fetch known people so AI can recognise aliases and resolve ambiguous names
     let knownPeopleContext = '';
+    let allPeople = [];
     try {
-      const peopleResult = await db.query('SELECT name, relationship_type, aliases FROM people ORDER BY name');
-      if (peopleResult.rows.length) {
-        const list = peopleResult.rows.map(p => {
+      const peopleResult = await db.query('SELECT id, name, relationship_type, aliases FROM people ORDER BY name');
+      allPeople = peopleResult.rows;
+      if (allPeople.length) {
+        const list = allPeople.map(p => {
           const aliases = Array.isArray(p.aliases) && p.aliases.length ? p.aliases : [];
           const akaStr  = aliases.length ? ` (also known as: ${aliases.join(', ')})` : '';
           const relStr  = p.relationship_type ? ` [${p.relationship_type}]` : '';
@@ -135,6 +142,47 @@ router.post('/analyze', async (req, res) => {
         knownPeopleContext = `\n\nPeople already tracked in this journal:\n${list}\nIMPORTANT: If the entry mentions any of these people by any name or alias, always use their PRIMARY name (the bullet-point name) in people_mentioned[].name.`;
       }
     } catch { /* non-fatal — analysis still works */ }
+
+    // Person-specific memory: pre-scan the entry text for known people, then
+    // pull recent mentions of each so the AI knows context like "Sarah seemed
+    // distant last week" and can connect it to today's entry.
+    let personMemoryContext = '';
+    try {
+      const entryText = (content || context || '').toLowerCase();
+      const hits = new Set();
+      for (const p of allPeople) {
+        const names = [p.name, ...(Array.isArray(p.aliases) ? p.aliases : [])];
+        // Word-boundary match so "ben" doesn't match "bench"
+        if (names.some(n => new RegExp(`\\b${escapeRegex(n.toLowerCase())}\\b`).test(entryText))) {
+          hits.add(p.id);
+        }
+      }
+      if (hits.size > 0 && hits.size <= 5) {
+        const memorySections = [];
+        for (const pid of hits) {
+          const person = allPeople.find(p => p.id === pid);
+          const memories = await db.query(`
+            SELECT pm.context, pm.emotion_toward, pm.sentiment_score, e.date, e.ai_summary
+            FROM person_mentions pm
+            JOIN entries e ON e.id = pm.entry_id
+            WHERE pm.person_id = $1
+            ORDER BY e.date DESC, pm.mentioned_at DESC
+            LIMIT 4
+          `, [pid]);
+          if (memories.rows.length) {
+            const lines = memories.rows.map(m => {
+              const d = String(m.date).split('T')[0];
+              const emo = m.emotion_toward ? ` [${m.emotion_toward}]` : '';
+              return `  - ${d}${emo}: ${m.context || m.ai_summary || ''}`;
+            }).join('\n');
+            memorySections.push(`${person.name}:\n${lines}`);
+          }
+        }
+        if (memorySections.length) {
+          personMemoryContext = `\n\nRecent context about people you mentioned today (use this to make connections, e.g. "you said Sarah was distant last week — did that come up today?"):\n${memorySections.join('\n\n')}`;
+        }
+      }
+    } catch { /* non-fatal */ }
 
     // Fetch existing themes and tags so AI reuses them instead of creating duplicates.
     // Without this, "work stress" and "stress at work" become separate tags forever.
@@ -186,8 +234,9 @@ router.post('/analyze', async (req, res) => {
     const systemPrompt = `You are Nook, a warm and insightful personal journal assistant.
 Analyze the user's journal entry and return a JSON object with EXACTLY this structure:
 {
-  "cleaned_content": "Cleaned, readable version of the entry (remove filler words, fix grammar, keep their voice and tone)",
-  "ai_summary": "2-3 sentence summary",
+  "first_person_summary": "A diary-style narrative of the day in FIRST PERSON ('Today I...', 'I felt...', 'I'm thinking about...'). 3-6 sentences. Read like the user wrote it themselves, not like a report.",
+  "cleaned_content": "A cleaned-up version of what they ACTUALLY SAID, in FIRST PERSON ('I' voice), removing filler words and fixing grammar. NEVER write 'The user is...' or 'The user feels...' — always 'I am...', 'I feel...'.",
+  "ai_summary": "2-3 sentence outside-view summary (third-person OK here — this is the brief overview shown in lists).",
   "key_themes": ["theme1", "theme2"],
   "action_items": ["thing to do 1"],
   "important_today": "The single most important thing from this entry",
@@ -213,10 +262,14 @@ Analyze the user's journal entry and return a JSON object with EXACTLY this stru
   "followup_question": null
 }
 
+CRITICAL VOICE RULES:
+- first_person_summary AND cleaned_content must be in the user's voice ("I"), as if they wrote it themselves.
+- NEVER write "The user is feeling..." or "The user mentions..." in these fields. Only ai_summary can be third-person.
+
 For mood scores use 0-10 integer or null if genuinely unclear. Life areas should be from: Health & Fitness, Work & Career, Relationships & Social, Personal Growth, Creativity, Finance, Travel & Adventure, Mental Health, Family, Love Life, Hobbies, Home & Lifestyle.
 For people_mentioned, each item: { "name": string, "context": string, "facts_extracted": [], "sentiment": -5 to 5, "emotion_toward": string }
 missing_fields should list important fields that couldn't be determined.
-followup_question should be ONE warm, natural follow-up question (or null if nothing important is missing).${knownPeopleContext}${existingTagsContext}${recentContext}`;
+followup_question should be ONE warm, natural follow-up question (or null if nothing important is missing).${knownPeopleContext}${personMemoryContext}${existingTagsContext}${recentContext}`;
 
     const messages = [
       { role: 'system', content: systemPrompt },

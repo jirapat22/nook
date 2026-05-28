@@ -58,12 +58,19 @@ export class VoiceRecorder {
       this._forceStop();
     };
 
-    // iOS doesn't support timeslice reliably — use start() with no argument
-    // Desktop: collect in 250ms chunks for smoother waveform
+    // iOS doesn't support timeslice reliably — use start() with no argument,
+    // but flush chunks every 30s with requestData() so long recordings don't
+    // accumulate in an internal buffer that can drop on memory pressure.
+    // Desktop: 1s timeslice (250ms made 720+ chunks for a 3-min entry → wasteful)
     if (isIOS) {
       this.mediaRecorder.start();
+      this._iosFlushInterval = setInterval(() => {
+        if (this.mediaRecorder?.state === 'recording') {
+          try { this.mediaRecorder.requestData(); } catch {}
+        }
+      }, 30000);
     } else {
-      this.mediaRecorder.start(250);
+      this.mediaRecorder.start(1000);
     }
 
     this.isRecording = true;
@@ -75,6 +82,7 @@ export class VoiceRecorder {
     if (!this.isRecording) return;
     this.isRecording = false;
     this.stopKeywordDetection();
+    clearInterval(this._iosFlushInterval);
 
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
       // Set a timeout in case onstop never fires (iOS bug)
@@ -127,9 +135,13 @@ export class VoiceRecorder {
 
       this.recognition.onresult = event => {
         if (!this.isRecording) return;
+        // Only stop on the EXACT phrase "stop recording" — single words like
+        // "done" or "stop" matched too aggressively (e.g. "I'm done with the
+        // meeting" or "I had to stop and think" killed long entries mid-thought)
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const text = event.results[i][0].transcript.toLowerCase().trim();
-          if (text.includes('done') || text.includes('stop recording') || text.includes('stop')) {
+          // Match phrase with word boundaries — "stop recording" anywhere in the segment
+          if (/\bstop recording\b/.test(text)) {
             this.onKeyword();
             break;
           }
@@ -163,6 +175,7 @@ export class VoiceRecorder {
     this.isRecording = false;
     this.stopKeywordDetection();
     clearTimeout(this._stopTimeout);
+    clearInterval(this._iosFlushInterval);
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
       try { this.mediaRecorder.stop(); } catch {}
     }

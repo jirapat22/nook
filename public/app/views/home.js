@@ -152,7 +152,11 @@ function entryCard(entry) {
   const mood = entry.mood_overall;
   const moodClass = mood == null ? 'none' : mood >= 7 ? 'high' : mood >= 4 ? 'mid' : 'low';
   const themes = Array.isArray(entry.key_themes) ? entry.key_themes.slice(0, 3) : [];
-  const dateStr = formatEntryDate(entry.date, entry.time_of_day);
+  // Prefer exact clock time over generic "morning/afternoon" if we have created_at
+  const clockTime = entry.created_at
+    ? new Date(entry.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    : null;
+  const dateStr = formatEntryDate(entry.date, clockTime || entry.time_of_day);
 
   return `
     <div class="entry-preview-card" data-id="${entry.id}">
