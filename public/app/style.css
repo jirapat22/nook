@@ -1266,6 +1266,9 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
   line-height: 1;
 }
 
+/* Mood slider value when AI didn't infer it (shows — instead of 5) */
+.mood-slider-value.muted { color: var(--color-text-faint); }
+
 /* ══════════════════════════════════════════
    DAY CARDS (home) + DAY VIEW (per-day page)
    ══════════════════════════════════════════ */

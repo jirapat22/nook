@@ -24,12 +24,13 @@ export class MoodTracker {
       <div class="mood-slider-card">
         <div class="mood-slider-header">
           <span class="mood-slider-label">${capitalize(dim.replace('_', ' '))}</span>
-          <span class="mood-slider-value" id="val-${dim}">${this.mood[dim] ?? '?'}</span>
+          <span class="mood-slider-value muted" id="val-${dim}">${this.mood[dim] != null ? this.mood[dim] : '—'}</span>
         </div>
         <input type="range" class="range-slider" min="0" max="10" step="1"
           value="${this.mood[dim] ?? 5}"
           data-dim="${dim}"
           id="slider-${dim}">
+        <div class="text-xs text-faint" style="margin-top:4px">Drag to set — leave alone if you'd rather not say</div>
       </div>
     `).join('');
 
@@ -38,7 +39,10 @@ export class MoodTracker {
       const valEl = container.querySelector(`#val-${dim}`);
       slider.addEventListener('input', e => {
         const v = parseInt(e.target.value);
-        if (valEl) valEl.textContent = v;
+        if (valEl) {
+          valEl.textContent = v;
+          valEl.classList.remove('muted');
+        }
         this.overrides[dim] = v;
         this.onChange(this.overrides);
       });

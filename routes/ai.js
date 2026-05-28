@@ -266,7 +266,20 @@ CRITICAL VOICE RULES:
 - first_person_summary AND cleaned_content must be in the user's voice ("I"), as if they wrote it themselves.
 - NEVER write "The user is feeling..." or "The user mentions..." in these fields. Only ai_summary can be third-person.
 
-For mood scores use 0-10 integer or null if genuinely unclear. Life areas should be from: Health & Fitness, Work & Career, Relationships & Social, Personal Growth, Creativity, Finance, Travel & Adventure, Mental Health, Family, Love Life, Hobbies, Home & Lifestyle.
+MOOD RULES (read carefully — this matters):
+- Only fill in a mood score (0-10 integer) when the entry contains DIRECT evidence for it
+  (specific feelings, body language, energy words, etc.). Do NOT guess.
+- If you would be guessing or just picking a "safe middle" — set that field to null AND
+  add its name to uncertain_dimensions[].
+- NEVER default to 5. 5 means "right in the middle, evenly balanced" — only use it if
+  the user explicitly describes a neutral state. If you're tempted to write 5 because
+  you're unsure, use null instead.
+- "overall" should ONLY be set if the user clearly conveyed a holistic mood. Otherwise
+  null + add 'overall' to uncertain_dimensions. Do NOT average the other dimensions.
+- It's perfectly fine to return mood: { all-nulls + uncertain_dimensions: [...all dims] }
+  for an entry that just lists facts without emotional content.
+
+Life areas should be from: Health & Fitness, Work & Career, Relationships & Social, Personal Growth, Creativity, Finance, Travel & Adventure, Mental Health, Family, Love Life, Hobbies, Home & Lifestyle.
 For people_mentioned, each item: { "name": string, "context": string, "facts_extracted": [], "sentiment": -5 to 5, "emotion_toward": string, "inferred_relationship": one of: "friend" | "family" | "crush" | "partner" | "colleague" | "mentor" | "acquaintance" | "unknown" }
   - inferred_relationship: best guess based on how the user talks about them. Words like "my friend", "mum", "boss", "colleague" are strong signals. Use "unknown" only when there's no clue.
 missing_fields should list important fields that couldn't be determined.
@@ -279,6 +292,33 @@ followup_question should be ONE warm, natural follow-up question (or null if not
     ];
 
     const analysis = await groqChat(apiKey, messages);
+
+    // Safeguard: if the model returned a suspicious mood pattern (many 5s, or
+    // every dimension identical), null them out so the user is asked to confirm
+    // rather than seeing a fake 5/10 everywhere. 5 is the LLM's safe default
+    // when uncertain — but uncertainty should surface, not hide as middle ground.
+    if (analysis.mood && typeof analysis.mood === 'object') {
+      const dimKeys = ['energy','happiness','anxiety','confidence','motivation','social_battery','physical','focus','overall'];
+      const numeric = dimKeys
+        .map(k => ({ k, v: analysis.mood[k] }))
+        .filter(x => typeof x.v === 'number');
+      const fives = numeric.filter(x => x.v === 5);
+      const distinct = new Set(numeric.map(x => x.v)).size;
+      const looksDefaulted =
+        (numeric.length >= 4 && fives.length >= 4) ||           // 4+ exact 5s
+        (numeric.length >= 4 && distinct === 1);                 // all same value
+      if (looksDefaulted) {
+        const uncertain = new Set(analysis.mood.uncertain_dimensions || []);
+        for (const { k, v } of numeric) {
+          if (v === 5 || distinct === 1) {
+            analysis.mood[k] = null;
+            uncertain.add(k);
+          }
+        }
+        analysis.mood.uncertain_dimensions = [...uncertain];
+      }
+    }
+
     res.json(analysis);
   } catch (err) {
     console.error('POST /api/ai/analyze error:', err);

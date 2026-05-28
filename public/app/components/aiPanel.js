@@ -55,10 +55,15 @@ export class AiPanel {
       const dim = slider.dataset.dim;
       const valEl = container.querySelector(`#mood-val-${dim}`);
       const fill  = container.querySelector(`#mood-fill-${dim}`);
+      const track = fill?.parentElement;
       slider.addEventListener('input', e => {
         const v = parseInt(e.target.value);
-        if (valEl)  valEl.textContent = v;
-        if (fill)   fill.style.width = (v * 10) + '%';
+        if (valEl) {
+          valEl.textContent = v;
+          valEl.style.color = ''; // un-mute now that user has set a real value
+        }
+        if (fill)  fill.style.width = (v * 10) + '%';
+        if (track) track.style.opacity = '1';
         const updates = { ...this.moodOverrides, [dim]: v };
         this.moodOverrides = updates;
         this.onMoodChange(updates);
@@ -179,10 +184,10 @@ export class AiPanel {
             <div class="mood-bar-row" style="flex-direction:column;align-items:flex-start;gap:4px">
               <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
                 <span class="mood-bar-label">${d.label} <span style="color:var(--color-text-faint)">?</span></span>
-                <span class="mood-bar-value" id="mood-val-${d.key}">${mood[d.key] ?? 5}</span>
+                <span class="mood-bar-value" id="mood-val-${d.key}" style="color:var(--color-text-faint)">${mood[d.key] != null ? mood[d.key] : '—'}</span>
               </div>
               <div style="width:100%;display:flex;align-items:center;gap:8px">
-                <div class="mood-bar-track" style="flex:1">
+                <div class="mood-bar-track" style="flex:1;opacity:0.4">
                   <div class="mood-bar-fill" id="mood-fill-${d.key}" style="width:${(mood[d.key] ?? 5) * 10}%"></div>
                 </div>
               </div>
@@ -191,7 +196,7 @@ export class AiPanel {
                 value="${mood[d.key] ?? 5}"
                 data-dim="${d.key}"
                 style="margin:0">
-              <span class="mood-uncertain">How would you rate your ${d.label.toLowerCase()} today?</span>
+              <span class="mood-uncertain">How would you rate your ${d.label.toLowerCase()} today? (drag the slider)</span>
             </div>`).join('')}
         </div>
       </div>`;
