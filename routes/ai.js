@@ -271,13 +271,16 @@ MOOD RULES (read carefully — this matters):
   (specific feelings, body language, energy words, etc.). Do NOT guess.
 - If you would be guessing or just picking a "safe middle" — set that field to null AND
   add its name to uncertain_dimensions[].
-- NEVER default to 5. 5 means "right in the middle, evenly balanced" — only use it if
-  the user explicitly describes a neutral state. If you're tempted to write 5 because
-  you're unsure, use null instead.
-- "overall" should ONLY be set if the user clearly conveyed a holistic mood. Otherwise
-  null + add 'overall' to uncertain_dimensions. Do NOT average the other dimensions.
+- 5 is BANNED for "overall". 5 means "perfectly evenly balanced" which is almost never
+  true. If you're tempted to write overall=5, use null instead. Use 4 for "leaning a
+  little down" or 6 for "leaning a little up" if there's any directionality at all.
+- For sub-dimensions (energy/happiness/etc.), still avoid 5 as a default. Only use 5 if
+  the user EXPLICITLY described that dimension as neutral/balanced. When unsure: null.
+- Do NOT average the other dimensions for "overall". They are independent reads.
 - It's perfectly fine to return mood: { all-nulls + uncertain_dimensions: [...all dims] }
   for an entry that just lists facts without emotional content.
+- ASK YOURSELF before each score: "What words in the entry let me say this?" If the
+  answer is vague, the answer is null.
 
 Life areas should be from: Health & Fitness, Work & Career, Relationships & Social, Personal Growth, Creativity, Finance, Travel & Adventure, Mental Health, Family, Love Life, Hobbies, Home & Lifestyle.
 For people_mentioned, each item: { "name": string, "context": string, "facts_extracted": [], "sentiment": -5 to 5, "emotion_toward": string, "inferred_relationship": one of: "friend" | "family" | "crush" | "partner" | "colleague" | "mentor" | "acquaintance" | "unknown" }
@@ -293,10 +296,9 @@ followup_question should be ONE warm, natural follow-up question (or null if not
 
     const analysis = await groqChat(apiKey, messages);
 
-    // Safeguard: if the model returned a suspicious mood pattern (many 5s, or
-    // every dimension identical), null them out so the user is asked to confirm
-    // rather than seeing a fake 5/10 everywhere. 5 is the LLM's safe default
-    // when uncertain — but uncertainty should surface, not hide as middle ground.
+    // Safeguard: aggressive null-out of mood values that smell like LLM defaults.
+    // Llama gravitates to 5 on a 0-10 scale when uncertain even when told not to.
+    // Better to surface uncertainty than show fake middle-ground ratings.
     if (analysis.mood && typeof analysis.mood === 'object') {
       const dimKeys = ['energy','happiness','anxiety','confidence','motivation','social_battery','physical','focus','overall'];
       const numeric = dimKeys
@@ -304,19 +306,30 @@ followup_question should be ONE warm, natural follow-up question (or null if not
         .filter(x => typeof x.v === 'number');
       const fives = numeric.filter(x => x.v === 5);
       const distinct = new Set(numeric.map(x => x.v)).size;
+      const uncertain = new Set(analysis.mood.uncertain_dimensions || []);
+
+      // Rule 1: mood_overall === 5 is almost always a hedge. Force null.
+      // 5/10 means "perfectly neutral, no lean" which is rare for a real entry.
+      // If the user is genuinely a 5, they'll set it manually in the slider.
+      if (analysis.mood.overall === 5) {
+        analysis.mood.overall = null;
+        uncertain.add('overall');
+      }
+
+      // Rule 2: 3+ dimensions returned exactly 5 (or all identical) → null the 5s
       const looksDefaulted =
-        (numeric.length >= 4 && fives.length >= 4) ||           // 4+ exact 5s
-        (numeric.length >= 4 && distinct === 1);                 // all same value
+        (numeric.length >= 3 && fives.length >= 3) ||
+        (numeric.length >= 4 && distinct === 1);
       if (looksDefaulted) {
-        const uncertain = new Set(analysis.mood.uncertain_dimensions || []);
         for (const { k, v } of numeric) {
           if (v === 5 || distinct === 1) {
             analysis.mood[k] = null;
             uncertain.add(k);
           }
         }
-        analysis.mood.uncertain_dimensions = [...uncertain];
       }
+
+      analysis.mood.uncertain_dimensions = [...uncertain];
     }
 
     res.json(analysis);
