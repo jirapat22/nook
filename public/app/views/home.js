@@ -28,31 +28,22 @@ export class HomeView {
       hour < 17 ? 'Good afternoon' :
       hour < 21 ? 'Good evening' : 'Good night';
 
-    // Group entries by date bucket so multiple-per-day are visually organised
-    // (was: 'Today' section + jumbled 'Recent' grid — hard to scan)
+    // Group entries by date — one card per day, tap to open the Day view.
+    // Replaces the previous "jumbled entries on home" approach.
     const normDate = d => String(d).split('T')[0];
-    const yesterdayStr = previousDay(today);
-    const sevenDaysAgo = nDaysAgo(today, 7);
-
-    const todayEntries     = entries.filter(e => normDate(e.date) === today);
-    const yesterdayEntries = entries.filter(e => normDate(e.date) === yesterdayStr);
-    const thisWeekEntries  = entries.filter(e => {
-      const d = normDate(e.date);
-      return d !== today && d !== yesterdayStr && d >= sevenDaysAgo;
-    });
-    const earlierEntries   = entries.filter(e => normDate(e.date) < sevenDaysAgo).slice(0, 3);
-
-    // Sort each bucket by created_at DESC (server already returns this order)
-    const renderBucket = (label, items) => items.length ? `
-      <div class="date-bucket">
-        <div class="date-bucket-header">
-          <h3>${label}</h3>
-          <span class="date-bucket-count">${items.length} ${items.length === 1 ? 'entry' : 'entries'}</span>
-        </div>
-        <div class="date-bucket-list">
-          ${items.map(e => entryCard(e)).join('')}
-        </div>
-      </div>` : '';
+    const byDay = new Map(); // YYYY-MM-DD -> entries[]
+    for (const e of entries) {
+      const k = normDate(e.date);
+      if (!byDay.has(k)) byDay.set(k, []);
+      byDay.get(k).push(e);
+    }
+    // Sort each day's entries latest-first (created_at desc)
+    for (const list of byDay.values()) {
+      list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    }
+    // Sort days latest-first
+    const days = [...byDay.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+    const todayHasEntries = byDay.has(today);
 
     container.innerHTML = `
       <div class="home-view">
@@ -71,17 +62,19 @@ export class HomeView {
           <div class="streak-widget-icon">🔥</div>
         </div>` : ''}
 
-        ${todayEntries.length === 0 && yesterdayEntries.length === 0 ? `
-          <div class="empty-state" style="padding:32px 0">
-            <div class="empty-state-icon">🌿</div>
-            <h3>Your nook is quiet today</h3>
-            <p>Ready to add something?</p>
-          </div>` : ''}
+        ${!todayHasEntries ? `
+          <a href="#day/${today}" class="day-card day-card-empty">
+            <div class="day-card-header">
+              <div class="day-card-title">Today</div>
+              <div class="day-card-count">No entries yet</div>
+            </div>
+            <p class="day-card-snippet">Tap to start your day · or use the bar below</p>
+          </a>` : ''}
 
-        ${renderBucket('Today', todayEntries)}
-        ${renderBucket('Yesterday', yesterdayEntries)}
-        ${renderBucket('Earlier this week', thisWeekEntries)}
-        ${renderBucket('Earlier', earlierEntries)}
+        ${days.length ? `
+          <div class="day-cards-list">
+            ${days.map(([d, list]) => dayCard(d, list, today)).join('')}
+          </div>` : !todayHasEntries ? '' : ''}
 
         ${pendingActions.length ? `
         <div class="section-header mt-16">
@@ -159,6 +152,55 @@ export class HomeView {
   }
 
   destroy() {}
+}
+
+function dayCard(dateStr, entries, todayStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const yesterdayStr = previousDay(todayStr);
+  const isToday = dateStr === todayStr;
+  const isYesterday = dateStr === yesterdayStr;
+  const date = new Date(y, m - 1, d);
+
+  const dayLabel = isToday ? 'Today'
+    : isYesterday ? 'Yesterday'
+    : date.toLocaleDateString('en-GB', { weekday: 'long' });
+  const dateLabel = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+
+  // Day at-a-glance computed inline
+  const moodVals = entries.map(e => e.mood_overall).filter(v => v != null);
+  const avgMood = moodVals.length ? Math.round(moodVals.reduce((a, b) => a + b, 0) / moodVals.length * 10) / 10 : null;
+  const mCls = avgMood == null ? 'none' : avgMood >= 7 ? 'high' : avgMood >= 4 ? 'mid' : 'low';
+
+  // Top-3 themes across the day (frequency-sorted)
+  const themeCount = new Map();
+  for (const e of entries) {
+    for (const t of (e.key_themes || [])) themeCount.set(t, (themeCount.get(t) || 0) + 1);
+  }
+  const topThemes = [...themeCount.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([t]) => t);
+
+  // Snippet — try the most recent entry's summary as the day's preview text
+  const latest = entries[0]; // already sorted latest-first
+  const snippet = latest.ai_summary || latest.important_today || 'Entry recorded';
+
+  // Has love-life across the day?
+  const hasLove = entries.some(e => e.has_love_life_content);
+
+  return `
+    <a href="#day/${dateStr}" class="day-card">
+      <div class="day-card-header">
+        <div>
+          <div class="day-card-title">${dayLabel}</div>
+          <div class="day-card-date">${dateLabel}</div>
+        </div>
+        <div class="day-card-stats">
+          <span class="day-card-count">${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}</span>
+          ${avgMood != null ? `<span class="day-card-mood"><span class="mood-dot ${mCls}"></span>${avgMood}/10</span>` : ''}
+          ${hasLove ? '<span class="entry-card-love">💕</span>' : ''}
+        </div>
+      </div>
+      <p class="day-card-snippet">${snippet}</p>
+      ${topThemes.length ? `<div class="day-card-themes">${topThemes.map(t => `<span class="entry-card-tag">${t}</span>`).join('')}</div>` : ''}
+    </a>`;
 }
 
 function entryCard(entry) {

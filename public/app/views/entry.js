@@ -891,6 +891,17 @@ export class EntryView {
   async mountDetailView(container) {
     try {
       const entry   = await api.get(`/api/entries/${this.entryId}`);
+      // Fetch all entries for this date for prev/next navigation
+      const dateStr = String(entry.date).split('T')[0];
+      let sameDay = [];
+      try {
+        sameDay = await api.get(`/api/entries?date=${dateStr}&limit=20`);
+        // Sort latest-first to match Day view ordering
+        sameDay.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      } catch { sameDay = [entry]; }
+      const idx = sameDay.findIndex(e => e.id === entry.id);
+      const prev = idx > 0 ? sameDay[idx - 1] : null;
+      const next = idx < sameDay.length - 1 ? sameDay[idx + 1] : null;
       const userEdit = entry.user_edited_content || '';
       const cleaned  = entry.cleaned_content || '';
       const raw      = entry.raw_transcript || '';
@@ -909,7 +920,15 @@ export class EntryView {
 
       container.innerHTML = `
         <div class="entry-detail">
-          <div class="back-btn" id="back-btn">← Back</div>
+          <div class="entry-detail-nav">
+            <a class="back-btn" href="#day/${dateStr}">← ${formatDayShort(dateStr)}</a>
+            ${sameDay.length > 1 ? `
+              <div class="entry-detail-arrows">
+                <span class="entry-nav-count">${idx + 1} / ${sameDay.length}</span>
+                <button class="entry-nav-arrow" id="entry-prev-btn" ${!prev ? 'disabled' : ''} title="Earlier entry">‹</button>
+                <button class="entry-nav-arrow" id="entry-next-btn" ${!next ? 'disabled' : ''} title="Later entry">›</button>
+              </div>` : ''}
+          </div>
           <div class="entry-detail-meta">
             <span>${formatDate(entry.date)}</span>
             ${createdTime ? `<span>· ${createdTime}</span>` : entry.time_of_day ? `<span>· ${entry.time_of_day}</span>` : ''}
@@ -990,7 +1009,13 @@ export class EntryView {
           </div>
         </div>`;
 
-      container.querySelector('#back-btn').addEventListener('click', () => history.back());
+      // Prev / next arrow nav between same-day entries
+      container.querySelector('#entry-prev-btn')?.addEventListener('click', () => {
+        if (prev) location.hash = `#new-entry/${prev.id}`;
+      });
+      container.querySelector('#entry-next-btn')?.addEventListener('click', () => {
+        if (next) location.hash = `#new-entry/${next.id}`;
+      });
 
       // Edit AI fields (themes/tags/life areas)
       container.querySelector('#edit-ai-fields')?.addEventListener('click', () => {
@@ -1188,6 +1213,18 @@ function formatDate(d) {
   // Use local date constructor to avoid UTC off-by-one in UTC+7
   const [y, m, day] = String(d).split('T')[0].split('-').map(Number);
   return new Date(y, m - 1, day).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+}
+
+// Short label for the back link (e.g. "Today", "Yesterday", "Wed 21 May")
+function formatDayShort(dateStr) {
+  const todayD = new Date();
+  const todayStr = `${todayD.getFullYear()}-${String(todayD.getMonth()+1).padStart(2,'0')}-${String(todayD.getDate()).padStart(2,'0')}`;
+  const yest = new Date(todayD); yest.setDate(todayD.getDate() - 1);
+  const yStr = `${yest.getFullYear()}-${String(yest.getMonth()+1).padStart(2,'0')}-${String(yest.getDate()).padStart(2,'0')}`;
+  if (dateStr === todayStr) return 'Today';
+  if (dateStr === yStr) return 'Yesterday';
+  const [y, m, dd] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, dd).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
 // Common English nickname ↔ formal-name pairs. Lowercase, bidirectional.

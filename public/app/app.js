@@ -10,6 +10,7 @@ import { PeopleView }   from './views/people.js';
 import { PersonView }   from './views/person.js';
 import { SettingsView } from './views/settings.js';
 import { SearchView }   from './views/search.js';
+import { DayView }      from './views/day.js';
 
 // ── Global state ───────────────────────────────────────────
 export const AppState = {
@@ -145,6 +146,7 @@ const routes = {
   'person':   PersonView,
   'settings': SettingsView,
   'search':   SearchView,
+  'day':      DayView,
 };
 
 let currentView = null;
