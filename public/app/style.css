@@ -1379,6 +1379,23 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
   font-size: 0.75rem;
 }
 
+/* Wake lock active indicator — shown during voice recording */
+.wake-lock-badge {
+  position: fixed;
+  top: calc(var(--top-bar-height) + 8px);
+  right: 12px;
+  background: rgba(90, 158, 111, 0.15);
+  color: #5a9e6f;
+  border: 1px solid #5a9e6f;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  z-index: 200;
+  animation: fadeIn 0.3s ease;
+  pointer-events: none;
+}
+
 /* Inline "Save what I said" button right after the voice transcript.
    Belt-and-suspenders so the save action is visible exactly where the user
    is reading their words — sticky bottom bar can scroll off-screen on mobile. */

@@ -264,6 +264,11 @@ export class EntryView {
       <button class="btn btn-primary btn-lg" id="inline-save-btn">💾 Save what I said</button>
       <button class="btn btn-ghost btn-sm" id="inline-retry-btn">🎙 Record again</button>`;
     transcriptEl.after(wrap);
+    // Scroll the button into view on a tick (after DOM settles) so users on
+    // mobile see it immediately even if they were scrolled up
+    setTimeout(() => {
+      wrap.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 100);
     wrap.querySelector('#inline-save-btn').addEventListener('click', () => this.saveEntry());
     wrap.querySelector('#inline-retry-btn').addEventListener('click', () => {
       if (confirm('Discard this recording and try again?')) {
@@ -294,9 +299,17 @@ export class EntryView {
   // Browser auto-releases on tab hide; visibilitychange handler re-acquires.
   async requestWakeLock() {
     if (!('wakeLock' in navigator)) return;
+    // Don't double-request — the spec allows it but we'd leak the previous handle
+    if (this._wakeLock) return;
     try {
       this._wakeLock = await navigator.wakeLock.request('screen');
-      this._wakeLock.addEventListener('release', () => { this._wakeLock = null; });
+      this._wakeLock.addEventListener('release', () => {
+        this._wakeLock = null;
+        // Hide the visual indicator when the lock is released for any reason
+        document.getElementById('wake-lock-badge')?.remove();
+      });
+      // Visual confirmation so the user knows the screen will stay on
+      this.showWakeLockBadge();
       // Re-acquire if user switches tabs and comes back while still recording
       if (!this._wakeLockVisHandler) {
         this._wakeLockVisHandler = () => {
@@ -318,6 +331,16 @@ export class EntryView {
       document.removeEventListener('visibilitychange', this._wakeLockVisHandler);
       this._wakeLockVisHandler = null;
     }
+    document.getElementById('wake-lock-badge')?.remove();
+  }
+
+  showWakeLockBadge() {
+    if (document.getElementById('wake-lock-badge')) return;
+    const badge = document.createElement('div');
+    badge.id = 'wake-lock-badge';
+    badge.className = 'wake-lock-badge';
+    badge.innerHTML = '🔆 Screen will stay on';
+    document.body.appendChild(badge);
   }
 
   buildRecorder({ micBtn, stopBtn, hint, waveform, recStatus, transcript }) {
