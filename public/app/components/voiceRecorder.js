@@ -78,7 +78,7 @@ export class VoiceRecorder {
     this.startKeywordDetection();
   }
 
-  stop() {
+  async stop() {
     if (!this.isRecording) return;
     this.isRecording = false;
     this.stopKeywordDetection();
@@ -92,9 +92,12 @@ export class VoiceRecorder {
       }, 4000);
 
       try {
-        // On iOS: request data before stopping to ensure we get it
+        // On iOS: request data and wait briefly for ondataavailable to fire
+        // before calling stop. Without this small gap iOS Safari sometimes
+        // drops the final chunk entirely → 0-byte blob → "no audio captured".
         if (isIOS && this.mediaRecorder.state === 'recording') {
           this.mediaRecorder.requestData();
+          await new Promise(r => setTimeout(r, 250));
         }
         this.mediaRecorder.stop();
       } catch (e) {
@@ -105,9 +108,11 @@ export class VoiceRecorder {
       this._forceStop();
     }
 
-    // Stop the mic stream tracks
-    this.stream?.getTracks().forEach(t => t.stop());
+    // Stop mic tracks AFTER a tick — stopping them synchronously could
+    // cut the stream before MediaRecorder finishes flushing on some browsers.
+    const stream = this.stream;
     this.stream = null;
+    setTimeout(() => stream?.getTracks().forEach(t => t.stop()), 500);
   }
 
   _forceStop() {

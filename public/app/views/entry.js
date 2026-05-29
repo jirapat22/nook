@@ -160,6 +160,7 @@ export class EntryView {
     }
     this.stopWaveformAnimation();
     this.stopRecordingTimer();
+    document.getElementById('inline-save-btn-wrap')?.remove();
 
     const mc = this.container.querySelector('#mode-content');
     if (this.mode === 'drive') {
@@ -249,6 +250,35 @@ export class EntryView {
     // (handled inside buildRecorder via onKeyword)
   }
 
+  // Insert a prominent "Save what I said" button right after the transcript text.
+  // Belt-and-suspenders: even if the user can't find the sticky action bar on
+  // mobile (some PWAs hide it behind the keyboard or scroll position), they see
+  // a clear save action right where their words appear.
+  injectInlineSaveButton(transcriptEl) {
+    // Don't double-insert if user re-records
+    document.getElementById('inline-save-btn-wrap')?.remove();
+    const wrap = document.createElement('div');
+    wrap.id = 'inline-save-btn-wrap';
+    wrap.className = 'inline-save-wrap';
+    wrap.innerHTML = `
+      <button class="btn btn-primary btn-lg" id="inline-save-btn">💾 Save what I said</button>
+      <button class="btn btn-ghost btn-sm" id="inline-retry-btn">🎙 Record again</button>`;
+    transcriptEl.after(wrap);
+    wrap.querySelector('#inline-save-btn').addEventListener('click', () => this.saveEntry());
+    wrap.querySelector('#inline-retry-btn').addEventListener('click', () => {
+      if (confirm('Discard this recording and try again?')) {
+        wrap.remove();
+        transcriptEl.textContent = 'Your words will appear here after recording...';
+        transcriptEl.classList.add('placeholder');
+        this.rawContent = '';
+        this.clearDraft();
+        this.resetAnalysis();
+        // Re-trigger mic
+        this.container.querySelector('#mic-btn')?.click();
+      }
+    });
+  }
+
   primeTTS() {
     try {
       if (!window.speechSynthesis) return;
@@ -318,9 +348,22 @@ export class EntryView {
         this.releaseWakeLock();
 
         if (!audioBlob || audioBlob.size === 0) {
-          hint.textContent = 'No audio captured — tap to try again';
-          transcript.textContent = 'Nothing was recorded. Please try again.';
-          transcript.classList.add('placeholder');
+          // iOS Safari sometimes returns 0-byte blobs even after seeming to record.
+          // Show clear guidance + retry option rather than silently disappearing.
+          hint.textContent = '⚠️ No audio captured';
+          transcript.classList.remove('placeholder');
+          transcript.innerHTML = `
+            <div style="color:var(--color-text);margin-bottom:8px"><strong>Couldn't capture audio.</strong></div>
+            <div style="font-size:0.85rem;color:var(--color-text-muted);margin-bottom:12px">
+              On iPhone, double-check that Nook has microphone permission in Settings > Safari > Microphone.
+              If you're using the app added to your home screen, try in Safari directly first to grant permission.
+            </div>
+            <button class="btn btn-primary" id="retry-record-btn">🎙 Try recording again</button>`;
+          transcript.querySelector('#retry-record-btn')?.addEventListener('click', () => {
+            transcript.textContent = 'Tap the mic above to start.';
+            transcript.classList.add('placeholder');
+            hint.textContent = 'Tap to start recording';
+          });
           return;
         }
 
@@ -346,6 +389,10 @@ export class EntryView {
           this.saveDraft(text);
           // Show action bar right now so user can save raw even if AI analysis hangs
           this.showActionBar();
+          // Add a HUGE inline "Save what I said" button right in the transcript area
+          // so the save action is visible exactly where the user is looking, not
+          // hidden below the fold in the sticky action bar.
+          this.injectInlineSaveButton(transcript);
           // Show "Save now" CTA prominently while AI thinks
           hint.textContent = '✓ Got it — adding AI insights…';
           await this.analyzeContent(text);
