@@ -389,11 +389,13 @@ export class EntryView {
       form.append('audio', audioBlob, `recording.${ext}`);
       const res = await fetch('/api/ai/transcribe', { method: 'POST', body: form, signal: ctl.signal });
       clearTimeout(timeoutId);
+      if (this._destroyed) return; // view torn down while transcribing
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
         throw new Error(e.error || `Transcription failed (HTTP ${res.status})`);
       }
       const result = await res.json();
+      if (this._destroyed) return;
       const text = result.transcript?.trim() || '';
 
       transcript.textContent = text || '(Nothing transcribed — try recording again)';
@@ -412,12 +414,15 @@ export class EntryView {
       this.clearDraft();
     } catch (err) {
       clearTimeout(timeoutId);
+      if (this._destroyed) return;
       const aborted = err.name === 'AbortError';
       const msg = aborted ? 'Transcription took too long.' : (err.message || 'Transcription failed.');
       showToast(msg, 'error');
+      // Use textContent for the message itself (XSS-safe) and innerHTML only for structure
       transcript.innerHTML = `
-        <div style="color:var(--color-text);margin-bottom:6px"><strong>${msg}</strong></div>
+        <div style="color:var(--color-text);margin-bottom:6px"><strong class="js-err-msg"></strong></div>
         <div style="font-size:0.8rem;color:var(--color-text-muted);margin-bottom:10px">Your audio is still here — you can try again.</div>`;
+      transcript.querySelector('.js-err-msg').textContent = msg;
       this.injectRetryTranscribeButton(transcript, audioBlob, { micBtn, hint });
     } finally {
       this._inflightControllers = this._inflightControllers.filter(c => c !== ctl);
@@ -639,6 +644,10 @@ export class EntryView {
       const aborted = err.name === 'AbortError';
       showToast(aborted ? 'AI took too long — entry still saveable' : (err.message || 'AI analysis unavailable — your entry is saved.'), 'error');
       this.showActionBar();
+      // Reset the hint so it doesn't keep showing "✓ Got it — adding AI insights…"
+      // forever after the AI failed. Save button is right there, no need to nag.
+      const driveHint = this.container.querySelector('#mic-hint');
+      if (driveHint) driveHint.textContent = 'AI couldn\'t analyse — your words are still saveable below';
     } finally {
       this._inflightControllers = this._inflightControllers.filter(c => c !== ctl);
     }
