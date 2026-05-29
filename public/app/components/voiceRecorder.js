@@ -20,17 +20,27 @@ export class VoiceRecorder {
   async start() {
     if (this.isRecording) return;
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Audio constraints noticeably improve Whisper transcription quality.
+      // Fallback to plain `audio: true` if constraints are rejected by old browsers.
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      }).catch(() => navigator.mediaDevices.getUserMedia({ audio: true }));
     } catch (err) {
-      if (err.name === 'NotAllowedError') {
-        alert('Microphone permission denied. Please allow microphone access in your browser settings and try again.');
-      } else {
-        alert('Could not access microphone: ' + err.message);
-      }
+      const msg = err.name === 'NotAllowedError'
+        ? 'Microphone permission denied. Open Settings > Safari > Microphone (or your browser settings) to allow it.'
+        : 'Could not access microphone: ' + err.message;
+      // Surface to UI via callback instead of blocking alert()
+      this.onStop(new Blob([], { type: 'audio/mp4' }));
+      this._lastError = msg;
       return;
     }
 
     this.chunks = [];
+    this._onStopFired = false; // reset for each recording
     const mimeType = getSupportedMimeType();
     const options  = mimeType ? { mimeType } : {};
 
@@ -47,6 +57,8 @@ export class VoiceRecorder {
 
     this.mediaRecorder.onstop = () => {
       clearTimeout(this._stopTimeout);
+      if (this._onStopFired) return; // already fired via _forceStop
+      this._onStopFired = true;
       const actualMime = this.mediaRecorder.mimeType || mimeType || 'audio/webm';
       const blob = new Blob(this.chunks, { type: actualMime });
       this.chunks = [];
@@ -117,14 +129,17 @@ export class VoiceRecorder {
 
   _forceStop() {
     clearTimeout(this._stopTimeout);
-    // If onstop never fired, call onStop with whatever we have
+    if (this._onStopFired) return; // already fired — never double-call onStop
+    this._onStopFired = true;
+    // Use the real mime if we know it, not always mp4
+    const mimeFromRec = this.mediaRecorder?.mimeType;
+    const type = mimeFromRec || 'audio/mp4';
     if (this.chunks.length > 0) {
-      const blob = new Blob(this.chunks, { type: 'audio/mp4' });
+      const blob = new Blob(this.chunks, { type });
       this.chunks = [];
       this.onStop(blob);
     } else {
-      // Nothing recorded — call onStop with empty blob so UI can recover
-      this.onStop(new Blob([], { type: 'audio/mp4' }));
+      this.onStop(new Blob([], { type }));
     }
   }
 
@@ -178,6 +193,7 @@ export class VoiceRecorder {
 
   destroy() {
     this.isRecording = false;
+    this._onStopFired = true; // suppress any in-flight onstop callback after destroy
     this.stopKeywordDetection();
     clearTimeout(this._stopTimeout);
     clearInterval(this._iosFlushInterval);

@@ -20,6 +20,16 @@ export class EntryView {
     // Saved as the entry's followups[] array so they remain distinct sub-blocks
     // instead of being concatenated into raw_transcript (which destroyed structure).
     this.inflowFollowups = [];
+    // Inflight fetch controllers — destroy() aborts them
+    this._inflightControllers = [];
+    // Double-save guard — analyzeContent + transcribe can race against the
+    // user mashing the Save button
+    this._isSaving = false;
+    // Marker so onStop callbacks know the view was torn down mid-recording
+    this._destroyed = false;
+    // Last recorded audio blob — preserved so transcription can be retried
+    // without forcing a re-record
+    this._lastAudioBlob = null;
 
     // BUG FIX: 'voice' should activate 'drive' mode, not a separate mode
     if (params[0] === 'voice') this.mode = 'drive';
@@ -210,6 +220,30 @@ export class EntryView {
     `;
 
     this.initDriveMode();
+
+    // If a previous session left a draft (e.g. page reloaded mid-recording),
+    // offer to restore here too — was previously only handled in text mode.
+    const draft = this.loadDraft();
+    if (draft && draft.content && draft.content.length > 20 && !document.querySelector('.draft-restore-banner')) {
+      const banner = document.createElement('div');
+      banner.className = 'draft-restore-banner';
+      banner.innerHTML = `
+        <span>📝 Unsaved draft from ${new Date(draft.savedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
+        <button class="btn btn-secondary btn-sm" id="voice-draft-restore">Restore as text</button>
+        <button class="btn btn-ghost btn-sm" id="voice-draft-discard">Discard</button>`;
+      container.prepend(banner);
+      banner.querySelector('#voice-draft-restore').addEventListener('click', () => {
+        // Switch to text mode — the existing draft is still in localStorage,
+        // and text mode's own restore banner will let user load it cleanly.
+        banner.remove();
+        const textTab = this.container.querySelector('[data-mode="text"]');
+        textTab?.click();
+      });
+      banner.querySelector('#voice-draft-discard').addEventListener('click', () => {
+        this.clearDraft();
+        banner.remove();
+      });
+    }
   }
 
   initDriveMode() {
@@ -334,6 +368,84 @@ export class EntryView {
     document.getElementById('wake-lock-badge')?.remove();
   }
 
+  // Transcribe → analyze. Extracted so we can re-call it from a "retry transcription"
+  // button without forcing the user to re-record their audio.
+  async transcribeAndAnalyze(audioBlob, { micBtn, hint, transcript }) {
+    micBtn.classList.add('processing');
+    transcript.innerHTML = `
+      <span class="transcribe-spinner"><span></span><span></span><span></span></span>
+      <span style="margin-left:8px">Transcribing your recording…</span>`;
+    transcript.classList.remove('placeholder');
+
+    // 90s timeout — long enough for Whisper on slow networks, short enough
+    // that a hung request doesn't trap the user forever.
+    const ctl = new AbortController();
+    this._inflightControllers.push(ctl);
+    const timeoutId = setTimeout(() => ctl.abort(), 90000);
+
+    try {
+      const ext  = audioBlob.type.includes('mp4') ? 'mp4' : audioBlob.type.includes('ogg') ? 'ogg' : 'webm';
+      const form = new FormData();
+      form.append('audio', audioBlob, `recording.${ext}`);
+      const res = await fetch('/api/ai/transcribe', { method: 'POST', body: form, signal: ctl.signal });
+      clearTimeout(timeoutId);
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error || `Transcription failed (HTTP ${res.status})`);
+      }
+      const result = await res.json();
+      const text = result.transcript?.trim() || '';
+
+      transcript.textContent = text || '(Nothing transcribed — try recording again)';
+      if (!text) {
+        hint.textContent = 'Tap to record again';
+        micBtn.classList.remove('processing');
+        this.injectRetryTranscribeButton(transcript, audioBlob, { micBtn, hint });
+        return;
+      }
+      this.rawContent = text;
+      this.saveDraft(text);
+      this.showActionBar();
+      this.injectInlineSaveButton(transcript);
+      hint.textContent = '✓ Got it — adding AI insights…';
+      await this.analyzeContent(text);
+      this.clearDraft();
+    } catch (err) {
+      clearTimeout(timeoutId);
+      const aborted = err.name === 'AbortError';
+      const msg = aborted ? 'Transcription took too long.' : (err.message || 'Transcription failed.');
+      showToast(msg, 'error');
+      transcript.innerHTML = `
+        <div style="color:var(--color-text);margin-bottom:6px"><strong>${msg}</strong></div>
+        <div style="font-size:0.8rem;color:var(--color-text-muted);margin-bottom:10px">Your audio is still here — you can try again.</div>`;
+      this.injectRetryTranscribeButton(transcript, audioBlob, { micBtn, hint });
+    } finally {
+      this._inflightControllers = this._inflightControllers.filter(c => c !== ctl);
+      micBtn.classList.remove('processing');
+      if (!hint.textContent.startsWith('✓')) {
+        hint.textContent = 'Tap mic to record a new one';
+      }
+    }
+  }
+
+  injectRetryTranscribeButton(transcript, audioBlob, { micBtn, hint }) {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;gap:8px;margin-top:8px;flex-wrap:wrap';
+    wrap.innerHTML = `
+      <button class="btn btn-primary btn-sm" id="retry-transcribe-btn">🔄 Try transcribing again</button>
+      <button class="btn btn-ghost btn-sm" id="discard-audio-btn">Discard recording</button>`;
+    transcript.appendChild(wrap);
+    wrap.querySelector('#retry-transcribe-btn').addEventListener('click', () => {
+      this.transcribeAndAnalyze(audioBlob, { micBtn, hint, transcript });
+    });
+    wrap.querySelector('#discard-audio-btn').addEventListener('click', () => {
+      this._lastAudioBlob = null;
+      transcript.textContent = 'Your words will appear here after recording...';
+      transcript.classList.add('placeholder');
+      hint.textContent = 'Tap to start recording';
+    });
+  }
+
   showWakeLockBadge() {
     if (document.getElementById('wake-lock-badge')) return;
     const badge = document.createElement('div');
@@ -359,6 +471,7 @@ export class EntryView {
       },
 
       onStop: async (audioBlob) => {
+        if (this._destroyed) return; // view navigated away mid-recording
         // Reset UI immediately
         micBtn.classList.remove('recording', 'processing');
         stopBtn.classList.add('hidden');
@@ -370,17 +483,17 @@ export class EntryView {
         // Recording done — let the screen sleep again
         this.releaseWakeLock();
 
+        // Preserve the blob so transcription can be retried without re-recording
+        this._lastAudioBlob = (audioBlob && audioBlob.size > 0) ? audioBlob : null;
+
         if (!audioBlob || audioBlob.size === 0) {
-          // iOS Safari sometimes returns 0-byte blobs even after seeming to record.
-          // Show clear guidance + retry option rather than silently disappearing.
           hint.textContent = '⚠️ No audio captured';
           transcript.classList.remove('placeholder');
+          const errMsg = this.recorder?._lastError
+            || `On iPhone, check Settings > Safari > Microphone. If using the app from your home screen, grant permission in Safari first.`;
           transcript.innerHTML = `
             <div style="color:var(--color-text);margin-bottom:8px"><strong>Couldn't capture audio.</strong></div>
-            <div style="font-size:0.85rem;color:var(--color-text-muted);margin-bottom:12px">
-              On iPhone, double-check that Nook has microphone permission in Settings > Safari > Microphone.
-              If you're using the app added to your home screen, try in Safari directly first to grant permission.
-            </div>
+            <div style="font-size:0.85rem;color:var(--color-text-muted);margin-bottom:12px">${errMsg}</div>
             <button class="btn btn-primary" id="retry-record-btn">🎙 Try recording again</button>`;
           transcript.querySelector('#retry-record-btn')?.addEventListener('click', () => {
             transcript.textContent = 'Tap the mic above to start.';
@@ -390,49 +503,7 @@ export class EntryView {
           return;
         }
 
-        micBtn.classList.add('processing');
-        transcript.textContent = 'Transcribing your recording…';
-        transcript.classList.remove('placeholder');
-
-        try {
-          const ext  = audioBlob.type.includes('mp4') ? 'mp4' : audioBlob.type.includes('ogg') ? 'ogg' : 'webm';
-          const form = new FormData();
-          form.append('audio', audioBlob, `recording.${ext}`);
-          const result = await api.postForm('/api/ai/transcribe', form);
-          const text   = result.transcript?.trim() || '';
-
-          transcript.textContent = text || '(Nothing transcribed — tap to try again)';
-          if (!text) {
-            hint.textContent = 'Tap to record again';
-            micBtn.classList.remove('processing');
-            return;
-          }
-          // SAVE DRAFT IMMEDIATELY so it survives any later failure
-          this.rawContent = text;
-          this.saveDraft(text);
-          // Show action bar right now so user can save raw even if AI analysis hangs
-          this.showActionBar();
-          // Add a HUGE inline "Save what I said" button right in the transcript area
-          // so the save action is visible exactly where the user is looking, not
-          // hidden below the fold in the sticky action bar.
-          this.injectInlineSaveButton(transcript);
-          // Show "Save now" CTA prominently while AI thinks
-          hint.textContent = '✓ Got it — adding AI insights…';
-          await this.analyzeContent(text);
-          this.clearDraft();
-        } catch (err) {
-          showToast('Transcription failed — try recording again or switch to text', 'error');
-          transcript.textContent = '(Transcription failed — tap mic to retry, or use Text tab to type)';
-          transcript.classList.add('placeholder');
-          // Do NOT auto-switch to text mode — that wipes the user's audio attempt
-          // Let them choose to retry voice or manually switch
-        }
-
-        micBtn.classList.remove('processing');
-        // Don't overwrite hint if we already set it above with "got it"
-        if (!hint.textContent.startsWith('✓')) {
-          hint.textContent = 'Tap to record again';
-        }
+        await this.transcribeAndAnalyze(audioBlob, { micBtn, hint, transcript });
       },
 
       onKeyword: () => {
@@ -536,11 +607,23 @@ export class EntryView {
 
   // ── Analysis ────────────────────────────────────────────────
   async analyzeContent(content) {
+    const ctl = new AbortController();
+    this._inflightControllers.push(ctl);
+    const timeoutId = setTimeout(() => ctl.abort(), 60000);
     try {
-      this.analysis = await api.post('/api/ai/analyze', {
-        content,
-        conversation_history: this.conversationHistory,
+      const res = await fetch('/api/ai/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content, conversation_history: this.conversationHistory }),
+        signal: ctl.signal,
       });
+      clearTimeout(timeoutId);
+      if (this._destroyed) return; // view torn down while we awaited
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error || `AI analysis HTTP ${res.status}`);
+      }
+      this.analysis = await res.json();
       this.renderAnalysisResults();
       this.showActionBar();
 
@@ -551,8 +634,13 @@ export class EntryView {
         this.renderFollowup(this.analysis.followup_question);
       }
     } catch (err) {
-      showToast(err.message || 'AI analysis unavailable — your entry is saved.', 'error');
+      clearTimeout(timeoutId);
+      if (this._destroyed) return;
+      const aborted = err.name === 'AbortError';
+      showToast(aborted ? 'AI took too long — entry still saveable' : (err.message || 'AI analysis unavailable — your entry is saved.'), 'error');
       this.showActionBar();
+    } finally {
+      this._inflightControllers = this._inflightControllers.filter(c => c !== ctl);
     }
   }
 
@@ -628,9 +716,12 @@ export class EntryView {
 
   // ── Save ─────────────────────────────────────────────────────
   async saveEntry() {
+    if (this._isSaving) return; // guard against double-tap on inline + action-bar Save
+    this._isSaving = true;
     const saveBtn = this.container.querySelector('#save-btn');
-    saveBtn.disabled = true;
-    saveBtn.textContent = 'Saving…';
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+    const inlineBtn = document.getElementById('inline-save-btn');
+    if (inlineBtn) { inlineBtn.disabled = true; inlineBtn.textContent = 'Saving…'; }
 
     const date  = this.container.querySelector('#entry-date').value;
     const today = new Date().toISOString().split('T')[0];
@@ -642,8 +733,9 @@ export class EntryView {
 
     if (!rawContent && !this.analysis) {
       showToast('Nothing to save — write something first!', '');
-      saveBtn.disabled = false;
-      saveBtn.textContent = 'Save entry';
+      this._isSaving = false;
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save entry'; }
+      if (inlineBtn) { inlineBtn.disabled = false; inlineBtn.textContent = '💾 Save what I said'; }
       return;
     }
 
@@ -694,8 +786,9 @@ export class EntryView {
       setTimeout(() => { location.hash = '#home'; }, 1200);
     } catch (err) {
       showToast('Could not save — please try again', 'error');
-      saveBtn.disabled = false;
-      saveBtn.textContent = 'Save entry';
+      this._isSaving = false;
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save entry'; }
+      if (inlineBtn) { inlineBtn.disabled = false; inlineBtn.textContent = '💾 Save what I said'; }
     }
   }
 
@@ -1418,10 +1511,20 @@ export class EntryView {
   }
 
   destroy() {
+    this._destroyed = true;
+    // Abort any in-flight transcribe/analyze requests so their .then() chains
+    // don't try to render into a torn-down view
+    for (const ctl of (this._inflightControllers || [])) {
+      try { ctl.abort(); } catch {}
+    }
+    this._inflightControllers = [];
     this.recorder?.destroy();
     this.stopWaveformAnimation();
     this.stopRecordingTimer();
     this.releaseWakeLock();
+    // Clean up any persistent UI bits the recorder may have left
+    document.getElementById('inline-save-btn-wrap')?.remove();
+    document.getElementById('wake-lock-badge')?.remove();
   }
 }
 

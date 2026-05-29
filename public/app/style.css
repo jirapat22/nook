@@ -1379,6 +1379,23 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
   font-size: 0.75rem;
 }
 
+/* Three-dot spinner used while transcription is in flight */
+.transcribe-spinner {
+  display: inline-flex; gap: 4px; align-items: center;
+}
+.transcribe-spinner span {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  animation: transcribe-bounce 0.9s infinite ease-in-out;
+}
+.transcribe-spinner span:nth-child(2) { animation-delay: 0.15s; }
+.transcribe-spinner span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes transcribe-bounce {
+  0%, 100% { transform: translateY(0); opacity: 0.4; }
+  50%      { transform: translateY(-4px); opacity: 1; }
+}
+
 /* Wake lock active indicator — shown during voice recording */
 .wake-lock-badge {
   position: fixed;
