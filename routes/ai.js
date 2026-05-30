@@ -283,8 +283,8 @@ MOOD RULES (read carefully — this matters):
   answer is vague, the answer is null.
 
 Life areas should be from: Health & Fitness, Work & Career, Relationships & Social, Personal Growth, Creativity, Finance, Travel & Adventure, Mental Health, Family, Love Life, Hobbies, Home & Lifestyle.
-For people_mentioned, each item: { "name": string, "context": string, "facts_extracted": [], "sentiment": -5 to 5, "emotion_toward": string, "inferred_relationship": one of: "friend" | "family" | "crush" | "partner" | "colleague" | "mentor" | "acquaintance" | "unknown" }
-  - inferred_relationship: best guess based on how the user talks about them. Words like "my friend", "mum", "boss", "colleague" are strong signals. Use "unknown" only when there's no clue.
+For people_mentioned, each item: { "name": string, "context": string, "facts_extracted": [], "sentiment": -5 to 5, "emotion_toward": string, "inferred_relationship": one of: "friend" | "family" | "crush" | "partner" | "colleague" | "pet" | "group" | "acquaintance" | "unknown" }
+  - inferred_relationship: best guess based on how the user talks about them. "my friend", "mum", "boss", "colleague" are strong signals. Use "pet" for animals the user names (dogs, cats, etc.) and "group" for collective entities ("the team", "the friend group"). Use "unknown" only when there's no clue.
 missing_fields should list important fields that couldn't be determined.
 followup_question should be ONE warm, natural follow-up question (or null if nothing important is missing).${knownPeopleContext}${personMemoryContext}${existingTagsContext}${recentContext}`;
 

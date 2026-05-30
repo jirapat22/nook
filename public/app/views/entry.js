@@ -1057,7 +1057,7 @@ export class EntryView {
 
   showAddPersonConfirm(person, entryId) {
     return new Promise(resolve => {
-      const validRels = ['friend','family','crush','partner','colleague','mentor','acquaintance','unknown'];
+      const validRels = ['friend','family','crush','partner','colleague','pet','group','acquaintance','unknown'];
       const inferred = validRels.includes(person.inferred_relationship) ? person.inferred_relationship : 'unknown';
       const modal = document.createElement('div');
       modal.className = 'modal-backdrop';
@@ -1656,7 +1656,8 @@ function scoreCandidate(person, mention, entryContent) {
       family:    ['mum', 'mom', 'dad', 'sister', 'brother', 'aunt', 'uncle', 'cousin', 'family'],
       partner:   ['partner', 'boyfriend', 'girlfriend', 'husband', 'wife', 'spouse'],
       crush:     ['crush', 'date', 'flirt'],
-      mentor:    ['mentor', 'coach', 'teacher', 'advisor'],
+      pet:       ['dog', 'cat', 'puppy', 'kitten', 'pet', 'fluffy', 'fur baby', 'good boy', 'good girl'],
+      group:     ['group', 'team', 'crew', 'gang', 'the guys', 'the girls', 'everyone', 'everybody'],
     };
     const keywords = relWords[rel] || [rel];
     if (keywords.some(k => fullText.includes(k))) score += 30;

@@ -59,7 +59,7 @@ export class PeopleView {
       const rel = p.relationship_type || 'unknown';
       counts[rel] = (counts[rel] || 0) + 1;
     }
-    const groups = ['all', 'friend', 'family', 'partner', 'crush', 'colleague', 'mentor', 'acquaintance', 'unknown'];
+    const groups = ['all', 'friend', 'family', 'partner', 'crush', 'colleague', 'pet', 'group', 'acquaintance', 'unknown'];
     const chips = groups.filter(g => counts[g] > 0).map(g => `
       <button class="people-filter-chip ${this.activeFilter === g ? 'active' : ''}" data-filter="${g}">
         ${g === 'all' ? 'All' : g[0].toUpperCase() + g.slice(1)}
@@ -125,7 +125,7 @@ export class PeopleView {
         <div class="form-group">
           <label class="form-label">Relationship</label>
           <select class="select input" id="person-type">
-            ${['friend','family','crush','partner','colleague','mentor','acquaintance','unknown'].map(t =>
+            ${['friend','family','crush','partner','colleague','pet','group','acquaintance','unknown'].map(t =>
               `<option value="${t}" ${prefill.relationship_type === t ? 'selected' : ''}>${capitalize(t)}</option>`
             ).join('')}
           </select>
@@ -500,7 +500,7 @@ export class PersonView {
         <div class="form-group">
           <label class="form-label">Relationship</label>
           <select class="select input" id="edit-type">
-            ${['friend','family','crush','partner','colleague','mentor','acquaintance','unknown'].map(t =>
+            ${['friend','family','crush','partner','colleague','pet','group','acquaintance','unknown'].map(t =>
               `<option value="${t}" ${person.relationship_type === t ? 'selected' : ''}>${capitalize(t)}</option>`
             ).join('')}
           </select>
