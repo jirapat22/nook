@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db/db');
+const { syncPerson, markPersonDeleted } = require('../lib/orbit');
 
 // GET /api/people
 router.get('/', async (req, res) => {
@@ -87,6 +88,9 @@ router.post('/', async (req, res) => {
       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *
     `, [name, relationship_type, notes, JSON.stringify(profile_data), JSON.stringify(aliases), photo_url || null]);
 
+    // Fire-and-forget push to Orbit. Don't await — never block the user.
+    syncPerson(result.rows[0]).catch(() => {});
+
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('POST /api/people error:', err);
@@ -118,6 +122,10 @@ router.put('/:id', async (req, res) => {
       params
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Person not found', code: 'NOT_FOUND' });
+
+    // Fire-and-forget push to Orbit so the node reflects the latest fields.
+    syncPerson(result.rows[0]).catch(() => {});
+
     res.json(result.rows[0]);
   } catch (err) {
     console.error('PUT /api/people/:id error:', err);
@@ -128,8 +136,14 @@ router.put('/:id', async (req, res) => {
 // DELETE /api/people/:id
 router.delete('/:id', async (req, res) => {
   try {
+    // Grab the name first so we can mark the Orbit node as archived
+    const before = await db.query('SELECT name FROM people WHERE id = $1', [req.params.id]);
     const result = await db.query('DELETE FROM people WHERE id = $1 RETURNING id', [req.params.id]);
     if (!result.rows.length) return res.status(404).json({ error: 'Person not found', code: 'NOT_FOUND' });
+
+    // Fire-and-forget archive in Orbit (status: DONE)
+    markPersonDeleted(req.params.id, before.rows[0]?.name).catch(() => {});
+
     res.json({ deleted: result.rows[0].id });
   } catch (err) {
     console.error('DELETE /api/people/:id error:', err);

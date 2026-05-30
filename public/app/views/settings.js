@@ -134,6 +134,17 @@ export class SettingsView {
           </div>
         </div>
 
+        <!-- Orbit integration -->
+        <div class="settings-section-title">Orbit life-map</div>
+        <div class="card">
+          <p class="text-sm" style="margin-bottom:10px">
+            Push all your people into <strong>Orbit</strong> as nodes. New/edited people
+            sync automatically — this button does a full backfill.
+          </p>
+          <button class="btn btn-secondary btn-sm" id="orbit-sync-btn">Sync all people to Orbit</button>
+          <div id="orbit-sync-result" style="font-size:0.8rem;color:var(--color-text-muted);margin-top:6px"></div>
+        </div>
+
         <!-- Export -->
         <div class="settings-section-title">Data</div>
         <div class="card">
@@ -261,6 +272,29 @@ export class SettingsView {
       } catch {
         showToast('Could not save name', 'error');
       }
+    });
+
+    // Orbit one-shot sync — POSTs every Nook person as a node to Orbit's ingest
+    const orbitBtn = container.querySelector('#orbit-sync-btn');
+    const orbitResult = container.querySelector('#orbit-sync-result');
+    orbitBtn?.addEventListener('click', async () => {
+      orbitBtn.disabled = true;
+      orbitBtn.textContent = 'Syncing…';
+      orbitResult.textContent = '';
+      try {
+        const r = await api.post('/api/sync-orbit', {});
+        if (r.skipped) {
+          orbitResult.textContent = '⚠️ Orbit not configured (ORBIT_URL / ORBIT_INGEST_SECRET missing on the server)';
+        } else if (r.ok) {
+          orbitResult.textContent = `✓ Synced ${r.count} person${r.count !== 1 ? 's' : ''}`;
+        } else {
+          orbitResult.textContent = `❌ Sync failed (${r.error || r.status || 'unknown'})`;
+        }
+      } catch {
+        orbitResult.textContent = '❌ Sync failed — check console';
+      }
+      orbitBtn.disabled = false;
+      orbitBtn.textContent = 'Sync all people to Orbit';
     });
 
     // Mood cleanup — preview + commit

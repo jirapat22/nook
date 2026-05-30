@@ -10,6 +10,7 @@ const aiRouter = require('./routes/ai');
 const insightsRouter = require('./routes/insights');
 const peopleRouter = require('./routes/people');
 const tagsRouter = require('./routes/tags');
+const { syncAllPeople } = require('./lib/orbit');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -121,6 +122,92 @@ app.use('/api/ai', aiRouter);
 app.use('/api/insights', insightsRouter);
 app.use('/api/people', peopleRouter);
 app.use('/api/tags', tagsRouter);
+
+// ─── Orbit integration ──────────────────────────────────────────────
+// PART 2 — Public live-data summary for the Orbit hub.
+// Returns Nook's most useful current stat: journal streak + freshness.
+// Registered BEFORE the SPA catch-all so it returns JSON, not index.html.
+app.get('/api/orbit-summary', async (req, res) => {
+  try {
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+
+    // Last entry — for freshness + a short snippet
+    const lastEntry = await db.query(`
+      SELECT date, created_at,
+             COALESCE(important_today, ai_summary, '') AS snippet
+      FROM entries
+      ORDER BY date DESC, created_at DESC
+      LIMIT 1
+    `);
+    // Distinct journaled days, for streak calculation
+    const distinctDates = await db.query(`
+      SELECT DISTINCT date FROM entries ORDER BY date DESC
+    `);
+    const dateSet = new Set(distinctDates.rows.map(r => {
+      const d = r.date instanceof Date ? r.date : new Date(r.date);
+      return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+    }));
+    // Walk backwards from today (or yesterday) counting consecutive days
+    let streak = 0;
+    const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+    const yStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth()+1).padStart(2,'0')}-${String(yesterday.getDate()).padStart(2,'0')}`;
+    let cursor = dateSet.has(todayStr) ? new Date(today)
+               : dateSet.has(yStr)     ? new Date(yesterday)
+               : null;
+    while (cursor) {
+      const cs = `${cursor.getFullYear()}-${String(cursor.getMonth()+1).padStart(2,'0')}-${String(cursor.getDate()).padStart(2,'0')}`;
+      if (dateSet.has(cs)) { streak++; cursor.setDate(cursor.getDate() - 1); } else break;
+    }
+
+    if (!lastEntry.rows.length) {
+      return res.json({
+        label: 'Journal',
+        stat: 'No entries yet',
+        status: 'paused',
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    const last = lastEntry.rows[0];
+    const lastDate = last.date instanceof Date ? last.date : new Date(last.date);
+    const lastStr = `${lastDate.getUTCFullYear()}-${String(lastDate.getUTCMonth()+1).padStart(2,'0')}-${String(lastDate.getUTCDate()).padStart(2,'0')}`;
+    const daysSince = Math.floor((new Date(todayStr) - new Date(lastStr)) / 86400000);
+
+    // Status: today/yesterday = active, 2-3 days = warning, older = paused
+    const status = daysSince <= 1 ? 'active' : daysSince <= 3 ? 'warning' : 'paused';
+
+    const streakLabel = streak > 0 ? `🔥 ${streak}-day streak` : 'No streak';
+    const snippet = (last.snippet || '').trim().slice(0, 80);
+    const freshness = daysSince === 0 ? 'today' : daysSince === 1 ? 'yesterday' : `${daysSince} days ago`;
+    const stat = snippet
+      ? `${streakLabel} · ${freshness}: "${snippet}${last.snippet && last.snippet.length > 80 ? '…' : ''}"`
+      : `${streakLabel} · last entry ${freshness}`;
+
+    res.json({
+      label: 'Journal',
+      stat,
+      status,
+      updatedAt: (last.created_at || new Date()).toISOString(),
+    });
+  } catch (err) {
+    console.error('GET /api/orbit-summary error:', err);
+    // Even on failure, return a valid shape so Orbit's widget doesn't break
+    res.json({
+      label: 'Journal',
+      stat: 'unavailable',
+      status: 'paused',
+      updatedAt: new Date().toISOString(),
+    });
+  }
+});
+
+// PART 3 — On-demand bulk resync of all Nook people to Orbit.
+// Useful when first connecting, or after a re-deploy with new ORBIT_* env vars.
+app.post('/api/sync-orbit', async (req, res) => {
+  const result = await syncAllPeople();
+  res.json(result);
+});
 
 // SPA fallback — serve index.html for any unknown route
 app.get('*', (req, res) => {
