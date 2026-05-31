@@ -107,6 +107,15 @@ ALTER TABLE people ADD COLUMN IF NOT EXISTS aliases JSONB DEFAULT '[]';
 -- Avoids needing object storage for a personal app.
 ALTER TABLE people ADD COLUMN IF NOT EXISTS photo_url TEXT;
 
+-- Friend circles / subgroups (free-form text: "Uni gang", "Travel crew").
+-- Mostly used for friends but works for any relationship_type.
+ALTER TABLE people ADD COLUMN IF NOT EXISTS subgroup TEXT;
+
+-- "Met through" — who introduced you to this person.
+-- ON DELETE SET NULL so deleting the introducer doesn't cascade.
+ALTER TABLE people ADD COLUMN IF NOT EXISTS introduced_by_id UUID REFERENCES people(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_people_introduced_by ON people(introduced_by_id);
+
 -- Track HOW a mention got linked, so we know which to offer "wrong person?" undo for
 -- Values: 'exact', 'alias', 'fuzzy_confirmed', 'auto_scored', 'manual', 'new_person'
 ALTER TABLE person_mentions ADD COLUMN IF NOT EXISTS link_method VARCHAR(20);

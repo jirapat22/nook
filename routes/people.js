@@ -65,11 +65,25 @@ router.get('/:id', async (req, res) => {
       }
     }
 
+    // Who introduced this person (the named introducer), if any
+    let introducedBy = null;
+    if (personResult.rows[0].introduced_by_id) {
+      const r = await db.query('SELECT id, name, photo_url FROM people WHERE id = $1', [personResult.rows[0].introduced_by_id]);
+      introducedBy = r.rows[0] || null;
+    }
+    // Who THIS person introduced (reverse FK lookup)
+    const introduced = await db.query(
+      'SELECT id, name, photo_url FROM people WHERE introduced_by_id = $1 ORDER BY name ASC',
+      [req.params.id]
+    );
+
     res.json({
       ...personResult.rows[0],
       mentions: mentions.rows,
       emotion_breakdown: emotions.rows,
       all_facts: allFacts,
+      introduced_by: introducedBy,
+      introduced: introduced.rows,
     });
   } catch (err) {
     console.error('GET /api/people/:id error:', err);
@@ -80,13 +94,14 @@ router.get('/:id', async (req, res) => {
 // POST /api/people — create person
 router.post('/', async (req, res) => {
   try {
-    const { name, relationship_type, notes, profile_data = {}, aliases = [], photo_url } = req.body;
+    const { name, relationship_type, notes, profile_data = {}, aliases = [], photo_url, subgroup, introduced_by_id } = req.body;
     if (!name) return res.status(400).json({ error: 'name is required', code: 'VALIDATION_ERROR' });
 
     const result = await db.query(`
-      INSERT INTO people (name, relationship_type, notes, profile_data, aliases, photo_url)
-      VALUES ($1, $2, $3, $4, $5, $6) RETURNING *
-    `, [name, relationship_type, notes, JSON.stringify(profile_data), JSON.stringify(aliases), photo_url || null]);
+      INSERT INTO people (name, relationship_type, notes, profile_data, aliases, photo_url, subgroup, introduced_by_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *
+    `, [name, relationship_type, notes, JSON.stringify(profile_data), JSON.stringify(aliases), photo_url || null,
+        subgroup || null, introduced_by_id || null]);
 
     // Fire-and-forget push to Orbit. Don't await — never block the user.
     syncPerson(result.rows[0]).catch(() => {});
@@ -105,13 +120,15 @@ router.put('/:id', async (req, res) => {
     const params = [];
     let idx = 1;
 
-    const { name, relationship_type, notes, profile_data, aliases, photo_url } = req.body;
+    const { name, relationship_type, notes, profile_data, aliases, photo_url, subgroup, introduced_by_id } = req.body;
     if (name !== undefined) { updates.push(`name = $${idx++}`); params.push(name); }
     if (relationship_type !== undefined) { updates.push(`relationship_type = $${idx++}`); params.push(relationship_type); }
     if (notes !== undefined) { updates.push(`notes = $${idx++}`); params.push(notes); }
     if (profile_data !== undefined) { updates.push(`profile_data = $${idx++}`); params.push(JSON.stringify(profile_data)); }
     if (aliases !== undefined) { updates.push(`aliases = $${idx++}`); params.push(JSON.stringify(aliases)); }
     if (photo_url !== undefined) { updates.push(`photo_url = $${idx++}`); params.push(photo_url); }
+    if (subgroup !== undefined) { updates.push(`subgroup = $${idx++}`); params.push(subgroup || null); }
+    if (introduced_by_id !== undefined) { updates.push(`introduced_by_id = $${idx++}`); params.push(introduced_by_id || null); }
 
     if (!updates.length) return res.status(400).json({ error: 'No fields to update', code: 'VALIDATION_ERROR' });
     updates.push(`updated_at = NOW()`);

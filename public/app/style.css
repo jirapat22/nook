@@ -1877,6 +1877,81 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
 }
 .draft-restore-banner span { flex: 1; min-width: 140px; }
 
+/* Subgroup chip on person cards (small pill next to name) */
+.person-subgroup-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
+/* Secondary subgroup filter bar — shown when a relationship is selected */
+.people-subfilter-bar {
+  display: flex; gap: 6px;
+  overflow-x: auto;
+  margin-bottom: 12px;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.people-subfilter-bar:empty { margin-bottom: 0; padding: 0; }
+.people-subfilter-bar::-webkit-scrollbar { display: none; }
+.people-subfilter-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--color-surface-offset);
+  border: 1px solid var(--color-border-light);
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.people-subfilter-chip.active {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+/* "Introduced you to" chip list on person profile */
+.introduced-list {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-top: 6px;
+}
+.introduced-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px 4px 4px;
+  background: var(--color-surface-offset);
+  border: 1px solid var(--color-border-light);
+  border-radius: 999px;
+  text-decoration: none;
+  color: var(--color-text);
+  font-size: 0.8rem;
+  transition: all 0.15s ease;
+}
+.introduced-chip:hover {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+}
+.introduced-chip img {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.introduced-chip-initials {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: white;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0.65rem; font-weight: 600;
+}
+
 /* People filter chips — sort by relationship type on People view */
 .people-filter-bar {
   display: flex; gap: 6px;

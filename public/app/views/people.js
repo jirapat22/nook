@@ -3,6 +3,7 @@ import { api, showToast } from '../app.js';
 export class PeopleView {
   constructor() {
     this.activeFilter = 'all';
+    this.activeSubgroup = 'all'; // secondary filter within a relationship
     this.people = [];
   }
 
@@ -18,6 +19,7 @@ export class PeopleView {
           <button class="btn btn-primary btn-sm" id="add-person-btn">+ Add</button>
         </div>
         <div class="people-filter-bar" id="people-filter-bar"></div>
+        <div class="people-subfilter-bar" id="people-subfilter-bar"></div>
         <div id="people-list-container"></div>
       </div>
     `;
@@ -70,7 +72,42 @@ export class PeopleView {
     bar.querySelectorAll('.people-filter-chip').forEach(chip => {
       chip.addEventListener('click', () => {
         this.activeFilter = chip.dataset.filter;
+        this.activeSubgroup = 'all'; // reset subgroup when changing top-level filter
         this.renderFilterBar();
+        this.renderSubgroupBar();
+        this.renderList();
+      });
+    });
+
+    this.renderSubgroupBar();
+  }
+
+  renderSubgroupBar() {
+    // Show secondary subgroup filter only when a real relationship is selected
+    // and there's at least one subgroup among those people.
+    const bar = this.container.querySelector('#people-subfilter-bar');
+    if (this.activeFilter === 'all') { bar.innerHTML = ''; return; }
+    const relPeople = this.people.filter(p => (p.relationship_type || 'unknown') === this.activeFilter);
+    const counts = { all: relPeople.length };
+    for (const p of relPeople) {
+      const sg = (p.subgroup || '').trim();
+      if (sg) counts[sg] = (counts[sg] || 0) + 1;
+    }
+    const subgroups = Object.keys(counts).filter(k => k !== 'all');
+    if (subgroups.length === 0) { bar.innerHTML = ''; return; }
+
+    const chips = [
+      `<button class="people-subfilter-chip ${this.activeSubgroup === 'all' ? 'active' : ''}" data-subgroup="all">All ${capitalize(this.activeFilter)}s <span class="people-filter-count">${counts.all}</span></button>`,
+      ...subgroups.sort().map(sg => `
+        <button class="people-subfilter-chip ${this.activeSubgroup === sg ? 'active' : ''}" data-subgroup="${sg.replace(/"/g, '&quot;')}">
+          ${sg} <span class="people-filter-count">${counts[sg]}</span>
+        </button>`),
+    ].join('');
+    bar.innerHTML = chips;
+    bar.querySelectorAll('.people-subfilter-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        this.activeSubgroup = chip.dataset.subgroup;
+        this.renderSubgroupBar();
         this.renderList();
       });
     });
@@ -78,9 +115,13 @@ export class PeopleView {
 
   renderList() {
     const listContainer = this.container.querySelector('#people-list-container');
-    const filtered = this.activeFilter === 'all'
+    let filtered = this.activeFilter === 'all'
       ? this.people
       : this.people.filter(p => (p.relationship_type || 'unknown') === this.activeFilter);
+    // Apply subgroup filter if active
+    if (this.activeSubgroup !== 'all') {
+      filtered = filtered.filter(p => (p.subgroup || '').trim() === this.activeSubgroup);
+    }
 
     if (!filtered.length) {
       listContainer.innerHTML = `<div class="empty-state" style="padding:24px 0"><p class="text-muted">No people in this category yet.</p></div>`;
@@ -131,6 +172,19 @@ export class PeopleView {
           </select>
         </div>
         <div class="form-group">
+          <label class="form-label">Group / circle (optional)</label>
+          <input type="text" class="input" id="person-subgroup" list="subgroup-suggestions"
+            placeholder="e.g. Uni gang, Travel crew, Work team">
+          <datalist id="subgroup-suggestions"></datalist>
+          <div style="font-size:0.72rem;color:var(--color-text-faint);margin-top:4px">Group people together — handy for friend circles.</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Met through (optional)</label>
+          <select class="select input" id="person-introduced-by">
+            <option value="">— Nobody / direct —</option>
+          </select>
+        </div>
+        <div class="form-group">
           <label class="form-label">Notes (optional)</label>
           <textarea class="textarea" id="person-notes" placeholder="Anything you want to remember..." style="min-height:80px"></textarea>
         </div>
@@ -173,6 +227,11 @@ export class PeopleView {
     });
     removeBtn.addEventListener('click', () => { photoDataUrl = null; setPreview(null); });
 
+    // Populate subgroup datalist + "Met through" dropdown from the existing people
+    // (this.people was loaded by loadPeople()). For Add we exclude no one;
+    // Edit modal does this separately to exclude self.
+    populateSubgroupAndIntroducedBy(modal, this.people || [], null);
+
     modal.querySelector('#modal-save').addEventListener('click', async () => {
       const name = modal.querySelector('#person-name').value.trim();
       if (!name) { showToast('Name is required', ''); return; }
@@ -185,6 +244,8 @@ export class PeopleView {
           relationship_type: modal.querySelector('#person-type').value,
           notes: modal.querySelector('#person-notes').value.trim(),
           photo_url: photoDataUrl,
+          subgroup: modal.querySelector('#person-subgroup').value.trim() || null,
+          introduced_by_id: modal.querySelector('#person-introduced-by').value || null,
         });
         modal.remove();
         showToast('Person added!', 'success');
@@ -271,6 +332,35 @@ const NICKNAME_GROUPS = [
   ['isabella', 'isa', 'bella', 'izzy'],
 ];
 
+// Populate the subgroup datalist + introduced-by dropdown inside a person modal.
+// Pass excludeId to skip the current person (for Edit, can't introduce yourself).
+function populateSubgroupAndIntroducedBy(modal, allPeople, excludeId, prefillSubgroup, prefillIntroducedById) {
+  const datalist = modal.querySelector('#subgroup-suggestions') || modal.querySelector('#edit-subgroup-suggestions');
+  const introSelect = modal.querySelector('#person-introduced-by') || modal.querySelector('#edit-introduced-by');
+  const subgroupInput = modal.querySelector('#person-subgroup') || modal.querySelector('#edit-subgroup');
+
+  // Unique subgroups across all people, frequency-sorted
+  const seen = new Map();
+  for (const p of (allPeople || [])) {
+    if (p.subgroup && p.subgroup.trim()) {
+      const k = p.subgroup.trim();
+      seen.set(k, (seen.get(k) || 0) + 1);
+    }
+  }
+  const subgroups = [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([s]) => s);
+  if (datalist) datalist.innerHTML = subgroups.map(s => `<option value="${s.replace(/"/g, '&quot;')}">`).join('');
+
+  // Pre-fill subgroup text
+  if (subgroupInput && prefillSubgroup) subgroupInput.value = prefillSubgroup;
+
+  // Introduced-by dropdown — everyone except self (for Edit)
+  if (introSelect) {
+    const candidates = (allPeople || []).filter(p => p.id !== excludeId);
+    introSelect.innerHTML = '<option value="">— Nobody / direct —</option>' +
+      candidates.map(p => `<option value="${p.id}" ${p.id === prefillIntroducedById ? 'selected' : ''}>${p.name}${p.relationship_type ? ' · ' + p.relationship_type : ''}</option>`).join('');
+  }
+}
+
 // Read an image file, downscale to fit in `maxSize` px (longest side), return
 // data URL. Keeps photo storage tiny (~10-30KB JPEG) so we can keep them inline
 // in the database without needing object storage.
@@ -338,10 +428,14 @@ export class PersonView {
           <div class="person-profile-avatar${person.photo_url ? ' has-photo' : ''}">${person.photo_url ? `<img src="${person.photo_url}" alt="">` : initials}</div>
           <div class="person-profile-title">
             <h2>${person.name}</h2>
-            <p>${person.relationship_type ? capitalize(person.relationship_type) : 'Person'} · ${person.mention_count || 0} mention${person.mention_count !== 1 ? 's' : ''}</p>
+            <p>${person.relationship_type ? capitalize(person.relationship_type) : 'Person'}${person.subgroup ? ` · <span class="person-subgroup-chip">${person.subgroup}</span>` : ''} · ${person.mention_count || 0} mention${person.mention_count !== 1 ? 's' : ''}</p>
             ${Array.isArray(person.aliases) && person.aliases.length ? `
               <p style="font-size:0.8rem;color:var(--color-text-faint);margin-top:2px">
                 Also: ${person.aliases.join(', ')}
+              </p>` : ''}
+            ${person.introduced_by ? `
+              <p style="font-size:0.8rem;color:var(--color-text-faint);margin-top:4px">
+                via <a href="#person/${person.introduced_by.id}" style="color:var(--color-primary)">${person.introduced_by.name}</a>
               </p>` : ''}
           </div>
         </div>
@@ -357,6 +451,18 @@ export class PersonView {
           <div class="ai-section-label">What I know about ${person.name}</div>
           <div class="facts-list mt-8">
             ${person.all_facts.map(f => `<span class="fact-chip">${f}</span>`).join('')}
+          </div>
+        </div>` : ''}
+
+        ${person.introduced?.length ? `
+        <div class="card mb-12">
+          <div class="ai-section-label">${person.name} introduced you to</div>
+          <div class="introduced-list">
+            ${person.introduced.map(p => `
+              <a href="#person/${p.id}" class="introduced-chip">
+                ${p.photo_url ? `<img src="${p.photo_url}" alt="">` : `<span class="introduced-chip-initials">${(p.name[0] || '?').toUpperCase()}</span>`}
+                <span>${p.name}</span>
+              </a>`).join('')}
           </div>
         </div>` : ''}
 
@@ -506,6 +612,18 @@ export class PersonView {
           </select>
         </div>
         <div class="form-group">
+          <label class="form-label">Group / circle (optional)</label>
+          <input type="text" class="input" id="edit-subgroup" list="edit-subgroup-suggestions"
+            placeholder="e.g. Uni gang, Travel crew">
+          <datalist id="edit-subgroup-suggestions"></datalist>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Met through (optional)</label>
+          <select class="select input" id="edit-introduced-by">
+            <option value="">— Nobody / direct —</option>
+          </select>
+        </div>
+        <div class="form-group">
           <label class="form-label">Notes</label>
           <textarea class="textarea" id="edit-notes" style="min-height:80px">${person.notes || ''}</textarea>
         </div>
@@ -549,6 +667,12 @@ export class PersonView {
       renderPreview();
     });
 
+    // Load all people to populate the introduced-by dropdown + subgroup datalist.
+    // Fires async — modal opens immediately, dropdowns hydrate a moment later.
+    api.get('/api/people').then(all => {
+      populateSubgroupAndIntroducedBy(modal, all, person.id, person.subgroup, person.introduced_by_id);
+    }).catch(() => {});
+
     modal.querySelector('#edit-save').addEventListener('click', async () => {
       const aliases = modal.querySelector('#edit-aliases').value
         .split(',').map(s => s.trim()).filter(s => s.length > 0);
@@ -557,6 +681,8 @@ export class PersonView {
         aliases,
         relationship_type: modal.querySelector('#edit-type').value,
         notes: modal.querySelector('#edit-notes').value.trim(),
+        subgroup: modal.querySelector('#edit-subgroup').value.trim() || null,
+        introduced_by_id: modal.querySelector('#edit-introduced-by').value || null,
       };
       if (photoChanged) payload.photo_url = photoDataUrl;
       try {
@@ -590,7 +716,7 @@ function personCard(p) {
     <div class="person-card" data-id="${p.id}">
       <div class="person-avatar${p.photo_url ? ' has-photo' : ''}">${avatarInner}</div>
       <div class="person-info">
-        <div class="person-name">${p.name}</div>
+        <div class="person-name">${p.name}${p.subgroup ? ` <span class="person-subgroup-chip">${p.subgroup}</span>` : ''}</div>
         <div class="person-meta">
           <span>${p.relationship_type ? capitalize(p.relationship_type) : '—'}</span>
           <span>·</span>
