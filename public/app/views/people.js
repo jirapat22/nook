@@ -173,9 +173,12 @@ export class PeopleView {
         </div>
         <div class="form-group">
           <label class="form-label">Group / circle (optional)</label>
-          <input type="text" class="input" id="person-subgroup" list="subgroup-suggestions"
-            placeholder="e.g. Uni gang, Travel crew, Work team">
-          <datalist id="subgroup-suggestions"></datalist>
+          <select class="select input" id="person-subgroup-select">
+            <option value="">— No group —</option>
+            <option value="__new__">+ Create new group…</option>
+          </select>
+          <input type="text" class="input hidden" id="person-subgroup-new"
+            placeholder="Name your new group (e.g. Uni gang)" style="margin-top:6px">
           <div style="font-size:0.72rem;color:var(--color-text-faint);margin-top:4px">Group people together — handy for friend circles.</div>
         </div>
         <div class="form-group">
@@ -244,7 +247,7 @@ export class PeopleView {
           relationship_type: modal.querySelector('#person-type').value,
           notes: modal.querySelector('#person-notes').value.trim(),
           photo_url: photoDataUrl,
-          subgroup: modal.querySelector('#person-subgroup').value.trim() || null,
+          subgroup: readSubgroup(modal),
           introduced_by_id: modal.querySelector('#person-introduced-by').value || null,
         });
         modal.remove();
@@ -335,9 +338,9 @@ const NICKNAME_GROUPS = [
 // Populate the subgroup datalist + introduced-by dropdown inside a person modal.
 // Pass excludeId to skip the current person (for Edit, can't introduce yourself).
 function populateSubgroupAndIntroducedBy(modal, allPeople, excludeId, prefillSubgroup, prefillIntroducedById) {
-  const datalist = modal.querySelector('#subgroup-suggestions') || modal.querySelector('#edit-subgroup-suggestions');
+  const subgroupSelect = modal.querySelector('#person-subgroup-select') || modal.querySelector('#edit-subgroup-select');
+  const subgroupNewInput = modal.querySelector('#person-subgroup-new') || modal.querySelector('#edit-subgroup-new');
   const introSelect = modal.querySelector('#person-introduced-by') || modal.querySelector('#edit-introduced-by');
-  const subgroupInput = modal.querySelector('#person-subgroup') || modal.querySelector('#edit-subgroup');
 
   // Unique subgroups across all people, frequency-sorted
   const seen = new Map();
@@ -347,18 +350,57 @@ function populateSubgroupAndIntroducedBy(modal, allPeople, excludeId, prefillSub
       seen.set(k, (seen.get(k) || 0) + 1);
     }
   }
-  const subgroups = [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([s]) => s);
-  if (datalist) datalist.innerHTML = subgroups.map(s => `<option value="${s.replace(/"/g, '&quot;')}">`).join('');
+  const subgroups = [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([s, c]) => ({ name: s, count: c }));
 
-  // Pre-fill subgroup text
-  if (subgroupInput && prefillSubgroup) subgroupInput.value = prefillSubgroup;
+  // Build the subgroup dropdown — existing groups, then "+ Create new"
+  if (subgroupSelect) {
+    const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+    const options = [
+      `<option value="">— No group —</option>`,
+      ...subgroups.map(g => `<option value="${esc(g.name)}" ${prefillSubgroup === g.name ? 'selected' : ''}>${esc(g.name)} (${g.count})</option>`),
+      `<option value="__new__">+ Create new group…</option>`,
+    ];
+    subgroupSelect.innerHTML = options.join('');
 
-  // Introduced-by dropdown — everyone except self (for Edit)
+    // If the prefill is a value not in the dropdown (rare), select __new__ and pre-fill the text
+    if (prefillSubgroup && !subgroups.find(g => g.name === prefillSubgroup)) {
+      subgroupSelect.value = '__new__';
+      if (subgroupNewInput) {
+        subgroupNewInput.value = prefillSubgroup;
+        subgroupNewInput.classList.remove('hidden');
+      }
+    }
+
+    // Wire toggle: show text input only when "+ Create new" is picked
+    subgroupSelect.addEventListener('change', () => {
+      if (subgroupSelect.value === '__new__') {
+        subgroupNewInput?.classList.remove('hidden');
+        subgroupNewInput?.focus();
+      } else {
+        subgroupNewInput?.classList.add('hidden');
+        if (subgroupNewInput) subgroupNewInput.value = '';
+      }
+    });
+  }
+
+  // Introduced-by dropdown — everyone except self
   if (introSelect) {
     const candidates = (allPeople || []).filter(p => p.id !== excludeId);
     introSelect.innerHTML = '<option value="">— Nobody / direct —</option>' +
       candidates.map(p => `<option value="${p.id}" ${p.id === prefillIntroducedById ? 'selected' : ''}>${p.name}${p.relationship_type ? ' · ' + p.relationship_type : ''}</option>`).join('');
   }
+}
+
+// Resolve the subgroup value from a modal — either the selected dropdown
+// option or the "new group" text input when __new__ is picked.
+function readSubgroup(modal) {
+  const select = modal.querySelector('#person-subgroup-select') || modal.querySelector('#edit-subgroup-select');
+  if (!select) return null;
+  if (select.value === '__new__') {
+    const input = modal.querySelector('#person-subgroup-new') || modal.querySelector('#edit-subgroup-new');
+    return (input?.value || '').trim() || null;
+  }
+  return select.value || null;
 }
 
 // Read an image file, downscale to fit in `maxSize` px (longest side), return
@@ -613,9 +655,12 @@ export class PersonView {
         </div>
         <div class="form-group">
           <label class="form-label">Group / circle (optional)</label>
-          <input type="text" class="input" id="edit-subgroup" list="edit-subgroup-suggestions"
-            placeholder="e.g. Uni gang, Travel crew">
-          <datalist id="edit-subgroup-suggestions"></datalist>
+          <select class="select input" id="edit-subgroup-select">
+            <option value="">— No group —</option>
+            <option value="__new__">+ Create new group…</option>
+          </select>
+          <input type="text" class="input hidden" id="edit-subgroup-new"
+            placeholder="Name your new group" style="margin-top:6px">
         </div>
         <div class="form-group">
           <label class="form-label">Met through (optional)</label>
@@ -681,7 +726,7 @@ export class PersonView {
         aliases,
         relationship_type: modal.querySelector('#edit-type').value,
         notes: modal.querySelector('#edit-notes').value.trim(),
-        subgroup: modal.querySelector('#edit-subgroup').value.trim() || null,
+        subgroup: readSubgroup(modal),
         introduced_by_id: modal.querySelector('#edit-introduced-by').value || null,
       };
       if (photoChanged) payload.photo_url = photoDataUrl;

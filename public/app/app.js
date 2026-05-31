@@ -180,16 +180,21 @@ const routes = {
 
 let currentView = null;
 
-// Redirects to onboarding on first launch (only once)
+// Redirects to onboarding on first launch (only once).
+// Bounded by a hard 3s timeout — without it, a slow settings fetch would
+// block route handling entirely (white screen behind shell). If the check
+// times out we err on "not fresh" so the user gets the app, not a forced flow.
 let _onboardingChecked = false;
 async function maybeRedirectToOnboarding() {
   if (_onboardingChecked) return false;
   _onboardingChecked = true;
   try {
-    const s = await api.get('/api/settings');
+    const s = await Promise.race([
+      api.get('/api/settings'),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000)),
+    ]);
     const done = s.onboarding_complete === true || s.onboarding_complete === 'true';
     if (done) return false;
-    // Treat as fresh install if neither name nor API key configured
     const name = (typeof s.user_name === 'string' ? s.user_name : '').replace(/^"|"$/g, '');
     const key  = (typeof s.groq_api_key === 'string' ? s.groq_api_key : '').replace(/^"|"$/g, '');
     const isFresh = (!name || name === 'there') && (!key || key === 'null');
@@ -224,17 +229,36 @@ async function handleRoute() {
   container.innerHTML = '<div class="loading-spinner"></div>';
   container.scrollTop = 0;
 
+  // Watchdog: if mount stalls (hung fetch, infinite await), show a recoverable
+  // error after 12s instead of leaving the user staring at the spinner / blank.
+  let watchdogFired = false;
+  const watchdog = setTimeout(() => {
+    watchdogFired = true;
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">⏱️</div>
+        <h3>Taking longer than expected</h3>
+        <p>Your network or the server might be slow.</p>
+        <button class="btn btn-primary btn-sm mt-12" onclick="location.reload()">Reload</button>
+        <a href="#home" class="btn btn-ghost btn-sm mt-12">Go home</a>
+      </div>`;
+  }, 12000);
+
   try {
     currentView = new ViewClass(params);
     await currentView.mount(container);
+    clearTimeout(watchdog);
   } catch (err) {
+    clearTimeout(watchdog);
+    if (watchdogFired) return; // user already sees the watchdog UI
     console.error('View mount error:', err);
     container.innerHTML = `
       <div class="empty-state">
         <div class="empty-state-icon">😕</div>
         <h3>Something went wrong</h3>
         <p>${err.message || 'Could not load this view.'}</p>
-        <a href="#home" class="btn btn-primary btn-sm mt-12">Go home</a>
+        <button class="btn btn-primary btn-sm mt-12" onclick="location.reload()">Reload</button>
+        <a href="#home" class="btn btn-ghost btn-sm mt-12">Go home</a>
       </div>`;
   }
 

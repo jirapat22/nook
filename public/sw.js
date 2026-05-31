@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nook-v31';
+const CACHE_NAME = 'nook-v32';
 const API_CACHE  = 'nook-api-v1'; // separate cache for GET API responses
 const STATIC_ASSETS = [
   '/',
@@ -92,17 +92,22 @@ self.addEventListener('fetch', event => {
 // API handler: GET → network-first with cache fallback; mutations → queue on failure
 async function handleApi(request) {
   if (request.method === 'GET') {
+    // 8s hard timeout. Without this, a hung server (mid-redeploy, network
+    // blip) would block the page indefinitely → white screen behind the shell.
+    const ctl = new AbortController();
+    const timeoutId = setTimeout(() => ctl.abort(), 8000);
     try {
-      const response = await fetch(request.clone());
-      // Cache successful responses so we can serve them if next deploy hiccups
+      const response = await fetch(request.clone(), { signal: ctl.signal });
+      clearTimeout(timeoutId);
       if (response.ok) {
         const clone = response.clone();
         caches.open(API_CACHE).then(cache => cache.put(request, clone));
       }
       return response;
     } catch (err) {
-      // Network failed (deploy, brief outage). Serve last known-good response
-      // if we have one — empty UI is worse than slightly stale data.
+      clearTimeout(timeoutId);
+      // Network failed OR timed out. Serve last known-good response if we have
+      // one — slightly stale data beats a hung page.
       const cached = await caches.match(request, { cacheName: API_CACHE });
       if (cached) return cached;
       // Truly never seen this endpoint — return the offline placeholder so the
