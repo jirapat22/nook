@@ -226,7 +226,13 @@ async function handleRoute() {
   }
 
   const container = document.getElementById('app-content');
-  container.innerHTML = '<div class="loading-spinner"></div>';
+  // Inline style on the text fallback so it's visible even when CSS variables
+  // haven't resolved yet (which makes the spinner white-on-white = blank).
+  container.innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;padding:60px 20px;gap:12px">
+      <div class="loading-spinner"></div>
+      <p style="font-size:0.875rem;color:#888;margin:0">Loading…</p>
+    </div>`;
   container.scrollTop = 0;
 
   // Watchdog: if mount stalls (hung fetch, infinite await), show a recoverable
@@ -238,11 +244,11 @@ async function handleRoute() {
       <div class="empty-state">
         <div class="empty-state-icon">⏱️</div>
         <h3>Taking longer than expected</h3>
-        <p>Your network or the server might be slow.</p>
-        <button class="btn btn-primary btn-sm mt-12" onclick="location.reload()">Reload</button>
+        <p>Server might be waking up — usually takes 10-20s on first load.</p>
+        <button class="btn btn-primary btn-sm mt-12" onclick="location.reload()">Try again</button>
         <a href="#home" class="btn btn-ghost btn-sm mt-12">Go home</a>
       </div>`;
-  }, 12000);
+  }, 6000);
 
   try {
     currentView = new ViewClass(params);
@@ -379,14 +385,49 @@ function renderShell() {
 
 // ── Init ─────────────────────────────────────────────────────
 async function init() {
+  // Register SW first — this lets the browser start fetching the new SW
+  // in parallel with the settings load rather than sequentially after it.
+  // Also: when a new SW is waiting, tell it to skip waiting immediately so
+  // stale JS files don't outlive a deploy.
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').then(reg => {
+      _swReg = reg;
+      // New SW installed and waiting — activate it now without waiting for
+      // all tabs to close. The page will reload via controllerchange below.
+      if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+      reg.addEventListener('updatefound', () => {
+        const nw = reg.installing;
+        nw?.addEventListener('statechange', () => {
+          if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+            nw.postMessage({ type: 'SKIP_WAITING' });
+          }
+        });
+      });
+    }).catch(err => console.warn('SW registration failed:', err));
+
+    // When the SW controller changes (new SW took over), reload once so the
+    // page runs fresh JS instead of a mix of old-cached + new.
+    let reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!reloading) { reloading = true; location.reload(); }
+    });
+  }
+
+  // Timeout settings fetch — without this, a slow API on first load blocks
+  // everything: shell doesn't render, page stays blank.
+  let settings = {};
   try {
-    const settings = await api.get('/api/settings');
+    settings = await Promise.race([
+      api.get('/api/settings'),
+      new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 5000)),
+    ]);
     if (settings.theme) applyTheme(settings.theme);
     AppState.ttsEnabled = settings.tts_enabled !== false;
     AppState.ttsSpeed = parseFloat(settings.tts_speed) || 1;
     if (settings.streak_count) AppState.streakCount = parseInt(settings.streak_count) || 0;
   } catch (err) {
-    console.warn('Could not load settings (DB might be cold starting):', err.message);
+    console.warn('Could not load settings:', err.message);
+    // settings stays {} — app still runs with defaults
   }
 
   renderShell();
@@ -397,15 +438,8 @@ async function init() {
   window.addEventListener('offline', updateOnlineStatus);
   window.addEventListener('hashchange', handleRoute);
 
-  // Register service worker
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js')
-      .then(reg => { _swReg = reg; })
-      .catch(err => console.warn('SW registration failed:', err));
-  }
-
-  // Schedule daily reminder if enabled
-  scheduleReminder(settings).catch(() => {});
+  // Guard: scheduleReminder needs reminder_enabled in settings; skip if blank.
+  if (settings.reminder_enabled) scheduleReminder(settings).catch(() => {});
 
   // Initial route
   await handleRoute();

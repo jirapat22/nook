@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nook-v32';
+const CACHE_NAME = 'nook-v33';
 const API_CACHE  = 'nook-api-v1'; // separate cache for GET API responses
 const STATIC_ASSETS = [
   '/',
@@ -23,11 +23,18 @@ const STATIC_ASSETS = [
   '/icons/icon.svg',
 ];
 
-// Install: cache static assets
+// Install: cache static assets + skip waiting immediately
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => cache.addAll(STATIC_ASSETS)).then(() => self.skipWaiting())
   );
+});
+
+// Allow the page to trigger skipWaiting so a new SW activates immediately
+// rather than waiting for all tabs to close. Page handles the reload via
+// controllerchange listener in app.js.
+self.addEventListener('message', event => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 // Activate: clean old caches (keep current static cache + API cache)
