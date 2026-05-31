@@ -1660,7 +1660,11 @@ function scoreCandidate(person, mention, entryContent) {
       group:     ['group', 'team', 'crew', 'gang', 'the guys', 'the girls', 'everyone', 'everybody'],
     };
     const keywords = relWords[rel] || [rel];
-    if (keywords.some(k => fullText.includes(k))) score += 30;
+    // Word-boundary match so 'pet' doesn't match 'petty' or 'carpet', and
+    // 'cat' doesn't match 'category'. Multi-word phrases ('good boy', 'the team')
+    // still match contiguously because \b sits between word chars and spaces.
+    const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (keywords.some(k => new RegExp(`\\b${escapeRe(k)}\\b`, 'i').test(fullText))) score += 30;
   }
 
   // 2. Fact overlap — if a known fact about this person appears in the entry

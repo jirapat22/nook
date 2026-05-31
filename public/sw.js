@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nook-v29';
+const CACHE_NAME = 'nook-v30';
 const API_CACHE  = 'nook-api-v1'; // separate cache for GET API responses
 const STATIC_ASSETS = [
   '/',
