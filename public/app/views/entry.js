@@ -1052,7 +1052,9 @@ export class EntryView {
       }
     });
     prompt.querySelector('#pp-no').addEventListener('click', () => prompt.remove());
-    setTimeout(() => prompt.remove(), 12000);
+    // Removed 12s auto-dismiss — the prompt was silently vanishing before the
+    // user noticed it (especially on mobile after voice recording). Stays until
+    // the user explicitly taps Add or Not now.
   }
 
   showAddPersonConfirm(person, entryId) {
@@ -1228,8 +1230,22 @@ export class EntryView {
             return `<label class="action-item${done ? ' done' : ''}"><input type="checkbox" data-text="${esc}" ${done ? 'checked' : ''}><span>${text}</span></label>`;
           }).join('')}</div></div>` : ''}
 
+          <!-- People linked to this entry -->
+          ${entry.people_mentions?.length ? `
+          <div class="mb-12">
+            <div class="ai-section-label">People in this entry</div>
+            <div class="entry-people-list">
+              ${entry.people_mentions.map(m => `
+                <a href="#person/${m.person_id}" class="entry-person-chip">
+                  <span class="entry-person-name">${m.name}</span>
+                  ${m.relationship_type ? `<span class="entry-person-rel">${m.relationship_type}</span>` : ''}
+                </a>`).join('')}
+            </div>
+          </div>` : ''}
+
           <div class="entry-detail-actions" id="entry-actions">
             <button class="btn btn-secondary btn-sm" id="edit-btn">Edit</button>
+            <button class="btn btn-secondary btn-sm" id="link-person-btn">👤 Link person</button>
             <button class="btn btn-danger btn-sm" id="delete-btn">Delete</button>
           </div>
         </div>`;
@@ -1245,6 +1261,12 @@ export class EntryView {
       // Edit mood — opens a modal with sliders for each dimension
       container.querySelector('#edit-mood-btn')?.addEventListener('click', () => {
         this.showMoodEditModal(entry, container);
+      });
+
+      // Retroactive "Link person" — for when AI missed someone or the prompt
+      // was dismissed before the user could tap Add.
+      container.querySelector('#link-person-btn')?.addEventListener('click', () => {
+        this.showLinkPersonModal(this.entryId, container);
       });
 
       // Edit AI fields (themes/tags/life areas)
@@ -1342,6 +1364,102 @@ export class EntryView {
     } catch {
       container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">😕</div><h3>Entry not found</h3><a href="#home" class="btn btn-primary btn-sm mt-12">Go home</a></div>`;
     }
+  }
+
+  // Modal to retroactively link a person to this entry.
+  // Two paths: pick an existing person, or create + link a new one.
+  async showLinkPersonModal(entryId, parentContainer) {
+    let allPeople = [];
+    try { allPeople = await api.get('/api/people'); } catch {}
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-backdrop';
+    modal.innerHTML = `
+      <div class="modal-sheet">
+        <div class="modal-handle"></div>
+        <div class="modal-title">Link a person to this entry</div>
+
+        <div class="form-group">
+          <label class="form-label">Pick an existing person</label>
+          <select class="select input" id="link-person-select">
+            <option value="">— Choose —</option>
+            ${allPeople.map(p => `<option value="${p.id}">${p.name}${p.relationship_type ? ' · ' + p.relationship_type : ''}</option>`).join('')}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">How were they mentioned? (optional)</label>
+          <input type="text" class="input" id="link-person-context" placeholder="e.g. had lunch with Honda">
+        </div>
+
+        <details style="margin-bottom:12px">
+          <summary style="font-size:0.85rem;color:var(--color-text-muted);cursor:pointer">+ Create & link a new person</summary>
+          <div class="form-group" style="margin-top:10px">
+            <input type="text" class="input" id="link-new-name" placeholder="Name" style="margin-bottom:6px">
+            <select class="select input" id="link-new-rel">
+              ${['friend','family','crush','partner','colleague','pet','group','acquaintance','unknown'].map(t =>
+                `<option value="${t}">${t[0].toUpperCase() + t.slice(1)}</option>`).join('')}
+            </select>
+          </div>
+        </details>
+
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="link-cancel">Cancel</button>
+          <button class="btn btn-primary" id="link-save">Link</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+
+    const cleanup = () => modal.remove();
+    modal.querySelector('#link-cancel').addEventListener('click', cleanup);
+    modal.addEventListener('click', e => { if (e.target === modal) cleanup(); });
+
+    modal.querySelector('#link-save').addEventListener('click', async () => {
+      const existingId = modal.querySelector('#link-person-select').value;
+      const context    = modal.querySelector('#link-person-context').value.trim();
+      const newName    = modal.querySelector('#link-new-name').value.trim();
+      const newRel     = modal.querySelector('#link-new-rel').value;
+
+      let personId = existingId;
+      let personName = allPeople.find(p => p.id === existingId)?.name || '';
+
+      // Create new person if no existing one picked and a name was typed
+      if (!personId && newName) {
+        try {
+          const created = await api.post('/api/people', { name: newName, relationship_type: newRel });
+          personId   = created.id;
+          personName = created.name;
+        } catch {
+          showToast('Could not create person', 'error');
+          return;
+        }
+      }
+
+      if (!personId) { showToast('Pick or create a person first', ''); return; }
+
+      const saveBtn = modal.querySelector('#link-save');
+      saveBtn.disabled = true; saveBtn.textContent = 'Linking…';
+
+      try {
+        await api.post('/api/people/link-mention', {
+          person_id: personId,
+          entry_id: entryId,
+          context: context || null,
+          sentiment_score: null,
+          facts_extracted: [],
+          emotion_toward: null,
+          link_method: 'manual',
+        });
+        modal.remove();
+        showToast(`Linked ${personName} to this entry ✓`, 'success');
+        // Re-render the detail view so the People section updates
+        await this.mountDetailView(parentContainer);
+      } catch {
+        showToast('Could not link — try again', 'error');
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Link';
+      }
+    });
   }
 
   // Modal to edit mood values on a saved entry. Marks mood_source as
