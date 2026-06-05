@@ -1163,7 +1163,7 @@ export class EntryView {
             ${entry.is_backdated ? '<span class="backdated-label">Added after the fact</span>' : ''}
           </div>
 
-          ${entry.ai_summary ? `<div class="card mb-12"><p class="font-display text-muted" style="font-style:italic">${entry.ai_summary}</p></div>` : ''}
+          ${entry.ai_summary && !firstPerson && !userEdit ? `<div class="card mb-12"><p class="font-display text-muted" style="font-style:italic">${entry.ai_summary}</p></div>` : ''}
 
           <!-- Main first-person diary block -->
           ${firstPerson || userEdit ? `<div class="ai-section-label">Today, in your words</div>` : ''}
