@@ -106,6 +106,10 @@ router.post('/', async (req, res) => {
     // Fire-and-forget push to Orbit. Don't await — never block the user.
     syncPerson(result.rows[0]).catch(() => {});
 
+    // Backfill: scan the last 90 days of entries for this person's name (and aliases)
+    // so that entries saved before this person existed get linked retroactively.
+    backfillMentions(result.rows[0]).catch(() => {});
+
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('POST /api/people error:', err);
@@ -316,5 +320,46 @@ router.delete('/mention/:id', async (req, res) => {
     res.status(500).json({ error: 'Failed to delete mention', code: 'DB_ERROR' });
   }
 });
+
+// Scan the last 90 days of entries for a newly-added person's name/aliases
+// and create mention links so old entries aren't left unlinked.
+async function backfillMentions(person) {
+  try {
+    const names = [person.name, ...(Array.isArray(person.aliases) ? person.aliases : [])].filter(Boolean);
+    if (!names.length) return;
+
+    // Build a regex that matches any of the names as whole words (case-insensitive)
+    const escaped = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const pattern = `\\m(${escaped.join('|')})\\M`; // Postgres word-boundary \m \M
+
+    const entries = await db.query(`
+      SELECT e.id, e.first_person_summary, e.cleaned_content, e.raw_transcript
+      FROM entries e
+      WHERE e.created_at >= NOW() - INTERVAL '90 days'
+        AND (
+          e.first_person_summary ~* $1 OR
+          e.cleaned_content ~* $1 OR
+          e.raw_transcript ~* $1
+        )
+    `, [pattern]);
+
+    for (const entry of entries.rows) {
+      // Skip if already linked
+      const existing = await db.query(
+        'SELECT 1 FROM person_mentions WHERE person_id = $1 AND entry_id = $2 LIMIT 1',
+        [person.id, entry.id]
+      );
+      if (existing.rows.length) continue;
+
+      const text = entry.first_person_summary || entry.cleaned_content || entry.raw_transcript || '';
+      await db.query(`
+        INSERT INTO person_mentions (person_id, entry_id, context, sentiment_score, facts_extracted, emotion_toward, link_method)
+        VALUES ($1, $2, $3, 0, '[]', null, 'backfill')
+      `, [person.id, entry.id, text.slice(0, 200)]);
+    }
+  } catch (err) {
+    console.error('backfillMentions error:', err);
+  }
+}
 
 module.exports = router;
