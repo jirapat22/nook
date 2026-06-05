@@ -55,13 +55,16 @@ export class PeopleView {
   }
 
   renderFilterBar() {
-    // Count people per relationship type and only show chips for groups that exist
-    const counts = { all: this.people.length };
-    for (const p of this.people) {
+    // Pets are rendered as a completely separate section — exclude them from
+    // the main filter chips so they don't appear alongside humans.
+    const humans = this.people.filter(p => (p.relationship_type || 'unknown') !== 'pet');
+    const counts = { all: humans.length };
+    for (const p of humans) {
       const rel = p.relationship_type || 'unknown';
       counts[rel] = (counts[rel] || 0) + 1;
     }
-    const groups = ['all', 'friend', 'family', 'partner', 'crush', 'colleague', 'pet', 'group', 'acquaintance', 'unknown'];
+    // 'pet' deliberately excluded here — shown in the separate Pets section below
+    const groups = ['all', 'friend', 'family', 'partner', 'crush', 'colleague', 'group', 'acquaintance', 'unknown'];
     const chips = groups.filter(g => counts[g] > 0).map(g => `
       <button class="people-filter-chip ${this.activeFilter === g ? 'active' : ''}" data-filter="${g}">
         ${g === 'all' ? 'All' : g[0].toUpperCase() + g.slice(1)}
@@ -86,7 +89,7 @@ export class PeopleView {
     // Show secondary subgroup filter only when a real relationship is selected
     // and there's at least one subgroup among those people.
     const bar = this.container.querySelector('#people-subfilter-bar');
-    if (this.activeFilter === 'all') { bar.innerHTML = ''; return; }
+    if (this.activeFilter === 'all' || this.activeFilter === 'pet') { bar.innerHTML = ''; return; }
     const relPeople = this.people.filter(p => (p.relationship_type || 'unknown') === this.activeFilter);
     const counts = { all: relPeople.length };
     for (const p of relPeople) {
@@ -115,20 +118,30 @@ export class PeopleView {
 
   renderList() {
     const listContainer = this.container.querySelector('#people-list-container');
+
+    // Separate humans from pets — pets get their own section below
+    const pets = this.people.filter(p => (p.relationship_type || '') === 'pet');
     let filtered = this.activeFilter === 'all'
-      ? this.people
-      : this.people.filter(p => (p.relationship_type || 'unknown') === this.activeFilter);
+      ? this.people.filter(p => (p.relationship_type || 'unknown') !== 'pet')
+      : this.people.filter(p => (p.relationship_type || 'unknown') === this.activeFilter && (p.relationship_type || 'unknown') !== 'pet');
+
     // Apply subgroup filter if active
     if (this.activeSubgroup !== 'all') {
       filtered = filtered.filter(p => (p.subgroup || '').trim() === this.activeSubgroup);
     }
 
-    if (!filtered.length) {
-      listContainer.innerHTML = `<div class="empty-state" style="padding:24px 0"><p class="text-muted">No people in this category yet.</p></div>`;
-      return;
-    }
+    const peopleHtml = filtered.length
+      ? `<div class="people-list">${filtered.map(p => personCard(p)).join('')}</div>`
+      : `<div class="empty-state" style="padding:24px 0"><p class="text-muted">No people in this category yet.</p></div>`;
 
-    listContainer.innerHTML = `<div class="people-list">${filtered.map(p => personCard(p)).join('')}</div>`;
+    const petsHtml = pets.length ? `
+      <div class="pets-section">
+        <div class="pets-section-header">🐾 Pets</div>
+        <div class="people-list">${pets.map(p => personCard(p)).join('')}</div>
+      </div>` : '';
+
+    listContainer.innerHTML = peopleHtml + petsHtml;
+
     listContainer.querySelectorAll('.person-card').forEach(card => {
       card.addEventListener('click', () => {
         location.hash = `#person/${card.dataset.id}`;
