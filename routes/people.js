@@ -113,6 +113,44 @@ router.post('/', async (req, res) => {
   }
 });
 
+// POST /api/people/dedup — merge duplicate people with the same name (case-insensitive)
+// Keeps the entry with the most mentions (ties broken by earliest created_at).
+router.post('/dedup', async (req, res) => {
+  try {
+    const dupsResult = await db.query(`
+      SELECT LOWER(name) as name_lc, COUNT(*) as cnt
+      FROM people
+      GROUP BY LOWER(name)
+      HAVING COUNT(*) > 1
+    `);
+    const merged = [];
+    for (const row of dupsResult.rows) {
+      const group = await db.query(`
+        SELECT p.id, p.name, p.aliases, COALESCE(COUNT(pm.id), 0)::int as mentions
+        FROM people p
+        LEFT JOIN person_mentions pm ON pm.person_id = p.id
+        WHERE LOWER(p.name) = $1
+        GROUP BY p.id
+        ORDER BY mentions DESC, p.created_at ASC
+      `, [row.name_lc]);
+      const [keeper, ...dupes] = group.rows;
+      for (const dupe of dupes) {
+        // Move mentions, merge aliases, delete dupe
+        await db.query('UPDATE person_mentions SET person_id = $1 WHERE person_id = $2', [keeper.id, dupe.id]);
+        const allAliases = new Set([...(keeper.aliases || []), dupe.name, ...(dupe.aliases || [])]);
+        allAliases.delete(keeper.name);
+        await db.query('UPDATE people SET aliases = $1, updated_at = NOW() WHERE id = $2', [JSON.stringify([...allAliases]), keeper.id]);
+        await db.query('DELETE FROM people WHERE id = $1', [dupe.id]);
+      }
+      merged.push({ kept: keeper.name, removed: dupes.length });
+    }
+    res.json({ ok: true, merged });
+  } catch (err) {
+    console.error('POST /api/people/dedup error:', err);
+    res.status(500).json({ error: 'Dedup failed', code: 'DB_ERROR' });
+  }
+});
+
 // PUT /api/people/:id
 router.put('/:id', async (req, res) => {
   try {
