@@ -1977,9 +1977,35 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
   font-size: 0.65rem; font-weight: 600;
 }
 
+/* Relationship-type sections on the People view (grouped "All" view) */
+.people-rel-section {
+  margin-bottom: 28px;
+}
+.people-rel-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 10px;
+}
+.people-section-count {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-muted);
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
 /* Pets section on the People view — visually separate from humans */
 .pets-section {
-  margin-top: 24px;
+  margin-top: 4px;
   padding-top: 16px;
   border-top: 1px solid var(--color-border-light);
 }
