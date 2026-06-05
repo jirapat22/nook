@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db/db');
-const { syncPerson, markPersonDeleted } = require('../lib/orbit');
+const { syncPerson, markPersonDeleted, postToOrbit, APP_NAME } = require('../lib/orbit');
 
 // GET /api/people
 router.get('/', async (req, res) => {
@@ -139,6 +139,8 @@ router.post('/dedup', async (req, res) => {
       `, [row.name_lc]);
       const [keeper, ...dupes] = group.rows;
       for (const dupe of dupes) {
+        // Tell Orbit to archive this node BEFORE we lose the ID
+        markPersonDeleted(dupe.id, dupe.name).catch(() => {});
         // Move mentions, merge aliases, delete dupe
         await db.query('UPDATE person_mentions SET person_id = $1 WHERE person_id = $2', [keeper.id, dupe.id]);
         const allAliases = new Set([...(keeper.aliases || []), dupe.name, ...(dupe.aliases || [])]);

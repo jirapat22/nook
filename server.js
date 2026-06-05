@@ -10,7 +10,7 @@ const aiRouter = require('./routes/ai');
 const insightsRouter = require('./routes/insights');
 const peopleRouter = require('./routes/people');
 const tagsRouter = require('./routes/tags');
-const { syncAllPeople } = require('./lib/orbit');
+const { syncAllPeople, markPersonDeleted } = require('./lib/orbit');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -207,6 +207,16 @@ app.get('/api/orbit-summary', async (req, res) => {
 app.post('/api/sync-orbit', async (req, res) => {
   const result = await syncAllPeople();
   res.json(result);
+});
+
+// Mark an array of Orbit external IDs as DONE (archived). Used to clean up
+// stale nodes that were deleted from the DB before Orbit was notified.
+// Body: { ids: ["uuid1", "uuid2", ...], name: "Latte" }
+app.post('/api/orbit/mark-deleted', async (req, res) => {
+  const { ids = [], name = '(deleted)' } = req.body;
+  if (!ids.length) return res.status(400).json({ error: 'ids array is required' });
+  const results = await Promise.all(ids.map(id => markPersonDeleted(id, name).catch(e => ({ ok: false, error: e.message }))));
+  res.json({ ok: true, results });
 });
 
 // SPA fallback — serve index.html for any unknown route
