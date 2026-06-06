@@ -1237,8 +1237,8 @@ export class EntryView {
             <div class="entry-people-list">
               ${entry.people_mentions.map(m => `
                 <a href="#person/${m.person_id}" class="entry-person-chip">
-                  <span class="entry-person-name">${m.name}</span>
-                  ${m.relationship_type ? `<span class="entry-person-rel">${m.relationship_type}</span>` : ''}
+                  <span class="entry-person-name">${escHtml(m.name)}</span>
+                  ${m.relationship_type ? `<span class="entry-person-rel">${escHtml(m.relationship_type)}</span>` : ''}
                 </a>`).join('')}
             </div>
           </div>` : ''}
@@ -1383,7 +1383,7 @@ export class EntryView {
           <label class="form-label">Pick an existing person</label>
           <select class="select input" id="link-person-select">
             <option value="">— Choose —</option>
-            ${allPeople.map(p => `<option value="${p.id}">${p.name}${p.relationship_type ? ' · ' + p.relationship_type : ''}</option>`).join('')}
+            ${allPeople.map(p => `<option value="${p.id}">${escHtml(p.name)}${p.relationship_type ? ' · ' + escHtml(p.relationship_type) : ''}</option>`).join('')}
           </select>
         </div>
 
@@ -1649,12 +1649,16 @@ export class EntryView {
     this.stopWaveformAnimation();
     this.stopRecordingTimer();
     this.releaseWakeLock();
-    // Clean up any persistent UI bits the recorder may have left
+    // Clean up any persistent UI bits the recorder or prompts may have left
     document.getElementById('inline-save-btn-wrap')?.remove();
     document.getElementById('wake-lock-badge')?.remove();
+    document.querySelector('.people-prompt')?.remove();
   }
 }
 
+function escHtml(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 function getTimeOfDay() {
   const h = new Date().getHours();
   if (h < 12) return 'morning';

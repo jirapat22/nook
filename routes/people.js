@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db/db');
-const { syncPerson, markPersonDeleted, postToOrbit, APP_NAME } = require('../lib/orbit');
+const { syncPerson, markPersonDeleted } = require('../lib/orbit');
 
 // GET /api/people
 router.get('/', async (req, res) => {
@@ -138,14 +138,18 @@ router.post('/dedup', async (req, res) => {
         ORDER BY mentions DESC, p.created_at ASC
       `, [row.name_lc]);
       const [keeper, ...dupes] = group.rows;
+      // Track accumulated aliases in memory so each iteration builds on the
+      // previous one (keeper.aliases from the SELECT is never mutated in-place).
+      let accumulated = Array.isArray(keeper.aliases) ? [...keeper.aliases] : [];
       for (const dupe of dupes) {
         // Tell Orbit to archive this node BEFORE we lose the ID
         markPersonDeleted(dupe.id, dupe.name).catch(() => {});
         // Move mentions, merge aliases, delete dupe
         await db.query('UPDATE person_mentions SET person_id = $1 WHERE person_id = $2', [keeper.id, dupe.id]);
-        const allAliases = new Set([...(keeper.aliases || []), dupe.name, ...(dupe.aliases || [])]);
-        allAliases.delete(keeper.name);
-        await db.query('UPDATE people SET aliases = $1, updated_at = NOW() WHERE id = $2', [JSON.stringify([...allAliases]), keeper.id]);
+        const merged = new Set([...accumulated, dupe.name, ...(Array.isArray(dupe.aliases) ? dupe.aliases : [])]);
+        merged.delete(keeper.name);
+        accumulated = [...merged]; // carry forward for next iteration
+        await db.query('UPDATE people SET aliases = $1, updated_at = NOW() WHERE id = $2', [JSON.stringify(accumulated), keeper.id]);
         await db.query('DELETE FROM people WHERE id = $1', [dupe.id]);
       }
       merged.push({ kept: keeper.name, removed: dupes.length });
@@ -334,31 +338,21 @@ async function backfillMentions(person) {
     const escaped = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
     const pattern = `\\m(${escaped.join('|')})\\M`; // Postgres word-boundary \m \M
 
-    const entries = await db.query(`
-      SELECT e.id, e.first_person_summary, e.cleaned_content, e.raw_transcript
+    // Single bulk INSERT: find matching entries not yet linked, insert all at once.
+    // NULL sentiment_score so AVG() in GET /api/people ignores backfilled rows.
+    await db.query(`
+      INSERT INTO person_mentions (person_id, entry_id, context, sentiment_score, facts_extracted, emotion_toward, link_method)
+      SELECT $1, e.id,
+        LEFT(COALESCE(e.first_person_summary, e.cleaned_content, e.raw_transcript, ''), 200),
+        NULL, '[]', null, 'backfill'
       FROM entries e
       WHERE e.created_at >= NOW() - INTERVAL '90 days'
-        AND (
-          e.first_person_summary ~* $1 OR
-          e.cleaned_content ~* $1 OR
-          e.raw_transcript ~* $1
+        AND (e.first_person_summary ~* $2 OR e.cleaned_content ~* $2 OR e.raw_transcript ~* $2)
+        AND NOT EXISTS (
+          SELECT 1 FROM person_mentions pm
+          WHERE pm.person_id = $1 AND pm.entry_id = e.id
         )
-    `, [pattern]);
-
-    for (const entry of entries.rows) {
-      // Skip if already linked
-      const existing = await db.query(
-        'SELECT 1 FROM person_mentions WHERE person_id = $1 AND entry_id = $2 LIMIT 1',
-        [person.id, entry.id]
-      );
-      if (existing.rows.length) continue;
-
-      const text = entry.first_person_summary || entry.cleaned_content || entry.raw_transcript || '';
-      await db.query(`
-        INSERT INTO person_mentions (person_id, entry_id, context, sentiment_score, facts_extracted, emotion_toward, link_method)
-        VALUES ($1, $2, $3, 0, '[]', null, 'backfill')
-      `, [person.id, entry.id, text.slice(0, 200)]);
-    }
+    `, [person.id, pattern]);
   } catch (err) {
     console.error('backfillMentions error:', err);
   }
