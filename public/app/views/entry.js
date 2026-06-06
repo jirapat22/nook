@@ -783,6 +783,7 @@ export class EntryView {
 
     try {
       const saved = await api.post('/api/entries', payload);
+      this._isSaving = false;
       this.clearDraft();
       // Persist any in-flow follow-up Q&As as proper sub-blocks
       for (const fu of this.inflowFollowups) {

@@ -102,8 +102,8 @@ export class PeopleView {
     const chips = [
       `<button class="people-subfilter-chip ${this.activeSubgroup === 'all' ? 'active' : ''}" data-subgroup="all">All ${capitalize(this.activeFilter)}s <span class="people-filter-count">${counts.all}</span></button>`,
       ...subgroups.sort().map(sg => `
-        <button class="people-subfilter-chip ${this.activeSubgroup === sg ? 'active' : ''}" data-subgroup="${sg.replace(/"/g, '&quot;')}">
-          ${sg} <span class="people-filter-count">${counts[sg]}</span>
+        <button class="people-subfilter-chip ${this.activeSubgroup === sg ? 'active' : ''}" data-subgroup="${escHtml(sg)}">
+          ${escHtml(sg)} <span class="people-filter-count">${counts[sg]}</span>
         </button>`),
     ].join('');
     bar.innerHTML = chips;
@@ -200,7 +200,7 @@ export class PeopleView {
         </div>
         <div class="form-group">
           <label class="form-label">Full name</label>
-          <input type="text" class="input" id="person-name" value="${prefill.name || ''}" placeholder="e.g. Rafaella, Mum, Work Alex">
+          <input type="text" class="input" id="person-name" value="${escHtml(prefill.name || '')}" placeholder="e.g. Rafaella, Mum, Work Alex">
         </div>
         <div class="form-group">
           <label class="form-label">Nicknames &amp; aliases</label>
@@ -432,7 +432,7 @@ function populateSubgroupAndIntroducedBy(modal, allPeople, excludeId, prefillSub
   if (introSelect) {
     const candidates = (allPeople || []).filter(p => p.id !== excludeId);
     introSelect.innerHTML = '<option value="">— Nobody / direct —</option>' +
-      candidates.map(p => `<option value="${p.id}" ${p.id === prefillIntroducedById ? 'selected' : ''}>${p.name}${p.relationship_type ? ' · ' + p.relationship_type : ''}</option>`).join('');
+      candidates.map(p => `<option value="${p.id}" ${p.id === prefillIntroducedById ? 'selected' : ''}>${escHtml(p.name)}${p.relationship_type ? ' · ' + escHtml(p.relationship_type) : ''}</option>`).join('');
   }
 }
 
@@ -512,17 +512,17 @@ export class PersonView {
         <div class="back-btn" id="back-btn">← People</div>
 
         <div class="person-profile-header">
-          <div class="person-profile-avatar${person.photo_url ? ' has-photo' : ''}">${person.photo_url ? `<img src="${person.photo_url}" alt="">` : initials}</div>
+          <div class="person-profile-avatar${person.photo_url ? ' has-photo' : ''}">${person.photo_url ? `<img src="${person.photo_url}" alt="">` : escHtml(initials)}</div>
           <div class="person-profile-title">
-            <h2>${person.name}</h2>
-            <p>${person.relationship_type ? capitalize(person.relationship_type) : 'Person'}${person.subgroup ? ` · <span class="person-subgroup-chip">${person.subgroup}</span>` : ''} · ${person.mention_count || 0} mention${person.mention_count !== 1 ? 's' : ''}</p>
+            <h2>${escHtml(person.name)}</h2>
+            <p>${person.relationship_type ? capitalize(person.relationship_type) : 'Person'}${person.subgroup ? ` · <span class="person-subgroup-chip">${escHtml(person.subgroup)}</span>` : ''} · ${person.mention_count || 0} mention${person.mention_count !== 1 ? 's' : ''}</p>
             ${Array.isArray(person.aliases) && person.aliases.length ? `
               <p style="font-size:0.8rem;color:var(--color-text-faint);margin-top:2px">
-                Also: ${person.aliases.join(', ')}
+                Also: ${person.aliases.map(escHtml).join(', ')}
               </p>` : ''}
             ${person.introduced_by ? `
               <p style="font-size:0.8rem;color:var(--color-text-faint);margin-top:4px">
-                via <a href="#person/${person.introduced_by.id}" style="color:var(--color-primary)">${person.introduced_by.name}</a>
+                via <a href="#person/${person.introduced_by.id}" style="color:var(--color-primary)">${escHtml(person.introduced_by.name)}</a>
               </p>` : ''}
           </div>
         </div>
@@ -530,35 +530,35 @@ export class PersonView {
         ${person.notes ? `
         <div class="card mb-12">
           <div class="ai-section-label">Notes</div>
-          <p style="font-size:0.9375rem;line-height:1.65">${person.notes}</p>
+          <p style="font-size:0.9375rem;line-height:1.65">${escHtml(person.notes)}</p>
         </div>` : ''}
 
         ${person.all_facts?.length ? `
         <div class="card mb-12">
-          <div class="ai-section-label">What I know about ${person.name}</div>
+          <div class="ai-section-label">What I know about ${escHtml(person.name)}</div>
           <div class="facts-list mt-8">
-            ${person.all_facts.map(f => `<span class="fact-chip">${f}</span>`).join('')}
+            ${person.all_facts.map(f => `<span class="fact-chip">${escHtml(f)}</span>`).join('')}
           </div>
         </div>` : ''}
 
         ${person.introduced?.length ? `
         <div class="card mb-12">
-          <div class="ai-section-label">${person.name} introduced you to</div>
+          <div class="ai-section-label">${escHtml(person.name)} introduced you to</div>
           <div class="introduced-list">
             ${person.introduced.map(p => `
               <a href="#person/${p.id}" class="introduced-chip">
-                ${p.photo_url ? `<img src="${p.photo_url}" alt="">` : `<span class="introduced-chip-initials">${(p.name[0] || '?').toUpperCase()}</span>`}
-                <span>${p.name}</span>
+                ${p.photo_url ? `<img src="${p.photo_url}" alt="">` : `<span class="introduced-chip-initials">${escHtml((p.name[0] || '?').toUpperCase())}</span>`}
+                <span>${escHtml(p.name)}</span>
               </a>`).join('')}
           </div>
         </div>` : ''}
 
         ${person.emotion_breakdown?.length ? `
         <div class="card mb-12">
-          <div class="ai-section-label">How I feel around ${person.name}</div>
+          <div class="ai-section-label">How I feel around ${escHtml(person.name)}</div>
           <div class="tags-row mt-8">
             ${person.emotion_breakdown.map(e => `
-              <span class="chip">${e.emotion_toward} <span style="color:var(--color-text-faint);margin-left:3px">${e.count}×</span></span>`
+              <span class="chip">${escHtml(e.emotion_toward)} <span style="color:var(--color-text-faint);margin-left:3px">${e.count}×</span></span>`
             ).join('')}
           </div>
         </div>` : ''}
@@ -575,8 +575,8 @@ export class PersonView {
                 </div>
                 <div class="mention-content">
                   <div class="mention-date">${formatDate(m.date)}</div>
-                  <div class="mention-context">${m.context || m.entry_preview || ''}</div>
-                  ${m.emotion_toward ? `<span class="mention-emotion">${m.emotion_toward}</span>` : ''}
+                  <div class="mention-context">${escHtml(m.context || m.entry_preview || '')}</div>
+                  ${m.emotion_toward ? `<span class="mention-emotion">${escHtml(m.emotion_toward)}</span>` : ''}
                 </div>
               </div>`
             ).join('')}
@@ -584,7 +584,7 @@ export class PersonView {
         </div>` : `
         <div class="empty-state" style="padding:32px 0">
           <div class="empty-state-icon">📝</div>
-          <p>${person.name} hasn't been mentioned in any entries yet</p>
+          <p>${escHtml(person.name)} hasn't been mentioned in any entries yet</p>
         </div>`}
 
         <div class="entry-detail-actions">
@@ -628,19 +628,19 @@ export class PersonView {
     modal.innerHTML = `
       <div class="modal-sheet">
         <div class="modal-handle"></div>
-        <div class="modal-title">Merge ${person.name} into…</div>
+        <div class="modal-title">Merge ${escHtml(person.name)} into…</div>
         <p style="font-size:0.875rem;color:var(--color-text-muted);margin-bottom:16px">
-          <strong>${person.name}</strong> will be deleted. Their mentions &amp; name will move to the chosen person.
+          <strong>${escHtml(person.name)}</strong> will be deleted. Their mentions &amp; name will move to the chosen person.
         </p>
         <div class="form-group">
           <label class="form-label">Merge into</label>
           <select class="select input" id="merge-target">
-            ${others.map(p => `<option value="${p.id}">${p.name}${Array.isArray(p.aliases) && p.aliases.length ? ` (${p.aliases.join(', ')})` : ''}</option>`).join('')}
+            ${others.map(p => `<option value="${p.id}">${escHtml(p.name)}${Array.isArray(p.aliases) && p.aliases.length ? ` (${p.aliases.map(escHtml).join(', ')})` : ''}</option>`).join('')}
           </select>
         </div>
         <div class="modal-actions">
           <button class="btn btn-secondary" id="merge-cancel">Cancel</button>
-          <button class="btn btn-danger" id="merge-confirm">Merge &amp; delete ${person.name}</button>
+          <button class="btn btn-danger" id="merge-confirm">Merge &amp; delete ${escHtml(person.name)}</button>
         </div>
       </div>
     `;
@@ -670,7 +670,7 @@ export class PersonView {
     modal.innerHTML = `
       <div class="modal-sheet">
         <div class="modal-handle"></div>
-        <div class="modal-title">Edit ${person.name}</div>
+        <div class="modal-title">Edit ${escHtml(person.name)}</div>
         <div class="form-group photo-upload-group">
           <div class="photo-upload-preview" id="edit-photo-preview">
             ${person.photo_url ? `<img src="${person.photo_url}" alt="">` : `<span class="photo-upload-initials">${initials}</span>`}
@@ -683,7 +683,7 @@ export class PersonView {
         </div>
         <div class="form-group">
           <label class="form-label">Full name</label>
-          <input type="text" class="input" id="edit-name" value="${person.name}">
+          <input type="text" class="input" id="edit-name" value="${escHtml(person.name)}">
         </div>
         <div class="form-group">
           <label class="form-label">Nicknames &amp; aliases</label>
@@ -715,7 +715,7 @@ export class PersonView {
         </div>
         <div class="form-group">
           <label class="form-label">Notes</label>
-          <textarea class="textarea" id="edit-notes" style="min-height:80px">${person.notes || ''}</textarea>
+          <textarea class="textarea" id="edit-notes" style="min-height:80px">${escHtml(person.notes || '')}</textarea>
         </div>
         <div class="modal-actions">
           <button class="btn btn-secondary" id="edit-cancel">Cancel</button>
@@ -800,13 +800,13 @@ function personCard(p) {
   const sentiment = parseFloat(p.avg_sentiment) || 0;
   const sentCls = sentiment > 1 ? 'sentiment-positive' : sentiment < -1 ? 'sentiment-negative' : 'sentiment-neutral';
   const sentIcon = sentiment > 1 ? '😊' : sentiment < -1 ? '😟' : '😐';
-  const avatarInner = p.photo_url ? `<img src="${p.photo_url}" alt="">` : initials;
+  const avatarInner = p.photo_url ? `<img src="${p.photo_url}" alt="">` : escHtml(initials);
 
   return `
     <div class="person-card" data-id="${p.id}">
       <div class="person-avatar${p.photo_url ? ' has-photo' : ''}">${avatarInner}</div>
       <div class="person-info">
-        <div class="person-name">${p.name}${p.subgroup ? ` <span class="person-subgroup-chip">${p.subgroup}</span>` : ''}</div>
+        <div class="person-name">${escHtml(p.name)}${p.subgroup ? ` <span class="person-subgroup-chip">${escHtml(p.subgroup)}</span>` : ''}</div>
         <div class="person-meta">
           <span>${p.relationship_type ? capitalize(p.relationship_type) : '—'}</span>
           <span>·</span>
@@ -820,6 +820,10 @@ function personCard(p) {
 
 function capitalize(str) {
   return str ? str[0].toUpperCase() + str.slice(1) : '';
+}
+
+function escHtml(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function formatDate(dateStr) {

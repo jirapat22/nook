@@ -48,7 +48,7 @@ export class HomeView {
     container.innerHTML = `
       <div class="home-view">
         <div class="greeting-section">
-          <h2>${greeting}, ${userName} ✨</h2>
+          <h2>${greeting}, ${escHtml(userName)} ✨</h2>
           <p class="greeting-sub">${getDateLabel()}</p>
         </div>
 
@@ -198,8 +198,8 @@ function dayCard(dateStr, entries, todayStr) {
           ${hasLove ? '<span class="entry-card-love">💕</span>' : ''}
         </div>
       </div>
-      <p class="day-card-snippet">${snippet}</p>
-      ${topThemes.length ? `<div class="day-card-themes">${topThemes.map(t => `<span class="entry-card-tag">${t}</span>`).join('')}</div>` : ''}
+      <p class="day-card-snippet">${escHtml(snippet)}</p>
+      ${topThemes.length ? `<div class="day-card-themes">${topThemes.map(t => `<span class="entry-card-tag">${escHtml(t)}</span>`).join('')}</div>` : ''}
     </a>`;
 }
 
@@ -222,8 +222,8 @@ function entryCard(entry) {
           ${entry.has_love_life_content ? '<span class="entry-card-love">💕</span>' : ''}
         </span>
       </div>
-      <p class="entry-card-summary">${entry.ai_summary || entry.important_today || 'Entry recorded'}</p>
-      ${themes.length ? `<div class="entry-card-tags">${themes.map(t => `<span class="entry-card-tag">${t}</span>`).join('')}</div>` : ''}
+      <p class="entry-card-summary">${escHtml(entry.ai_summary || entry.important_today || 'Entry recorded')}</p>
+      ${themes.length ? `<div class="entry-card-tags">${themes.map(t => `<span class="entry-card-tag">${escHtml(t)}</span>`).join('')}</div>` : ''}
     </div>`;
 }
 
@@ -251,7 +251,7 @@ function pendingActionCard(a) {
   return `
     <div class="pending-action" data-entry-id="${a.entry_id}" data-text="${escText}">
       <div class="pending-action-text">
-        <div class="pending-action-label">${a.text}</div>
+        <div class="pending-action-label">${escHtml(a.text)}</div>
         <div class="pending-action-date">from ${label}</div>
       </div>
       <div class="pending-action-btns">
@@ -275,13 +275,17 @@ function onThisDayCard(entry) {
         <span class="entry-card-date on-this-day-year">${year}</span>
         ${mood != null ? `<span class="entry-card-mood"><span class="mood-dot ${moodClass}"></span>${mood}/10</span>` : ''}
       </div>
-      <p class="entry-card-summary">${summary}</p>
+      <p class="entry-card-summary">${escHtml(summary)}</p>
     </div>`;
 }
 
 function getDateLabel() {
   const d = new Date();
   return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+}
+
+function escHtml(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function formatEntryDate(dateStr, timeOfDay) {

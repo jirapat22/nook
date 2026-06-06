@@ -54,7 +54,7 @@ export class DayView {
             <span class="day-glance-stat"><strong>${entries.length}</strong> ${entries.length === 1 ? 'entry' : 'entries'}</span>
             ${avgMood != null ? `<span class="day-glance-stat"><span class="mood-dot ${moodClass(avgMood)}"></span> Mood avg <strong>${avgMood}/10</strong></span>` : ''}
           </div>
-          ${topThemes.length ? `<div class="day-glance-themes">${topThemes.map(t => `<span class="chip chip-primary">${t}</span>`).join('')}</div>` : ''}
+          ${topThemes.length ? `<div class="day-glance-themes">${topThemes.map(t => `<span class="chip chip-primary">${escHtml(t)}</span>`).join('')}</div>` : ''}
         </div>` : ''}
 
         ${entries.length === 0 ? `
@@ -102,10 +102,10 @@ function timelineEntry(entry) {
         <div class="timeline-dot ${mCls}"></div>
       </div>
       <div class="timeline-body">
-        <p class="timeline-summary">${summary}</p>
+        <p class="timeline-summary">${escHtml(summary)}</p>
         <div class="timeline-meta">
           ${mood != null ? `<span class="timeline-mood"><span class="mood-dot ${mCls}"></span>${mood}/10</span>` : ''}
-          ${themes.length ? `<div class="timeline-themes">${themes.map(t => `<span class="entry-card-tag">${t}</span>`).join('')}</div>` : ''}
+          ${themes.length ? `<div class="timeline-themes">${themes.map(t => `<span class="entry-card-tag">${escHtml(t)}</span>`).join('')}</div>` : ''}
           ${entry.has_love_life_content ? '<span class="entry-card-love">💕</span>' : ''}
         </div>
       </div>
@@ -113,6 +113,10 @@ function timelineEntry(entry) {
 }
 
 function moodClass(m) { return m >= 7 ? 'high' : m >= 4 ? 'mid' : 'low'; }
+
+function escHtml(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
 
 function todayLocal() {
   const d = new Date();

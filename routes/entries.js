@@ -57,7 +57,7 @@ router.get('/', async (req, res) => {
     const query = `
       SELECT
         id, date, time_of_day, created_at, updated_at, is_backdated,
-        ai_summary, key_themes, important_today, action_items, action_items_state,
+        first_person_summary, ai_summary, key_themes, important_today, action_items, action_items_state,
         mood_overall, mood_energy, mood_happiness, mood_anxiety,
         life_areas, tags, entry_mode, has_love_life_content${rankSelect}
       FROM entries
