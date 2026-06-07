@@ -282,9 +282,15 @@ router.post('/:id/merge', async (req, res) => {
 router.post('/link-mention', async (req, res) => {
   try {
     const { person_id, entry_id, context, sentiment_score, facts_extracted = [], emotion_toward, link_method } = req.body;
+    // ON CONFLICT guards against a race with backfillMentions inserting a row for
+    // the same person+entry first (e.g. linking a brand-new person from inside an
+    // entry triggers both paths). DO UPDATE (no-op) rather than DO NOTHING so
+    // RETURNING always yields a row — otherwise result.rows[0] could be undefined.
     const result = await db.query(`
       INSERT INTO person_mentions (person_id, entry_id, context, sentiment_score, facts_extracted, emotion_toward, link_method)
-      VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (person_id, entry_id) DO UPDATE SET person_id = EXCLUDED.person_id
+      RETURNING *
     `, [person_id, entry_id, context, sentiment_score, JSON.stringify(facts_extracted), emotion_toward, link_method || 'exact']);
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -334,12 +340,19 @@ async function backfillMentions(person) {
     const names = [person.name, ...(Array.isArray(person.aliases) ? person.aliases : [])].filter(Boolean);
     if (!names.length) return;
 
-    // Build a regex that matches any of the names as whole words (case-insensitive)
+    // Build a regex that matches any of the names as whole words (case-insensitive).
+    // Postgres \m/\M word-boundary markers only recognise ASCII word characters, so
+    // they never anchor around non-Latin scripts (e.g. Thai names) — every neighbouring
+    // character looks like a "non-word" character and the match silently finds nothing.
+    // Apply \m\M only to ASCII names; match non-ASCII names as plain substrings.
     const escaped = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    const pattern = `\\m(${escaped.join('|')})\\M`; // Postgres word-boundary \m \M
+    const isAscii = n => /^[\x00-\x7F]*$/.test(n);
+    const pattern = `(${names.map((n, i) => isAscii(n) ? `\\m${escaped[i]}\\M` : escaped[i]).join('|')})`;
 
     // Single bulk INSERT: find matching entries not yet linked, insert all at once.
     // NULL sentiment_score so AVG() in GET /api/people ignores backfilled rows.
+    // ON CONFLICT guards against a race with an explicit link-mention call landing
+    // for the same person+entry while this backfill is in flight.
     await db.query(`
       INSERT INTO person_mentions (person_id, entry_id, context, sentiment_score, facts_extracted, emotion_toward, link_method)
       SELECT $1, e.id,
@@ -352,6 +365,7 @@ async function backfillMentions(person) {
           SELECT 1 FROM person_mentions pm
           WHERE pm.person_id = $1 AND pm.entry_id = e.id
         )
+      ON CONFLICT (person_id, entry_id) DO NOTHING
     `, [person.id, pattern]);
   } catch (err) {
     console.error('backfillMentions error:', err);

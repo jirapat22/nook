@@ -168,3 +168,22 @@ UPDATE entries SET search_vector =
   setweight(to_tsvector('english', coalesce(cleaned_content, '')), 'C') ||
   setweight(to_tsvector('english', coalesce(raw_transcript, '')), 'D')
 WHERE search_vector IS NULL;
+
+-- Dedup any pre-existing duplicate (person_id, entry_id) mention rows before
+-- enforcing uniqueness below — a race between backfillMentions and an explicit
+-- link-mention call (when adding a new person from inside an entry) could
+-- create two rows for the same pair. Keep the richer row (a non-backfill link
+-- carries AI-extracted sentiment/facts/context) and the earliest on ties.
+DELETE FROM person_mentions WHERE id IN (
+  SELECT id FROM (
+    SELECT id, ROW_NUMBER() OVER (
+      PARTITION BY person_id, entry_id
+      ORDER BY (link_method = 'backfill') ASC, mentioned_at ASC, id ASC
+    ) AS rn
+    FROM person_mentions
+  ) ranked WHERE rn > 1
+);
+
+-- Guard against the same race going forward: one mention row per person+entry.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_person_mentions_unique_person_entry
+  ON person_mentions(person_id, entry_id);
