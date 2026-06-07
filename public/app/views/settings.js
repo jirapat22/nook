@@ -164,6 +164,23 @@ export class SettingsView {
           </div>
         </div>
 
+        <!-- Notes: ideas to upgrade + bugs found -->
+        <div class="settings-section-title">💡 Ideas &amp; Bugs</div>
+        <div class="card">
+          <p class="text-sm text-muted" style="margin-bottom:10px">
+            Jot down ideas to upgrade Nook or bugs you've spotted. Tick them off when handled.
+          </p>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+            <select class="select input" id="note-type" style="flex:0 0 auto;width:auto">
+              <option value="idea">💡 Idea</option>
+              <option value="bug">🐛 Bug</option>
+            </select>
+            <input type="text" class="input" id="note-input" placeholder="What's on your mind?" maxlength="280" style="flex:1">
+            <button class="btn btn-primary btn-sm" id="note-add">Add</button>
+          </div>
+          <div id="notes-list"></div>
+        </div>
+
         <!-- Roadmap -->
         <div class="settings-section-title">Coming Soon</div>
         <div class="roadmap-list">
@@ -383,9 +400,85 @@ export class SettingsView {
       a.download = `nook-export-${new Date().toISOString().split('T')[0]}.json`;
       a.click();
     });
+
+    // Ideas & Bugs checklist — stored as a single JSONB array under the
+    // `dev_notes` settings key (no dedicated table needed).
+    this.notes = Array.isArray(settings.dev_notes) ? settings.dev_notes : [];
+    this.notesListEl = container.querySelector('#notes-list');
+    this.renderNotes();
+    const noteInput = container.querySelector('#note-input');
+    const noteType  = container.querySelector('#note-type');
+    const addNote = () => {
+      const text = noteInput.value.trim();
+      if (!text) return;
+      this.notes.push({
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        text,
+        type: noteType.value === 'bug' ? 'bug' : 'idea',
+        done: false,
+        created_at: new Date().toISOString(),
+      });
+      noteInput.value = '';
+      this.renderNotes();
+      this.saveNotes();
+    };
+    container.querySelector('#note-add').addEventListener('click', addNote);
+    noteInput.addEventListener('keydown', e => { if (e.key === 'Enter') addNote(); });
+  }
+
+  renderNotes() {
+    if (!this.notesListEl) return;
+    if (!this.notes.length) {
+      this.notesListEl.innerHTML = '<p class="text-sm text-faint">Nothing yet — add an idea or a bug above.</p>';
+      return;
+    }
+    // Open items first, then done; newest first within each group.
+    const sorted = [...this.notes].sort((a, b) =>
+      (a.done ? 1 : 0) - (b.done ? 1 : 0) ||
+      String(b.created_at || '').localeCompare(String(a.created_at || ''))
+    );
+    this.notesListEl.innerHTML = `<div class="note-list">${sorted.map(n => `
+      <div class="note-item ${n.done ? 'done' : ''}" data-id="${n.id}">
+        <button class="note-check" title="Toggle done">${n.done ? '✓' : ''}</button>
+        <span class="note-type-badge">${n.type === 'bug' ? '🐛' : '💡'}</span>
+        <span class="note-text">${escHtml(n.text)}</span>
+        <button class="note-delete" title="Delete">×</button>
+      </div>`).join('')}</div>`;
+
+    this.notesListEl.querySelectorAll('.note-item').forEach(el => {
+      const id = el.dataset.id;
+      el.querySelector('.note-check').addEventListener('click', () => this.toggleNote(id));
+      el.querySelector('.note-delete').addEventListener('click', () => this.deleteNote(id));
+    });
+  }
+
+  toggleNote(id) {
+    const n = this.notes.find(x => x.id === id);
+    if (!n) return;
+    n.done = !n.done;
+    this.renderNotes();
+    this.saveNotes();
+  }
+
+  deleteNote(id) {
+    this.notes = this.notes.filter(x => x.id !== id);
+    this.renderNotes();
+    this.saveNotes();
+  }
+
+  async saveNotes() {
+    try {
+      await api.put('/api/settings/dev_notes', { value: this.notes });
+    } catch {
+      showToast('Could not save note', 'error');
+    }
   }
 
   destroy() {}
+}
+
+function escHtml(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function themeSwatch(id, bg, accent, label, current) {
