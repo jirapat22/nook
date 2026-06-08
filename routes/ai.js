@@ -72,6 +72,22 @@ router.post('/transcribe', upload.single('audio'), async (req, res) => {
     if (mime.includes('mp4') || mime.includes('m4a')) fileExt = 'm4a';
     else if (mime.includes('ogg')) fileExt = 'ogg';
 
+    // Bias Whisper toward correctly spelling the names of people the user tracks,
+    // so it stops inventing phonetic spellings (e.g. "Vinnie" for a real name).
+    // Whisper treats the prompt as a vocabulary/spelling hint (~224-token budget),
+    // so cap the list.
+    let namePrompt = '';
+    try {
+      const people = await db.query('SELECT name, aliases FROM people ORDER BY updated_at DESC LIMIT 60');
+      const names = [];
+      for (const p of people.rows) {
+        if (p.name) names.push(p.name);
+        if (Array.isArray(p.aliases)) names.push(...p.aliases);
+      }
+      const unique = [...new Set(names.filter(Boolean))].slice(0, 60);
+      if (unique.length) namePrompt = `People who may be mentioned: ${unique.join(', ')}.`;
+    } catch { /* non-fatal — transcription still works without the hint */ }
+
     const form = new FormData();
     form.append('file', req.file.buffer, {
       filename: `audio.${fileExt}`,
@@ -80,6 +96,7 @@ router.post('/transcribe', upload.single('audio'), async (req, res) => {
     form.append('model', 'whisper-large-v3');
     form.append('language', 'en');
     form.append('response_format', 'json');
+    if (namePrompt) form.append('prompt', namePrompt);
 
     const groqRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
       method: 'POST',
@@ -234,7 +251,7 @@ router.post('/analyze', async (req, res) => {
     const systemPrompt = `You are Nook, a warm and insightful personal journal assistant.
 Analyze the user's journal entry and return a JSON object with EXACTLY this structure:
 {
-  "first_person_summary": "A diary-style narrative of the day in FIRST PERSON ('Today I...', 'I felt...', 'I'm thinking about...'). 3-6 sentences. Read like the user wrote it themselves, not like a report.",
+  "first_person_summary": "A diary-style narrative of the day in FIRST PERSON ('Today I...', 'I felt...', 'I'm thinking about...'). Keep it tight and readable, but you MUST mention EVERY person named in the entry and EVERY emotionally significant or unresolved thread (e.g. 'the thing with Luke'). Never drop a named person or an important moment for the sake of brevity — add a sentence rather than omit. Read like the user wrote it themselves, not like a report.",
   "cleaned_content": "A cleaned-up version of what they ACTUALLY SAID, in FIRST PERSON ('I' voice), removing filler words and fixing grammar. NEVER write 'The user is...' or 'The user feels...' — always 'I am...', 'I feel...'.",
   "ai_summary": "2-3 sentence outside-view summary (third-person OK here — this is the brief overview shown in lists).",
   "key_themes": ["theme1", "theme2"],
@@ -287,7 +304,7 @@ For people_mentioned, each item: { "name": string, "context": string, "facts_ext
   - inferred_relationship: best guess based on how the user talks about them. "my friend", "mum", "boss", "colleague" are strong signals. Use "pet" for animals the user names (dogs, cats, etc.) and "group" for collective entities ("the team", "the friend group"). Use "unknown" only when there's no clue.
   - CRITICAL: If the user explicitly names their pets (e.g. "my cats Yuzu, Shogun, Mocha and Latte"), include EACH named pet as a separate entry in people_mentioned with inferred_relationship="pet". Never skip named pets — they matter just as much as named people.
 missing_fields should list important fields that couldn't be determined.
-followup_question should be ONE warm, natural follow-up question (or null if nothing important is missing).${knownPeopleContext}${personMemoryContext}${existingTagsContext}${recentContext}`;
+followup_question should be ONE warm, natural follow-up question. Ask one whenever the entry leaves something unfinished, vague, or emotionally open — a person or event named without detail ("the thing with Luke"), a feeling mentioned but not explained, or a situation left hanging. Phrase it like a friend gently checking in. Only use null when the entry is genuinely complete and self-contained with nothing worth following up on.${knownPeopleContext}${personMemoryContext}${existingTagsContext}${recentContext}`;
 
     const messages = [
       { role: 'system', content: systemPrompt },
@@ -295,7 +312,10 @@ followup_question should be ONE warm, natural follow-up question (or null if not
       { role: 'user', content: content || context },
     ];
 
-    const analysis = await groqChat(apiKey, messages);
+    // Generous token budget: a long entry's cleaned_content + summaries + people
+    // can exceed the 2048 default, truncating the JSON so it fails to parse and
+    // the entry ends up with no analysis at all.
+    const analysis = await groqChat(apiKey, messages, { max_tokens: 4096 });
 
     // Safeguard: aggressive null-out of mood values that smell like LLM defaults.
     // Llama gravitates to 5 on a 0-10 scale when uncertain even when told not to.
