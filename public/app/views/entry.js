@@ -1034,7 +1034,7 @@ export class EntryView {
 
   showPeoplePrompt(people, entryId) {
     document.querySelector('.people-prompt')?.remove();
-    const names  = people.map(p => p.name).join(', ');
+    const names  = people.map(p => escHtml(p.name)).join(', ');
     const prompt = document.createElement('div');
     prompt.className = 'people-prompt';
     prompt.innerHTML = `
@@ -1062,13 +1062,18 @@ export class EntryView {
     return new Promise(resolve => {
       const validRels = ['friend','family','crush','partner','colleague','pet','group','acquaintance','unknown'];
       const inferred = validRels.includes(person.inferred_relationship) ? person.inferred_relationship : 'unknown';
+      // When the AI couldn't tell if this is even a person (vs a thing/place),
+      // lead with the question and let the user dismiss it as "not a person".
+      const uncertain = person.uncertain === true;
+      const safeName = escHtml(person.name);
       const modal = document.createElement('div');
       modal.className = 'modal-backdrop';
       modal.innerHTML = `
         <div class="modal-sheet">
           <div class="modal-handle"></div>
-          <div class="modal-title">Add ${person.name}?</div>
-          ${person.context ? `<p style="font-size:0.85rem;color:var(--color-text-muted);margin-bottom:12px;font-style:italic">"${person.context}"</p>` : ''}
+          <div class="modal-title">${uncertain ? `Is "${safeName}" a person?` : `Add ${safeName}?`}</div>
+          ${uncertain ? `<p style="font-size:0.85rem;color:var(--color-text-muted);margin-bottom:12px">I wasn't sure if this is someone you know or just something you mentioned.</p>` : ''}
+          ${person.context ? `<p style="font-size:0.85rem;color:var(--color-text-muted);margin-bottom:12px;font-style:italic">"${escHtml(person.context)}"</p>` : ''}
           <div class="form-group">
             <label class="form-label">Relationship ${inferred !== 'unknown' ? `<span style="font-size:0.7rem;color:var(--color-primary);font-weight:600">· AI guessed: ${inferred}</span>` : ''}</label>
             <select class="select input" id="confirm-rel">
@@ -1080,8 +1085,8 @@ export class EntryView {
             <textarea class="textarea" id="confirm-notes" placeholder="${person.facts_extracted?.join(', ') || 'Anything you want to remember...'}" style="min-height:60px"></textarea>
           </div>
           <div class="modal-actions">
-            <button class="btn btn-ghost btn-sm" id="confirm-skip">Skip</button>
-            <button class="btn btn-primary" id="confirm-add">Add ${person.name}</button>
+            <button class="btn btn-ghost btn-sm" id="confirm-skip">${uncertain ? 'Not a person' : 'Skip'}</button>
+            <button class="btn btn-primary" id="confirm-add">${uncertain ? `Yes, add ${safeName}` : `Add ${safeName}`}</button>
           </div>
         </div>`;
       document.body.appendChild(modal);
