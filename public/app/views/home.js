@@ -180,7 +180,7 @@ function dayCard(dateStr, entries, todayStr) {
 
   // Snippet — try the most recent entry's summary as the day's preview text
   const latest = entries[0]; // already sorted latest-first
-  const snippet = latest.ai_summary || latest.important_today || 'Entry recorded';
+  const snippet = latest.first_person_summary || latest.ai_summary || latest.important_today || latest.content_preview || 'Entry recorded';
 
   // Has love-life across the day?
   const hasLove = entries.some(e => e.has_love_life_content);
@@ -222,7 +222,7 @@ function entryCard(entry) {
           ${entry.has_love_life_content ? '<span class="entry-card-love">💕</span>' : ''}
         </span>
       </div>
-      <p class="entry-card-summary">${escHtml(entry.ai_summary || entry.important_today || 'Entry recorded')}</p>
+      <p class="entry-card-summary">${escHtml(entry.first_person_summary || entry.ai_summary || entry.important_today || entry.content_preview || 'Entry recorded')}</p>
       ${themes.length ? `<div class="entry-card-tags">${themes.map(t => `<span class="entry-card-tag">${escHtml(t)}</span>`).join('')}</div>` : ''}
     </div>`;
 }
@@ -267,7 +267,7 @@ function onThisDayCard(entry) {
   const year = new Date(d).getFullYear();
   const mood = entry.mood_overall;
   const moodClass = mood == null ? 'none' : mood >= 7 ? 'high' : mood >= 4 ? 'mid' : 'low';
-  const summary = entry.ai_summary || entry.important_today || 'Entry recorded';
+  const summary = entry.first_person_summary || entry.ai_summary || entry.important_today || entry.content_preview || 'Entry recorded';
 
   return `
     <div class="on-this-day-card entry-preview-card" data-id="${entry.id}">

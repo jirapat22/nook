@@ -1246,6 +1246,7 @@ export class EntryView {
 
           <div class="entry-detail-actions" id="entry-actions">
             <button class="btn btn-secondary btn-sm" id="edit-btn">Edit</button>
+            <button class="btn btn-secondary btn-sm" id="reanalyse-btn">${firstPerson || entry.ai_summary ? '✨ Re-analyse' : '✨ Generate summary'}</button>
             <button class="btn btn-secondary btn-sm" id="link-person-btn">👤 Link person</button>
             <button class="btn btn-danger btn-sm" id="delete-btn">Delete</button>
           </div>
@@ -1319,6 +1320,52 @@ export class EntryView {
         await api.delete(`/api/entries/${this.entryId}`);
         showToast('Entry deleted', '');
         location.hash = '#home';
+      });
+
+      // ── Re-analyse ──────────────────────────────────────────
+      // Regenerate AI summary/themes/tags for an entry whose analysis failed
+      // on save (transcription succeeded but the AI step errored), or to refresh
+      // it after editing the text. Mood is only filled when the entry has none,
+      // so a mood you set yourself is never overwritten.
+      const reanalyseBtn = container.querySelector('#reanalyse-btn');
+      reanalyseBtn?.addEventListener('click', async () => {
+        const content = (entry.user_edited_content || entry.cleaned_content || entry.raw_transcript || '').trim();
+        if (!content) { showToast('Nothing to analyse yet', ''); return; }
+        reanalyseBtn.disabled = true;
+        reanalyseBtn.textContent = '✨ Analysing…';
+        try {
+          const a = await api.post('/api/ai/analyze', { content });
+          const payload = {
+            ai_summary: a.ai_summary || null,
+            first_person_summary: a.first_person_summary || null,
+            key_themes: a.key_themes || [],
+            action_items: a.action_items || [],
+            important_today: a.important_today || null,
+            life_areas: a.life_areas || [],
+            tags: a.suggested_tags || [],
+          };
+          // Only fill mood when the entry has none — don't clobber a manual rating.
+          if (entry.mood_overall == null && a.mood) {
+            const m = a.mood;
+            Object.assign(payload, {
+              mood_energy: m.energy ?? null, mood_happiness: m.happiness ?? null,
+              mood_anxiety: m.anxiety ?? null, mood_confidence: m.confidence ?? null,
+              mood_motivation: m.motivation ?? null, mood_social_battery: m.social_battery ?? null,
+              mood_physical: m.physical ?? null, mood_focus: m.focus ?? null,
+              mood_overall: m.overall ?? null, mood_source: 'ai_detected',
+            });
+          }
+          await api.put(`/api/entries/${this.entryId}`, payload);
+          if (a.people_mentioned?.length) {
+            await this.linkPeopleMentions(this.entryId, a.people_mentioned);
+          }
+          showToast('Re-analysed ✓', 'success');
+          await this.mountDetailView(container);
+        } catch (err) {
+          showToast(err.message || 'AI analysis unavailable — try again', 'error');
+          reanalyseBtn.disabled = false;
+          reanalyseBtn.textContent = firstPerson || entry.ai_summary ? '✨ Re-analyse' : '✨ Generate summary';
+        }
       });
 
       // ── Edit button ─────────────────────────────────────────

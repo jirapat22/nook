@@ -93,7 +93,7 @@ function timelineEntry(entry) {
     ? new Date(entry.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
     : (entry.time_of_day || '');
   const themes = Array.isArray(entry.key_themes) ? entry.key_themes.slice(0, 3) : [];
-  const rawSum = entry.first_person_summary || entry.ai_summary || entry.important_today || 'Entry recorded';
+  const rawSum = entry.first_person_summary || entry.ai_summary || entry.important_today || entry.content_preview || 'Entry recorded';
   const summary = rawSum.length > 140 ? rawSum.slice(0, 137) + '…' : rawSum;
   return `
     <div class="timeline-entry" data-id="${entry.id}">
