@@ -868,10 +868,10 @@ export class EntryView {
         const chosen = await this.showDidYouMeanPrompt(person, matches, entryId);
         if (chosen === 'new') newPeople.push(person);
       }
-      if (newPeople.length) this.showPeoplePrompt(newPeople, entryId);
-
-      // Show undo toast for auto-scored picks so user can correct mistakes
+      // Show undo toast for auto-scored picks first (non-blocking), then block on
+      // the add-new-people flow so the caller's redirect waits for it to finish.
       if (autoLinked.length) this.showAutoLinkUndoToast(autoLinked, entryId);
+      if (newPeople.length) await this.showPeoplePrompt(newPeople, entryId);
     } catch (err) { console.warn('People linking error:', err); }
   }
 
@@ -1035,29 +1035,34 @@ export class EntryView {
   }
 
   showPeoplePrompt(people, entryId) {
-    document.querySelector('.people-prompt')?.remove();
-    const names  = people.map(p => escHtml(p.name)).join(', ');
-    const prompt = document.createElement('div');
-    prompt.className = 'people-prompt';
-    prompt.innerHTML = `
-      <p>You mentioned <strong>${names}</strong> — add to your People?</p>
-      <div class="people-prompt-actions">
-        <button class="btn btn-primary btn-sm" id="pp-yes">Add</button>
-        <button class="btn btn-ghost btn-sm" id="pp-no">Not now</button>
-      </div>`;
-    document.body.appendChild(prompt);
-    prompt.querySelector('#pp-yes').addEventListener('click', async () => {
-      prompt.remove();
-      // Show a single modal per person, prefilled with AI's inferred relationship
-      // so the user just confirms or tweaks (instead of silently creating as 'unknown')
-      for (const p of people) {
-        await this.showAddPersonConfirm(p, entryId);
-      }
+    // Returns a Promise that resolves only once the user has finished deciding
+    // (added everyone, or tapped Not now). saveEntry awaits this before its
+    // redirect-home timer, so the navigation can't interrupt the add flow.
+    return new Promise(resolve => {
+      document.querySelector('.people-prompt')?.remove();
+      const names  = people.map(p => escHtml(p.name)).join(', ');
+      const prompt = document.createElement('div');
+      prompt.className = 'people-prompt';
+      prompt.innerHTML = `
+        <p>You mentioned <strong>${names}</strong> — add to your People?</p>
+        <div class="people-prompt-actions">
+          <button class="btn btn-primary btn-sm" id="pp-yes">Add</button>
+          <button class="btn btn-ghost btn-sm" id="pp-no">Not now</button>
+        </div>`;
+      document.body.appendChild(prompt);
+      prompt.querySelector('#pp-yes').addEventListener('click', async () => {
+        prompt.remove();
+        // Show a single modal per person, prefilled with AI's inferred relationship
+        // so the user just confirms or tweaks (instead of silently creating as 'unknown')
+        for (const p of people) {
+          await this.showAddPersonConfirm(p, entryId);
+        }
+        resolve();
+      });
+      prompt.querySelector('#pp-no').addEventListener('click', () => { prompt.remove(); resolve(); });
+      // No auto-dismiss — the prompt stays until the user explicitly taps Add or
+      // Not now, so it can't silently vanish before they notice it (mobile).
     });
-    prompt.querySelector('#pp-no').addEventListener('click', () => prompt.remove());
-    // Removed 12s auto-dismiss — the prompt was silently vanishing before the
-    // user noticed it (especially on mobile after voice recording). Stays until
-    // the user explicitly taps Add or Not now.
   }
 
   showAddPersonConfirm(person, entryId) {

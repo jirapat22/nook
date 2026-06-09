@@ -48,7 +48,18 @@ async function groqChat(apiKey, messages, { temperature = 0.3, max_tokens = 2048
     throw new Error(`Groq API error ${res.status}: ${body}`);
   }
   const data = await res.json();
-  return JSON.parse(data.choices[0].message.content);
+  const choice = data.choices?.[0];
+  if (!choice) throw new Error('Groq returned no choices');
+  // finish_reason 'length' means the JSON was cut off mid-stream — parsing it
+  // would throw anyway, but flag it explicitly so the caller/logs are clear.
+  if (choice.finish_reason === 'length') {
+    throw new Error('Groq response truncated (hit max_tokens) — raise the limit');
+  }
+  try {
+    return JSON.parse(choice.message.content);
+  } catch {
+    throw new Error('Groq returned malformed JSON');
+  }
 }
 
 // POST /api/ai/transcribe — audio blob → text
@@ -314,10 +325,11 @@ followup_question should be ONE warm, natural follow-up question. Ask one whenev
       { role: 'user', content: content || context },
     ];
 
-    // Generous token budget: a long entry's cleaned_content + summaries + people
-    // can exceed the 2048 default, truncating the JSON so it fails to parse and
-    // the entry ends up with no analysis at all.
-    const analysis = await groqChat(apiKey, messages, { max_tokens: 4096 });
+    // Generous token budget: a long entry's cleaned_content (the full text
+    // again) + first_person_summary + ai_summary + people can be large, and a
+    // truncated JSON fails to parse, leaving the entry with no analysis at all.
+    // 8000 covers very long entries; llama-3.3-70b allows far more.
+    const analysis = await groqChat(apiKey, messages, { max_tokens: 8000 });
 
     // Safeguard: aggressive null-out of mood values that smell like LLM defaults.
     // Llama gravitates to 5 on a 0-10 scale when uncertain even when told not to.
