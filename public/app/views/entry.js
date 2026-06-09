@@ -970,7 +970,9 @@ export class EntryView {
       document.body.appendChild(modal);
 
       modal.querySelector('#dym-new').addEventListener('click', () => { modal.remove(); resolve('new'); });
-      modal.addEventListener('click', e => { if (e.target === modal) { modal.remove(); resolve('skip'); } });
+      // Dismissing without choosing must NOT lose the person — fall through to the
+      // "add as new" flow (they can still tap "Not now" there) instead of dropping.
+      modal.addEventListener('click', e => { if (e.target === modal) { modal.remove(); resolve('new'); } });
 
       candidates.forEach(m => {
         modal.querySelector(`[data-id="${m.id}"]`).addEventListener('click', async () => {
@@ -1804,12 +1806,17 @@ function nameSimilar(a, b) {
   if (isNicknameOf(a, b)) return true; // explicit nickname mapping
   const minLen = 3;
   if (a.length < minLen || b.length < minLen) return false;
-  // One is a prefix of the other (min 3 chars)
-  if (b.startsWith(a) || a.startsWith(b)) return true;
-  // One is contained in the other (e.g. "ella" inside "rafaella")
-  if (b.includes(a) || a.includes(b)) return true;
-  // First 3 chars match and lengths are close (within 6 chars)
-  if (a.slice(0, 3) === b.slice(0, 3) && Math.abs(a.length - b.length) <= 6) return true;
+  // One is a prefix of the other (min 4 chars of overlap, so a 3-letter name
+  // like "Sha" doesn't prefix-collide with longer unrelated names).
+  const shorter = a.length <= b.length ? a : b;
+  if (shorter.length >= 4 && (b.startsWith(a) || a.startsWith(b))) return true;
+  // One is contained in the other (e.g. "ella" inside "rafaella"). Require the
+  // shorter name to be >=4 chars, otherwise short new names match as accidental
+  // substrings of unrelated existing ones ("Sha" inside "Nata-sha").
+  if (shorter.length >= 4 && (b.includes(a) || a.includes(b))) return true;
+  // First 4 chars match and lengths are close (within 4 chars). Tightened from
+  // 3/6 — "Mark" vs "Maria" (mar==mar) was matching unrelated people.
+  if (a.length >= 4 && b.length >= 4 && a.slice(0, 4) === b.slice(0, 4) && Math.abs(a.length - b.length) <= 4) return true;
   return false;
 }
 
