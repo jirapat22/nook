@@ -1,5 +1,7 @@
 // AiPanel — displays the AI analysis results card
 
+import { renderMoodFaces, wireMoodFaces } from './moodFaces.js';
+
 export class AiPanel {
   constructor(analysis = {}, moodOverrides = {}, onMoodChange = () => {}) {
     this.analysis     = analysis;
@@ -50,7 +52,24 @@ export class AiPanel {
       if (btn)       btn.textContent         = this.showRaw ? '↩ Show cleaned' : '📄 Show original';
     });
 
-    // Mood dimension toggles for uncertain dimensions
+    // One-tap overall mood (faces). Pre-selected to the AI's read; tapping
+    // confirms or changes it and records it as a mood override.
+    const facesEl = container.querySelector('.mood-faces');
+    if (facesEl) {
+      wireMoodFaces(facesEl, v => {
+        this.moodOverrides = { ...this.moodOverrides, overall: v };
+        this.onMoodChange(this.moodOverrides);
+      });
+    }
+    // "add detail" reveals the 8 optional dimension sliders
+    const detailToggle = container.querySelector('#mood-detail-toggle');
+    const detailEl = container.querySelector('#mood-detail');
+    detailToggle?.addEventListener('click', () => {
+      const hidden = detailEl.classList.toggle('hidden');
+      detailToggle.textContent = hidden ? '＋ add detail' : '－ hide detail';
+    });
+
+    // Mood dimension sliders (inside "add detail")
     container.querySelectorAll('.mood-confirm-slider').forEach(slider => {
       const dim = slider.dataset.dim;
       const valEl = container.querySelector(`#mood-val-${dim}`);
@@ -144,60 +163,40 @@ export class AiPanel {
   }
 
   renderMoodSection(a) {
-    const mood = a.mood;
-    if (!mood) return '';
-    const dims = [
-      { key: 'overall',       label: 'Overall'       },
-      { key: 'energy',        label: 'Energy'        },
-      { key: 'happiness',     label: 'Happiness'     },
-      { key: 'anxiety',       label: 'Anxiety',      inverse: true },
-      { key: 'confidence',    label: 'Confidence'    },
-      { key: 'motivation',    label: 'Motivation'    },
-      { key: 'social_battery',label: 'Social'        },
-      { key: 'focus',         label: 'Focus'         },
+    const mood = a.mood || {};
+    const overall = typeof mood.overall === 'number' ? mood.overall : 5;
+    const subDims = [
+      { key: 'energy',        label: 'Energy'     },
+      { key: 'happiness',     label: 'Happiness'  },
+      { key: 'anxiety',       label: 'Anxiety'    },
+      { key: 'confidence',    label: 'Confidence' },
+      { key: 'motivation',    label: 'Motivation' },
+      { key: 'social_battery',label: 'Social'     },
+      { key: 'physical',      label: 'Physical'   },
+      { key: 'focus',         label: 'Focus'      },
     ];
 
-    const uncertain = new Set(mood.uncertain_dimensions || []);
-    const knownDims = dims.filter(d => mood[d.key] != null && !uncertain.has(d.key));
-    const uncertain_dims = dims.filter(d => uncertain.has(d.key));
-
-    if (!knownDims.length && !uncertain_dims.length) return '';
-
+    // One-tap overall (pre-selected to Nook's read); the 8 dimensions are
+    // tucked behind "add detail" so the common case is a single tap.
     return `
       <div>
-        <div class="ai-section-label">Mood</div>
-        <div class="mood-bars">
-          ${knownDims.map(d => {
-            const val = mood[d.key];
-            const fillClass = d.inverse ? 'anxiety' : '';
+        <div class="ai-section-label">How did today feel? <span style="color:var(--color-text-faint);font-weight:400">· tap to confirm</span></div>
+        ${renderMoodFaces(overall)}
+        <button type="button" class="mood-detail-toggle" id="mood-detail-toggle">＋ add detail</button>
+        <div class="mood-detail hidden" id="mood-detail">
+          ${subDims.map(d => {
+            const v = mood[d.key];
+            const has = typeof v === 'number';
             return `
-              <div class="mood-bar-row">
-                <span class="mood-bar-label">${d.label}</span>
-                <div class="mood-bar-track">
-                  <div class="mood-bar-fill ${fillClass}" style="width:${val * 10}%"></div>
+              <div class="mood-edit-row">
+                <div class="mood-edit-header">
+                  <span class="mood-edit-label">${d.label}</span>
+                  <span class="mood-edit-val ${has ? '' : 'muted'}" id="mood-val-${d.key}">${has ? v : '—'}</span>
                 </div>
-                <span class="mood-bar-value">${val}</span>
+                <input type="range" class="range-slider mood-confirm-slider"
+                  min="0" max="10" step="1" value="${has ? v : 5}" data-dim="${d.key}">
               </div>`;
           }).join('')}
-
-          ${uncertain_dims.map(d => `
-            <div class="mood-bar-row" style="flex-direction:column;align-items:flex-start;gap:4px">
-              <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
-                <span class="mood-bar-label">${d.label} <span style="color:var(--color-text-faint)">?</span></span>
-                <span class="mood-bar-value" id="mood-val-${d.key}" style="color:var(--color-text-faint)">${mood[d.key] != null ? mood[d.key] : '—'}</span>
-              </div>
-              <div style="width:100%;display:flex;align-items:center;gap:8px">
-                <div class="mood-bar-track" style="flex:1;opacity:0.4">
-                  <div class="mood-bar-fill" id="mood-fill-${d.key}" style="width:${(mood[d.key] ?? 5) * 10}%"></div>
-                </div>
-              </div>
-              <input type="range" class="range-slider mood-confirm-slider"
-                min="0" max="10" step="1"
-                value="${mood[d.key] ?? 5}"
-                data-dim="${d.key}"
-                style="margin:0">
-              <span class="mood-uncertain">How would you rate your ${d.label.toLowerCase()} today? (drag the slider)</span>
-            </div>`).join('')}
         </div>
       </div>`;
   }

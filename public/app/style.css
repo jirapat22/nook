@@ -1546,6 +1546,41 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
 .mood-edit-clear:hover { color: var(--color-text); }
 .mood-edit-slider { width: 100%; }
 
+/* One-tap overall-mood faces (save flow + entry detail) */
+.mood-faces {
+  display: flex; gap: 6px;
+  margin: 4px 0 10px;
+}
+.mood-face {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 8px 2px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.12s ease, background 0.12s ease, transform 0.12s ease;
+}
+.mood-face:hover { border-color: var(--color-primary); }
+.mood-face.selected {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+  transform: translateY(-1px);
+}
+.mood-face-emoji { font-size: 1.5rem; line-height: 1; }
+.mood-face-label { font-size: 0.62rem; color: var(--color-text-faint); }
+.mood-face.selected .mood-face-label { color: var(--color-primary); font-weight: 600; }
+
+.mood-detail-toggle {
+  background: none; border: none;
+  color: var(--color-primary);
+  font-size: 0.8rem; cursor: pointer;
+  padding: 4px 0; font-family: inherit;
+}
+.mood-detail.hidden { display: none; }
+.mood-inline-card .mood-faces { margin-bottom: 0; }
+
 /* Mood slider value when AI didn't infer it (shows — instead of 5) */
 .mood-slider-value.muted { color: var(--color-text-faint); }
 

@@ -2,7 +2,7 @@ import { api, showToast, speak, AppState, todayStr } from '../app.js';
 import { VoiceRecorder }   from '../components/voiceRecorder.js';
 import { AiPanel }         from '../components/aiPanel.js';
 import { LoveLifeSection } from '../components/loveLifeSection.js';
-import { MoodTracker }     from '../components/moodTracker.js';
+import { renderMoodFaces, wireMoodFaces } from '../components/moodFaces.js';
 
 export class EntryView {
   constructor(params = []) {
@@ -701,10 +701,7 @@ export class EntryView {
     if (a.has_love_life_content) {
       new LoveLifeSection(a).mount(this.container.querySelector('#love-section'));
     }
-    if (a.mood?.uncertain_dimensions?.length) {
-      new MoodTracker(a.mood, updates => { this.moodOverrides = { ...this.moodOverrides, ...updates }; })
-        .mount(this.container.querySelector('#mood-section'));
-    }
+    // Mood (overall faces + optional dimensions) is rendered inside AiPanel now.
   }
 
   resetAnalysis() {
@@ -771,7 +768,11 @@ export class EntryView {
       mood_physical:      mood.physical      ?? null,
       mood_focus:         mood.focus         ?? null,
       mood_overall:       mood.overall       ?? null,
-      mood_source: this.analysis ? 'ai_detected' : null,
+      // If the user tapped a face/slider, it's confirmed (and exempt from the
+      // AI-mood cleanup); otherwise it's the AI's untouched read.
+      mood_source: (this.moodOverrides && Object.keys(this.moodOverrides).length)
+        ? 'user_confirmed'
+        : (this.analysis ? 'ai_detected' : null),
       life_areas: a.life_areas || [],
       tags: a.suggested_tags || [],
       entry_mode: this.mode === 'drive' ? 'voice' : 'text',
@@ -1195,6 +1196,13 @@ export class EntryView {
 
           ${entry.ai_summary && !firstPerson && !userEdit ? `<div class="card mb-12"><p class="font-display text-muted" style="font-style:italic">${entry.ai_summary}</p></div>` : ''}
 
+          <!-- Quick mood log for an entry with no mood yet — one tap, no modal -->
+          ${entry.mood_overall == null ? `
+            <div class="card mb-12 mood-inline-card" id="mood-inline">
+              <div class="ai-section-label">How did this feel?</div>
+              ${renderMoodFaces(null)}
+            </div>` : ''}
+
           <!-- Main first-person diary block -->
           ${firstPerson || userEdit ? `<div class="ai-section-label">Today, in your words</div>` : ''}
           <div class="entry-content-block" id="entry-content-display">${mainContent}</div>
@@ -1302,10 +1310,24 @@ export class EntryView {
         if (next) location.hash = `#new-entry/${next.id}`;
       });
 
-      // Edit mood — opens a modal with sliders for each dimension
+      // Edit mood — opens the faces + optional-detail modal
       container.querySelector('#edit-mood-btn')?.addEventListener('click', () => {
         this.showMoodEditModal(entry, container);
       });
+
+      // Inline one-tap mood for an entry that has none yet (log it after the fact)
+      const moodInlineFaces = container.querySelector('#mood-inline .mood-faces');
+      if (moodInlineFaces) {
+        wireMoodFaces(moodInlineFaces, async (v) => {
+          try {
+            await api.put(`/api/entries/${this.entryId}`, { mood_overall: v, mood_source: 'user_edited' });
+            showToast('Mood saved ✓', 'success');
+            await this.mountDetailView(container);
+          } catch {
+            showToast('Could not save mood', 'error');
+          }
+        });
+      }
 
       // "Nook also spotted" — add a detected-but-unlinked person. Runs the same
       // match/confirm flow as a fresh entry, then refreshes the detail view.
@@ -1567,8 +1589,7 @@ export class EntryView {
   // Modal to edit mood values on a saved entry. Marks mood_source as
   // 'user_edited' so insights know these are confirmed, not AI guesses.
   showMoodEditModal(entry, parentContainer) {
-    const dims = [
-      { key: 'mood_overall',        label: 'Overall' },
+    const subDims = [
       { key: 'mood_energy',         label: 'Energy' },
       { key: 'mood_happiness',      label: 'Happiness' },
       { key: 'mood_anxiety',        label: 'Anxiety' },
@@ -1578,38 +1599,54 @@ export class EntryView {
       { key: 'mood_physical',       label: 'Physical' },
       { key: 'mood_focus',          label: 'Focus' },
     ];
+    let selectedOverall = entry.mood_overall ?? null;
     const modal = document.createElement('div');
     modal.className = 'modal-backdrop';
     modal.innerHTML = `
       <div class="modal-sheet" style="max-height:85vh;overflow-y:auto">
         <div class="modal-handle"></div>
-        <div class="modal-title">Edit mood</div>
-        <p style="font-size:0.8rem;color:var(--color-text-muted);margin-bottom:12px">
-          Set a value, or tap × to leave it blank.
-        </p>
-        ${dims.map(d => {
-          const val = entry[d.key];
-          const hasVal = val != null;
-          return `
-            <div class="mood-edit-row" data-dim="${d.key}">
-              <div class="mood-edit-header">
-                <span class="mood-edit-label">${d.label}</span>
-                <span class="mood-edit-val ${hasVal ? '' : 'muted'}" id="mood-edit-val-${d.key}">${hasVal ? val + '/10' : '—'}</span>
-                <button class="mood-edit-clear" data-dim="${d.key}" title="Clear">×</button>
-              </div>
-              <input type="range" class="range-slider mood-edit-slider"
-                min="0" max="10" step="1"
-                value="${hasVal ? val : 5}"
-                data-dim="${d.key}"
-                data-touched="${hasVal ? 'true' : 'false'}">
-            </div>`;
-        }).join('')}
+        <div class="modal-title">How did this feel?</div>
+        ${renderMoodFaces(selectedOverall)}
+        <button type="button" class="mood-detail-toggle" id="mood-edit-detail-toggle">＋ add detail</button>
+        <div class="mood-detail hidden" id="mood-edit-detail">
+          <p style="font-size:0.8rem;color:var(--color-text-muted);margin:8px 0">
+            Set any that apply, or tap × to leave blank.
+          </p>
+          ${subDims.map(d => {
+            const val = entry[d.key];
+            const hasVal = val != null;
+            return `
+              <div class="mood-edit-row" data-dim="${d.key}">
+                <div class="mood-edit-header">
+                  <span class="mood-edit-label">${d.label}</span>
+                  <span class="mood-edit-val ${hasVal ? '' : 'muted'}" id="mood-edit-val-${d.key}">${hasVal ? val + '/10' : '—'}</span>
+                  <button class="mood-edit-clear" data-dim="${d.key}" title="Clear">×</button>
+                </div>
+                <input type="range" class="range-slider mood-edit-slider"
+                  min="0" max="10" step="1"
+                  value="${hasVal ? val : 5}"
+                  data-dim="${d.key}"
+                  data-touched="${hasVal ? 'true' : 'false'}">
+              </div>`;
+          }).join('')}
+        </div>
         <div class="modal-actions" style="margin-top:16px">
           <button class="btn btn-secondary" id="mood-edit-cancel">Cancel</button>
           <button class="btn btn-primary" id="mood-edit-save">Save</button>
         </div>
       </div>`;
     document.body.appendChild(modal);
+
+    // Overall faces — one tap sets the value used on save
+    wireMoodFaces(modal.querySelector('.mood-faces'), v => { selectedOverall = v; });
+
+    // "add detail" reveals the optional dimension sliders
+    const editDetailToggle = modal.querySelector('#mood-edit-detail-toggle');
+    const editDetailEl = modal.querySelector('#mood-edit-detail');
+    editDetailToggle.addEventListener('click', () => {
+      const hidden = editDetailEl.classList.toggle('hidden');
+      editDetailToggle.textContent = hidden ? '＋ add detail' : '－ hide detail';
+    });
 
     // Slider input updates the displayed value and marks touched
     modal.querySelectorAll('.mood-edit-slider').forEach(s => {
@@ -1638,7 +1675,7 @@ export class EntryView {
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
 
     modal.querySelector('#mood-edit-save').addEventListener('click', async () => {
-      const payload = { mood_source: 'user_edited' };
+      const payload = { mood_source: 'user_edited', mood_overall: selectedOverall };
       modal.querySelectorAll('.mood-edit-slider').forEach(s => {
         payload[s.dataset.dim] = s.dataset.touched === 'true' ? parseInt(s.value) : null;
       });

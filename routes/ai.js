@@ -309,20 +309,17 @@ CRITICAL VOICE RULES:
 - NEVER write "The user is feeling..." or "The user mentions..." there. Only ai_summary can be third-person.
 
 MOOD RULES (read carefully — this matters):
-- Only fill in a mood score (0-10 integer) when the entry contains DIRECT evidence for it
-  (specific feelings, body language, energy words, etc.). Do NOT guess.
-- If you would be guessing or just picking a "safe middle" — set that field to null AND
-  add its name to uncertain_dimensions[].
-- 5 is BANNED for "overall". 5 means "perfectly evenly balanced" which is almost never
-  true. If you're tempted to write overall=5, use null instead. Use 4 for "leaning a
-  little down" or 6 for "leaning a little up" if there's any directionality at all.
-- For sub-dimensions (energy/happiness/etc.), still avoid 5 as a default. Only use 5 if
-  the user EXPLICITLY described that dimension as neutral/balanced. When unsure: null.
-- Do NOT average the other dimensions for "overall". They are independent reads.
-- It's perfectly fine to return mood: { all-nulls + uncertain_dimensions: [...all dims] }
-  for an entry that just lists facts without emotional content.
-- ASK YOURSELF before each score: "What words in the entry let me say this?" If the
-  answer is vague, the answer is null.
+- "overall" must ALWAYS be your best-guess 0-10 read of how the day felt. It is shown to
+  the user as a one-tap suggestion they confirm or adjust, so a sensible guess beats null.
+  Use the full range and lean with the evidence; use 5 only for a genuinely flat day.
+  NEVER set overall to null and NEVER put "overall" in uncertain_dimensions.
+- The SUB-dimensions (energy, happiness, anxiety, confidence, motivation, social_battery,
+  physical, focus) are optional detail. Only give one a 0-10 score when the entry has
+  DIRECT evidence for it. If you'd be guessing, set that sub-dimension to null AND add its
+  name to uncertain_dimensions[]. It's fine for all sub-dimensions to be null.
+- Avoid 5 as a lazy default for sub-dimensions — use it only if the user explicitly
+  described that dimension as neutral.
+- "overall" is a holistic read — do NOT just average the sub-dimensions.
 
 Life areas should be from: Health & Fitness, Work & Career, Relationships & Social, Personal Growth, Creativity, Finance, Travel & Adventure, Mental Health, Family, Love Life, Hobbies, Home & Lifestyle.
 For people_mentioned, each item: { "name": string, "context": string, "facts_extracted": [], "sentiment": -5 to 5, "emotion_toward": string, "inferred_relationship": one of: "friend" | "family" | "crush" | "partner" | "colleague" | "pet" | "group" | "acquaintance" | "unknown", "uncertain": boolean }
@@ -357,27 +354,19 @@ followup_question should be ONE warm, natural follow-up question. Ask one whenev
     }
     if (!analysis) throw lastErr;
 
-    // Safeguard: aggressive null-out of mood values that smell like LLM defaults.
-    // Llama gravitates to 5 on a 0-10 scale when uncertain even when told not to.
-    // Better to surface uncertainty than show fake middle-ground ratings.
+    // Safeguard for SUB-dimensions only: Llama gravitates to 5 when uncertain, so
+    // null out smells-like-default sub-dimension values and mark them uncertain.
+    // "overall" is intentionally exempt — it's always a best guess the user confirms.
     if (analysis.mood && typeof analysis.mood === 'object') {
-      const dimKeys = ['energy','happiness','anxiety','confidence','motivation','social_battery','physical','focus','overall'];
-      const numeric = dimKeys
+      const subKeys = ['energy','happiness','anxiety','confidence','motivation','social_battery','physical','focus'];
+      const numeric = subKeys
         .map(k => ({ k, v: analysis.mood[k] }))
         .filter(x => typeof x.v === 'number');
       const fives = numeric.filter(x => x.v === 5);
       const distinct = new Set(numeric.map(x => x.v)).size;
-      const uncertain = new Set(analysis.mood.uncertain_dimensions || []);
+      const uncertain = new Set((analysis.mood.uncertain_dimensions || []).filter(d => d !== 'overall'));
 
-      // Rule 1: mood_overall === 5 is almost always a hedge. Force null.
-      // 5/10 means "perfectly neutral, no lean" which is rare for a real entry.
-      // If the user is genuinely a 5, they'll set it manually in the slider.
-      if (analysis.mood.overall === 5) {
-        analysis.mood.overall = null;
-        uncertain.add('overall');
-      }
-
-      // Rule 2: 3+ dimensions returned exactly 5 (or all identical) → null the 5s
+      // 3+ sub-dimensions returned exactly 5 (or all identical) → treat as defaulted.
       const looksDefaulted =
         (numeric.length >= 3 && fives.length >= 3) ||
         (numeric.length >= 4 && distinct === 1);
@@ -389,6 +378,9 @@ followup_question should be ONE warm, natural follow-up question. Ask one whenev
           }
         }
       }
+
+      // overall is never null — fall back to a neutral 5 the user can adjust.
+      if (typeof analysis.mood.overall !== 'number') analysis.mood.overall = 5;
 
       analysis.mood.uncertain_dimensions = [...uncertain];
     }
