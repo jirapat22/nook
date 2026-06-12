@@ -1901,6 +1901,10 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
   font-size: 0.7rem;
   color: var(--color-text-faint);
 }
+/* "Nook also spotted" add buttons reuse the chip look but are <button>s */
+button.entry-person-chip { cursor: pointer; font-family: inherit; }
+.spotted-people-block .entry-person-chip { border-style: dashed; }
+.spotted-people-block .entry-person-rel { color: var(--color-primary); font-weight: 600; }
 
 /* Subgroup chip on person cards (small pill next to name) */
 .person-subgroup-chip {

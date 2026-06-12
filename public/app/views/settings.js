@@ -12,6 +12,8 @@ export class SettingsView {
     const theme = settings.theme || 'warm-earthy';
     const ttsEnabled = settings.tts_enabled !== false;
     const ttsSpeed = parseFloat(settings.tts_speed) || 1;
+    const transcribeLang = (typeof settings.transcribe_language === 'string'
+      ? settings.transcribe_language.replace(/^"|"$/g, '') : '') || 'en';
     const apiKey = typeof settings.groq_api_key === 'string' && settings.groq_api_key !== 'null'
       ? settings.groq_api_key : '';
     const reminderEnabled = settings.reminder_enabled === 'true' || settings.reminder_enabled === true;
@@ -64,6 +66,16 @@ export class SettingsView {
             <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--color-text-faint);margin-top:4px">
               <span>Slow</span><span id="tts-speed-val">${ttsSpeed}×</span><span>Fast</span>
             </div>
+          </div>
+          <div style="height:1px;background:var(--color-border-light);margin:12px 0"></div>
+          <div>
+            <div class="form-label mb-8">Transcription language</div>
+            <select class="select input" id="transcribe-lang">
+              <option value="en" ${transcribeLang === 'en' ? 'selected' : ''}>English</option>
+              <option value="th" ${transcribeLang === 'th' ? 'selected' : ''}>Thai</option>
+              <option value="auto" ${transcribeLang === 'auto' ? 'selected' : ''}>Auto-detect (mixed)</option>
+            </select>
+            <p class="text-xs text-faint mt-8">What language you usually speak when recording. Auto-detect is best if you mix languages.</p>
           </div>
         </div>
 
@@ -230,6 +242,16 @@ export class SettingsView {
     });
     speedSlider.addEventListener('change', async e => {
       try { await api.put('/api/settings/tts_speed', { value: parseFloat(e.target.value) }); } catch {}
+    });
+
+    // Transcription language
+    container.querySelector('#transcribe-lang')?.addEventListener('change', async e => {
+      try {
+        await api.put('/api/settings/transcribe_language', { value: e.target.value });
+        showToast('Transcription language saved ✓', 'success');
+      } catch {
+        showToast('Could not save', 'error');
+      }
     });
 
     // API key show/hide

@@ -187,6 +187,7 @@ router.post('/', async (req, res) => {
       love_life_emotion_intensity,
       love_life_ai_summary,
       is_backdated = false,
+      detected_people = [],
     } = req.body;
 
     const today = new Date().toISOString().split('T')[0];
@@ -200,7 +201,7 @@ router.post('/', async (req, res) => {
         mood_social_battery, mood_physical, mood_focus, mood_overall, mood_source,
         life_areas, tags, entry_mode, has_love_life_content,
         love_life_raw, love_life_cleaned, love_life_emotion_intensity, love_life_ai_summary,
-        is_backdated
+        is_backdated, detected_people
       ) VALUES (
         $1, $2, $3, $4, $5,
         $6, $7, $8, $9, $10,
@@ -208,7 +209,7 @@ router.post('/', async (req, res) => {
         $16, $17, $18, $19, $20,
         $21, $22, $23, $24,
         $25, $26, $27, $28,
-        $29
+        $29, $30
       ) RETURNING *
     `, [
       date, time_of_day, raw_transcript, cleaned_content, user_edited_content,
@@ -217,7 +218,7 @@ router.post('/', async (req, res) => {
       mood_social_battery, mood_physical, mood_focus, mood_overall, mood_source,
       JSON.stringify(life_areas), JSON.stringify(tags), entry_mode, has_love_life_content,
       love_life_raw, love_life_cleaned, love_life_emotion_intensity, love_life_ai_summary,
-      actualIsBackdated,
+      actualIsBackdated, JSON.stringify(detected_people),
     ]);
 
     const newEntry = result.rows[0];
@@ -242,9 +243,10 @@ router.put('/:id', async (req, res) => {
       'mood_social_battery', 'mood_physical', 'mood_focus', 'mood_overall', 'mood_source',
       'life_areas', 'tags', 'has_love_life_content',
       'love_life_raw', 'love_life_cleaned', 'love_life_emotion_intensity', 'love_life_ai_summary',
+      'detected_people',
     ];
 
-    const jsonFields = new Set(['key_themes', 'action_items', 'life_areas', 'tags']);
+    const jsonFields = new Set(['key_themes', 'action_items', 'life_areas', 'tags', 'detected_people']);
     const updates = [];
     const params = [];
     let idx = 1;

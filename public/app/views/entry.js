@@ -779,6 +779,9 @@ export class EntryView {
       love_life_raw: a.love_life_content || null,
       love_life_cleaned: a.love_life_content || null,
       love_life_emotion_intensity: a.love_life_emotion_intensity ?? null,
+      // Remember everyone the AI spotted so the entry can later surface anyone
+      // detected but never linked (skipped/missed), instead of losing them.
+      detected_people: Array.isArray(a.people_mentioned) ? a.people_mentioned : [],
     };
 
     try {
@@ -898,7 +901,8 @@ export class EntryView {
         await this.showRepickPersonModal(item.mention, item.candidates, item.mentionId, entryId);
       });
     });
-    setTimeout(() => toast.remove(), 15000);
+    // No auto-dismiss — a wrong auto-link should stay correctable until the user
+    // dismisses it, rather than silently vanishing after a few seconds.
   }
 
   // Modal to repick which person a mention is linked to
@@ -1153,6 +1157,19 @@ export class EntryView {
       const followups = Array.isArray(entry.followups) ? entry.followups : [];
       const moodClass = entry.mood_overall == null ? 'none' : entry.mood_overall >= 7 ? 'high' : entry.mood_overall >= 4 ? 'mid' : 'low';
 
+      // Safety net: people the AI detected but that never got linked (skipped,
+      // dismissed, or missed before this entry was saved). Surfaced so they can
+      // be added later instead of being lost. Dedup by name, case-insensitive.
+      const linkedNames = new Set((entry.people_mentions || []).map(m => String(m.name || '').toLowerCase()));
+      const spottedSeen = new Set();
+      const spottedPeople = (Array.isArray(entry.detected_people) ? entry.detected_people : [])
+        .filter(p => {
+          const n = String(p?.name || '').trim().toLowerCase();
+          if (!n || linkedNames.has(n) || spottedSeen.has(n)) return false;
+          spottedSeen.add(n);
+          return true;
+        });
+
       const createdTime = entry.created_at
         ? new Date(entry.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
         : null;
@@ -1256,6 +1273,19 @@ export class EntryView {
             </div>
           </div>` : ''}
 
+          <!-- People the AI spotted but that aren't linked yet -->
+          ${spottedPeople.length ? `
+          <div class="mb-12 spotted-people-block">
+            <div class="ai-section-label">Nook also spotted — not added yet</div>
+            <div class="entry-people-list">
+              ${spottedPeople.map((p, i) => `
+                <button class="entry-person-chip spotted-add-btn" data-idx="${i}" title="Add to your People">
+                  <span class="entry-person-name">${escHtml(p.name)}</span>
+                  <span class="entry-person-rel">+ add</span>
+                </button>`).join('')}
+            </div>
+          </div>` : ''}
+
           <div class="entry-detail-actions" id="entry-actions">
             <button class="btn btn-secondary btn-sm" id="edit-btn">Edit</button>
             <button class="btn btn-secondary btn-sm" id="reanalyse-btn">${firstPerson || entry.ai_summary ? '✨ Re-analyse' : '✨ Generate summary'}</button>
@@ -1275,6 +1305,17 @@ export class EntryView {
       // Edit mood — opens a modal with sliders for each dimension
       container.querySelector('#edit-mood-btn')?.addEventListener('click', () => {
         this.showMoodEditModal(entry, container);
+      });
+
+      // "Nook also spotted" — add a detected-but-unlinked person. Runs the same
+      // match/confirm flow as a fresh entry, then refreshes the detail view.
+      container.querySelectorAll('.spotted-add-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const person = spottedPeople[parseInt(btn.dataset.idx, 10)];
+          if (!person) return;
+          await this.linkPeopleMentions(this.entryId, [person]);
+          await this.mountDetailView(container);
+        });
       });
 
       // Retroactive "Link person" — for when AI missed someone or the prompt
@@ -1355,6 +1396,7 @@ export class EntryView {
             important_today: a.important_today || null,
             life_areas: a.life_areas || [],
             tags: a.suggested_tags || [],
+            detected_people: Array.isArray(a.people_mentioned) ? a.people_mentioned : [],
           };
           // Only fill mood when the entry has none — don't clobber a manual rating.
           if (entry.mood_overall == null && a.mood) {

@@ -135,6 +135,11 @@ ALTER TABLE entries ADD COLUMN IF NOT EXISTS first_person_summary TEXT;
 -- Each item: { text, question, created_at, time_of_day }
 ALTER TABLE entries ADD COLUMN IF NOT EXISTS followups JSONB DEFAULT '[]';
 
+-- Everyone the AI detected in this entry (people_mentioned[]), kept so the entry
+-- can later surface anyone detected but never linked (a missed/skipped person)
+-- instead of silently losing them.
+ALTER TABLE entries ADD COLUMN IF NOT EXISTS detected_people JSONB DEFAULT '[]';
+
 -- Full-text search vector + GIN index (covers cleaned content, summary, themes, tags)
 ALTER TABLE entries ADD COLUMN IF NOT EXISTS search_vector tsvector;
 CREATE INDEX IF NOT EXISTS idx_entries_search_vector ON entries USING GIN(search_vector);

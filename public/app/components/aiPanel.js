@@ -10,7 +10,7 @@ export class AiPanel {
 
   mount(container) {
     const a = this.analysis;
-    if (!a || (!a.cleaned_content && !a.ai_summary)) {
+    if (!a || (!a.ai_summary && !a.first_person_summary && !a.cleaned_content)) {
       container.innerHTML = '';
       return;
     }
@@ -223,18 +223,26 @@ export class AiPanel {
   }
 
   renderPeopleMentioned(a) {
-    const people = a.people_mentioned || [];
+    const people = (a.people_mentioned || []).filter(p => p && p.name);
     if (!people.length) return '';
     return `
       <div>
         <div class="ai-section-label">People mentioned</div>
         <div class="people-mention-list">
-          ${people.map(p => `
-            <div class="people-pill" data-name="${p.name}" title="${p.context || ''}">
-              <div class="people-pill-avatar">${p.name[0].toUpperCase()}</div>
-              <span>${p.name}</span>
-            </div>`).join('')}
+          ${people.map(p => {
+            const name = String(p.name).trim();
+            const initial = name ? name[0].toUpperCase() : '?';
+            return `
+            <div class="people-pill${p.uncertain ? ' people-pill-uncertain' : ''}" data-name="${escHtml(name)}" title="${escHtml(p.context || '')}">
+              <div class="people-pill-avatar">${escHtml(initial)}</div>
+              <span>${escHtml(name)}${p.uncertain ? ' <span style="opacity:0.6">?</span>' : ''}</span>
+            </div>`;
+          }).join('')}
         </div>
       </div>`;
   }
+}
+
+function escHtml(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

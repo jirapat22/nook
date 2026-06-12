@@ -104,8 +104,17 @@ router.post('/transcribe', upload.single('audio'), async (req, res) => {
       filename: `audio.${fileExt}`,
       contentType: mime || 'audio/webm',
     });
+    // Transcription language. 'auto' lets Whisper detect (better for Thai or
+    // mixed speech); a specific code forces that language. Default 'en'.
+    let lang = 'en';
+    try {
+      const row = await db.query("SELECT value FROM settings WHERE key = 'transcribe_language'");
+      const v = row.rows[0]?.value;
+      if (typeof v === 'string') lang = v.replace(/^"|"$/g, '') || 'en';
+    } catch { /* non-fatal — default to English */ }
+
     form.append('model', 'whisper-large-v3');
-    form.append('language', 'en');
+    if (lang && lang !== 'auto') form.append('language', lang);
     form.append('response_format', 'json');
     if (namePrompt) form.append('prompt', namePrompt);
 
@@ -177,13 +186,19 @@ router.post('/analyze', async (req, res) => {
     let personMemoryContext = '';
     try {
       const entryText = (content || context || '').toLowerCase();
+      // \b only recognises ASCII word chars, so it never anchors around Thai or
+      // other non-Latin names — fall back to a plain substring check for those.
+      const matchesName = (name) => {
+        const n = (name || '').toLowerCase();
+        if (!n) return false;
+        return /^[\x00-\x7f]*$/.test(n)
+          ? new RegExp(`\\b${escapeRegex(n)}\\b`).test(entryText)
+          : entryText.includes(n);
+      };
       const hits = new Set();
       for (const p of allPeople) {
         const names = [p.name, ...(Array.isArray(p.aliases) ? p.aliases : [])];
-        // Word-boundary match so "ben" doesn't match "bench"
-        if (names.some(n => new RegExp(`\\b${escapeRegex(n.toLowerCase())}\\b`).test(entryText))) {
-          hits.add(p.id);
-        }
+        if (names.some(matchesName)) hits.add(p.id);
       }
       if (hits.size > 0 && hits.size <= 5) {
         const memorySections = [];
@@ -262,8 +277,7 @@ router.post('/analyze', async (req, res) => {
     const systemPrompt = `You are Nook, a warm and insightful personal journal assistant.
 Analyze the user's journal entry and return a JSON object with EXACTLY this structure:
 {
-  "first_person_summary": "A diary-style narrative of the day in FIRST PERSON ('Today I...', 'I felt...', 'I'm thinking about...'). Cover EVERYTHING meaningful the user said — every person, event, plan, worry, and unresolved thread (e.g. 'the thing with Luke'). Do NOT compress the day into a few lines or drop details to be brief: let the length match how much they shared, so a long entry gets a long summary. It should read like the user's own complete diary entry in their voice, not a short report or highlight reel.",
-  "cleaned_content": "A cleaned-up version of what they ACTUALLY SAID, in FIRST PERSON ('I' voice), removing filler words and fixing grammar. NEVER write 'The user is...' or 'The user feels...' — always 'I am...', 'I feel...'.",
+  "first_person_summary": "A diary-style narrative of the day in FIRST PERSON ('Today I...', 'I felt...', 'I'm thinking about...'). Cover EVERYTHING meaningful the user said — every person, event, plan, worry, and unresolved thread (e.g. 'the thing with Luke'). Do NOT compress the day into a few lines or drop details to be brief: let the length match how much they shared, so a long entry gets a long summary. Fix grammar and remove filler, but keep all the substance. It should read like the user's own complete diary entry in their voice, not a short report or highlight reel.",
   "ai_summary": "2-3 sentence outside-view summary (third-person OK here — this is the brief overview shown in lists).",
   "key_themes": ["theme1", "theme2"],
   "action_items": ["thing to do 1"],
@@ -291,8 +305,8 @@ Analyze the user's journal entry and return a JSON object with EXACTLY this stru
 }
 
 CRITICAL VOICE RULES:
-- first_person_summary AND cleaned_content must be in the user's voice ("I"), as if they wrote it themselves.
-- NEVER write "The user is feeling..." or "The user mentions..." in these fields. Only ai_summary can be third-person.
+- first_person_summary must be in the user's voice ("I"), as if they wrote it themselves.
+- NEVER write "The user is feeling..." or "The user mentions..." there. Only ai_summary can be third-person.
 
 MOOD RULES (read carefully — this matters):
 - Only fill in a mood score (0-10 integer) when the entry contains DIRECT evidence for it
@@ -325,11 +339,23 @@ followup_question should be ONE warm, natural follow-up question. Ask one whenev
       { role: 'user', content: content || context },
     ];
 
-    // Generous token budget: a long entry's cleaned_content (the full text
-    // again) + first_person_summary + ai_summary + people can be large, and a
-    // truncated JSON fails to parse, leaving the entry with no analysis at all.
-    // 8000 covers very long entries; llama-3.3-70b allows far more.
-    const analysis = await groqChat(apiKey, messages, { max_tokens: 8000 });
+    // Generous token budget: first_person_summary + ai_summary + people can be
+    // large, and a truncated JSON fails to parse, leaving the entry with no
+    // analysis at all. 8000 covers very long entries; llama-3.3-70b allows more.
+    // Retry once on a transient failure (network blip, rate limit, malformed
+    // JSON) — a single hiccup used to leave entries with no AI analysis.
+    let analysis, lastErr;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        analysis = await groqChat(apiKey, messages, { max_tokens: 8000 });
+        break;
+      } catch (err) {
+        lastErr = err;
+        console.warn(`analyze groqChat attempt ${attempt + 1} failed:`, err.message);
+        if (attempt === 0) await new Promise(r => setTimeout(r, 800));
+      }
+    }
+    if (!analysis) throw lastErr;
 
     // Safeguard: aggressive null-out of mood values that smell like LLM defaults.
     // Llama gravitates to 5 on a 0-10 scale when uncertain even when told not to.
