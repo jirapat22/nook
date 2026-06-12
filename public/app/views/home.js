@@ -10,7 +10,7 @@ export class HomeView {
 
     const [entries, streakData, onThisDay, settings, pendingActions] = await Promise.all([
       api.get('/api/entries?limit=10').catch(() => []),
-      api.get('/api/insights/streaks').catch(() => ({ current: 0 })),
+      api.get(`/api/insights/streaks?today=${today}`).catch(() => ({ current: 0 })),
       api.get(`/api/entries/on-this-day?date=${today}`).catch(() => []),
       api.get('/api/settings').catch(() => ({})),
       api.get('/api/entries/action-items/pending?days=14&limit=3').catch(() => []),

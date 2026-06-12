@@ -106,20 +106,25 @@ router.get('/streaks', async (req, res) => {
     let streak = 0;
 
     const dateSet = new Set(dates.map(d => new Date(d).toISOString().split('T')[0]));
-    const today = new Date().toISOString().split('T')[0];
-    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+    // Prefer the client's local calendar day (?today=YYYY-MM-DD). The server runs
+    // in UTC, which is a different day from the user's clock (e.g. Auckland +12),
+    // so a UTC "today" would mis-judge whether today/yesterday were journaled.
+    const today = /^\d{4}-\d{2}-\d{2}$/.test(req.query.today || '')
+      ? req.query.today
+      : new Date().toISOString().split('T')[0];
+    // Day arithmetic in UTC math (Date.UTC + toISOString) so it never drifts with
+    // the server's own timezone — we're only ever manipulating date strings.
+    const shiftDay = (ds, delta) => {
+      const [y, m, d] = ds.split('-').map(Number);
+      return new Date(Date.UTC(y, m - 1, d + delta)).toISOString().split('T')[0];
+    };
+    const yesterday = shiftDay(today, -1);
 
     // Current streak starting from today or yesterday
-    let checkDate = dateSet.has(today) ? new Date() : dateSet.has(yesterday) ? new Date(Date.now() - 86400000) : null;
-    if (checkDate) {
-      let d = new Date(checkDate);
-      while (true) {
-        const ds = d.toISOString().split('T')[0];
-        if (dateSet.has(ds)) {
-          current++;
-          d.setDate(d.getDate() - 1);
-        } else break;
-      }
+    let cursor = dateSet.has(today) ? today : dateSet.has(yesterday) ? yesterday : null;
+    while (cursor && dateSet.has(cursor)) {
+      current++;
+      cursor = shiftDay(cursor, -1);
     }
 
     // Longest streak
