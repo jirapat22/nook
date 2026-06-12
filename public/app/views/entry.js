@@ -1,4 +1,4 @@
-import { api, showToast, speak, AppState } from '../app.js';
+import { api, showToast, speak, AppState, todayStr } from '../app.js';
 import { VoiceRecorder }   from '../components/voiceRecorder.js';
 import { AiPanel }         from '../components/aiPanel.js';
 import { LoveLifeSection } from '../components/loveLifeSection.js';
@@ -72,7 +72,7 @@ export class EntryView {
       return;
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayStr(); // local calendar date, not UTC
 
     container.innerHTML = `
       <div class="entry-view">
@@ -733,7 +733,7 @@ export class EntryView {
     if (inlineBtn) { inlineBtn.disabled = true; inlineBtn.textContent = 'Saving…'; }
 
     const date  = this.container.querySelector('#entry-date').value;
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayStr(); // local calendar date, not UTC
 
     let rawContent = this.rawContent || '';
     if (this.mode === 'text') {

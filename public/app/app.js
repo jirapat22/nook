@@ -22,6 +22,14 @@ export const AppState = {
   initialized: false,
 };
 
+// Local calendar date as YYYY-MM-DD. Use this anywhere a "today" or entry date
+// is needed — never new Date().toISOString() (that is UTC, which lands entries
+// on the wrong day for users far from UTC, e.g. an Auckland UTC+12 morning reads
+// as the previous UTC day).
+export function todayStr(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 // ── API helper ─────────────────────────────────────────────
 export const api = {
   async get(path) {
@@ -139,7 +147,7 @@ export async function scheduleReminder(settings) {
   if (now >= trigger) {
     // Past today's trigger — check if they've journaled today
     try {
-      const today = now.toISOString().split('T')[0];
+      const today = todayStr(now);
       const entries = await api.get('/api/entries?limit=5').catch(() => []);
       const done = entries.some(e => String(e.date).split('T')[0] === today);
       if (!done) await showLocalNotification('Nook 🌿', "Time to write in your nook — how was your day?");

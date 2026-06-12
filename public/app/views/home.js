@@ -1,11 +1,12 @@
-import { api, showToast, updateStreakDisplay } from '../app.js';
+import { api, showToast, updateStreakDisplay, todayStr } from '../app.js';
 
 export class HomeView {
   constructor() {}
 
   async mount(container) {
-    // Compute today FIRST so it's available in all subsequent calls
-    const today = new Date().toISOString().split('T')[0];
+    // Compute today FIRST so it's available in all subsequent calls.
+    // Local calendar date (not UTC) so day-grouping matches the user's clock.
+    const today = todayStr();
 
     const [entries, streakData, onThisDay, settings, pendingActions] = await Promise.all([
       api.get('/api/entries?limit=10').catch(() => []),
@@ -290,8 +291,8 @@ function escHtml(s) {
 
 function formatEntryDate(dateStr, timeOfDay) {
   const d = String(dateStr).split('T')[0];
-  const today = new Date().toISOString().split('T')[0];
-  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+  const today = todayStr();
+  const yesterday = todayStr(new Date(Date.now() - 86400000));
   const label = d === today ? 'Today' : d === yesterday ? 'Yesterday' : new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   return timeOfDay ? `${label} · ${timeOfDay}` : label;
 }

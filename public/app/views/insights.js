@@ -1,4 +1,4 @@
-import { api, showToast } from '../app.js';
+import { api, showToast, todayStr } from '../app.js';
 
 // Chart.js is loaded globally via CDN
 const Chart = window.Chart;
@@ -348,7 +348,7 @@ export class InsightsView {
       const cells = [];
       for (let i = days - 1; i >= 0; i--) {
         const d = new Date(Date.now() - i * 86400000);
-        const dateStr = d.toISOString().split('T')[0];
+        const dateStr = todayStr(d); // local date, matches how entries are dated
         const count = counts[dateStr] || 0;
         const level = count === 0 ? 0 : Math.ceil((count / maxCount) * 4);
         cells.push(`<div class="heatmap-cell level-${level}" title="${dateStr}: ${count} entr${count !== 1 ? 'ies' : 'y'}"></div>`);
