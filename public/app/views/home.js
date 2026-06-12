@@ -13,7 +13,7 @@ export class HomeView {
       api.get(`/api/insights/streaks?today=${today}`).catch(() => ({ current: 0 })),
       api.get(`/api/entries/on-this-day?date=${today}`).catch(() => []),
       api.get('/api/settings').catch(() => ({})),
-      api.get('/api/entries/action-items/pending?days=14&limit=3').catch(() => []),
+      api.get(`/api/entries/action-items/pending?days=14&limit=3&today=${today}`).catch(() => []),
     ]);
 
     updateStreakDisplay(streakData.current || 0);
@@ -138,7 +138,7 @@ export class HomeView {
           const text = item.dataset.text;
           item.classList.add('done'); // reuse fade animation
           try {
-            await api.put(`/api/entries/${entryId}/action-item`, { text, state });
+            await api.put(`/api/entries/${entryId}/action-item`, { text, state, today });
             setTimeout(() => item.remove(), 400);
           } catch {
             item.classList.remove('done');

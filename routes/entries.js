@@ -296,12 +296,16 @@ router.put('/:id/action-item', async (req, res) => {
       return res.status(400).json({ error: 'invalid state', code: 'VALIDATION_ERROR' });
     }
 
-    // Compute snooze_until if snoozing
+    // Compute snooze_until if snoozing. Base it on the client's local calendar
+    // day (body.today) when given, so "in 7 days" lands on the user's date rather
+    // than the server's UTC date. String math in UTC so it never drifts.
     let snoozeUntilUpdate = null;
     if (finalState === 'snoozed') {
-      const d = new Date();
-      d.setDate(d.getDate() + Number(snooze_days));
-      snoozeUntilUpdate = d.toISOString().split('T')[0];
+      const base = /^\d{4}-\d{2}-\d{2}$/.test(req.body.today || '')
+        ? req.body.today
+        : new Date().toISOString().split('T')[0];
+      const [y, m, d] = base.split('-').map(Number);
+      snoozeUntilUpdate = new Date(Date.UTC(y, m - 1, d + Number(snooze_days))).toISOString().split('T')[0];
     }
 
     const params = [text, finalState, req.params.id];
@@ -460,19 +464,22 @@ router.get('/action-items/pending', async (req, res) => {
   try {
     const days = parseInt(req.query.days) || 14;
     const limit = parseInt(req.query.limit) || 5;
+    // Anchor the window + snooze comparison to the client's local day when given,
+    // so it matches the user's calendar rather than the server's UTC date.
+    const today = /^\d{4}-\d{2}-\d{2}$/.test(req.query.today || '') ? req.query.today : null;
     const result = await db.query(`
       SELECT e.id as entry_id, e.date as entry_date, ai.value as text,
              (e.action_items_state ->> ai.value) as state
       FROM entries e, jsonb_array_elements_text(e.action_items) ai(value)
-      WHERE e.date >= CURRENT_DATE - ($1 || ' days')::interval
+      WHERE e.date >= COALESCE($3::date, CURRENT_DATE) - ($1 || ' days')::interval
         AND COALESCE(e.action_items_state ->> ai.value, '') NOT IN ('done', 'dismissed', 'true')
         AND (
           (e.action_items_state ->> ai.value) IS DISTINCT FROM 'snoozed'
-          OR COALESCE((e.action_items_snooze_until ->> ai.value)::date, CURRENT_DATE) <= CURRENT_DATE
+          OR COALESCE((e.action_items_snooze_until ->> ai.value)::date, COALESCE($3::date, CURRENT_DATE)) <= COALESCE($3::date, CURRENT_DATE)
         )
       ORDER BY e.date DESC, e.created_at DESC
       LIMIT $2
-    `, [days, limit]);
+    `, [days, limit, today]);
     res.json(result.rows);
   } catch (err) {
     console.error('GET pending action-items error:', err);

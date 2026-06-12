@@ -143,11 +143,11 @@ router.get('/streaks', async (req, res) => {
       }
     }
 
-    const streakRow = await db.query("SELECT value FROM settings WHERE key = 'streak_count'");
-    const dbStreak = parseInt(streakRow.rows[0]?.value) || current;
-
+    // `current` is recomputed from the actual entry dates, so it's the source of
+    // truth — return it directly. (Previously this took Math.max with a stored
+    // streak_count, which kept showing the old number after a day was missed.)
     res.json({
-      current: Math.max(current, dbStreak),
+      current,
       longest,
       total_days: dateSet.size,
     });
