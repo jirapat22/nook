@@ -1161,12 +1161,27 @@ export class EntryView {
       // Safety net: people the AI detected but that never got linked (skipped,
       // dismissed, or missed before this entry was saved). Surfaced so they can
       // be added later instead of being lost. Dedup by name, case-insensitive.
-      const linkedNames = new Set((entry.people_mentions || []).map(m => String(m.name || '').toLowerCase()));
+      // Exclude any detected name that is a known name OR alias of a person
+      // already linked here — otherwise e.g. "Mickey" (an alias of the linked
+      // "Michaela") gets offered as a new person.
+      let allPeople = [];
+      try { allPeople = await api.get('/api/people'); } catch { allPeople = []; }
+      const linkedIds = new Set((entry.people_mentions || []).map(m => m.person_id));
+      const linkedKnownNames = new Set(
+        (entry.people_mentions || []).map(m => String(m.name || '').toLowerCase())
+      );
+      for (const p of allPeople) {
+        if (!linkedIds.has(p.id)) continue;
+        linkedKnownNames.add(String(p.name || '').toLowerCase());
+        for (const a of (Array.isArray(p.aliases) ? p.aliases : [])) {
+          linkedKnownNames.add(String(a || '').toLowerCase());
+        }
+      }
       const spottedSeen = new Set();
       const spottedPeople = (Array.isArray(entry.detected_people) ? entry.detected_people : [])
         .filter(p => {
           const n = String(p?.name || '').trim().toLowerCase();
-          if (!n || linkedNames.has(n) || spottedSeen.has(n)) return false;
+          if (!n || linkedKnownNames.has(n) || spottedSeen.has(n)) return false;
           spottedSeen.add(n);
           return true;
         });
