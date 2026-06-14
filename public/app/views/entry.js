@@ -783,6 +783,7 @@ export class EntryView {
       // Remember everyone the AI spotted so the entry can later surface anyone
       // detected but never linked (skipped/missed), instead of losing them.
       detected_people: Array.isArray(a.people_mentioned) ? a.people_mentioned : [],
+      activities: Array.isArray(a.activities) ? a.activities : [],
     };
 
     try {
@@ -1435,6 +1436,7 @@ export class EntryView {
             life_areas: a.life_areas || [],
             tags: a.suggested_tags || [],
             detected_people: Array.isArray(a.people_mentioned) ? a.people_mentioned : [],
+            activities: Array.isArray(a.activities) ? a.activities : [],
           };
           // Only fill mood when the entry has none — don't clobber a manual rating.
           if (entry.mood_overall == null && a.mood) {

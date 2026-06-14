@@ -140,6 +140,10 @@ ALTER TABLE entries ADD COLUMN IF NOT EXISTS followups JSONB DEFAULT '[]';
 -- instead of silently losing them.
 ALTER TABLE entries ADD COLUMN IF NOT EXISTS detected_people JSONB DEFAULT '[]';
 
+-- Glanceable activity tags for the day (fixed set: work, gym, social, family,
+-- food, shopping, chores, travel, hobby, rest, health, study, date, outdoors).
+ALTER TABLE entries ADD COLUMN IF NOT EXISTS activities JSONB DEFAULT '[]';
+
 -- Full-text search vector + GIN index (covers cleaned content, summary, themes, tags)
 ALTER TABLE entries ADD COLUMN IF NOT EXISTS search_vector tsvector;
 CREATE INDEX IF NOT EXISTS idx_entries_search_vector ON entries USING GIN(search_vector);

@@ -1654,6 +1654,21 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
 .day-card-themes {
   display: flex; flex-wrap: wrap; gap: 4px;
 }
+/* Glanceable "what I did" activity chips on the day card */
+.day-card-activities {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin: 0 0 8px;
+}
+.activity-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 9px;
+  background: var(--color-primary-light);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 25%, transparent);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  color: var(--color-text);
+  white-space: nowrap;
+}
 .day-card-empty {
   border-style: dashed;
   background: transparent;

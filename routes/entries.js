@@ -60,7 +60,7 @@ router.get('/', async (req, res) => {
         first_person_summary, ai_summary, key_themes, important_today, action_items, action_items_state,
         LEFT(COALESCE(NULLIF(user_edited_content, ''), NULLIF(cleaned_content, ''), NULLIF(raw_transcript, ''), ''), 200) AS content_preview,
         mood_overall, mood_energy, mood_happiness, mood_anxiety,
-        life_areas, tags, entry_mode, has_love_life_content${rankSelect}
+        life_areas, tags, activities, entry_mode, has_love_life_content${rankSelect}
       FROM entries
       ${where}
       ORDER BY ${orderBy}
@@ -188,6 +188,7 @@ router.post('/', async (req, res) => {
       love_life_ai_summary,
       is_backdated = false,
       detected_people = [],
+      activities = [],
     } = req.body;
 
     const today = new Date().toISOString().split('T')[0];
@@ -201,7 +202,7 @@ router.post('/', async (req, res) => {
         mood_social_battery, mood_physical, mood_focus, mood_overall, mood_source,
         life_areas, tags, entry_mode, has_love_life_content,
         love_life_raw, love_life_cleaned, love_life_emotion_intensity, love_life_ai_summary,
-        is_backdated, detected_people
+        is_backdated, detected_people, activities
       ) VALUES (
         $1, $2, $3, $4, $5,
         $6, $7, $8, $9, $10,
@@ -209,7 +210,7 @@ router.post('/', async (req, res) => {
         $16, $17, $18, $19, $20,
         $21, $22, $23, $24,
         $25, $26, $27, $28,
-        $29, $30
+        $29, $30, $31
       ) RETURNING *
     `, [
       date, time_of_day, raw_transcript, cleaned_content, user_edited_content,
@@ -218,7 +219,7 @@ router.post('/', async (req, res) => {
       mood_social_battery, mood_physical, mood_focus, mood_overall, mood_source,
       JSON.stringify(life_areas), JSON.stringify(tags), entry_mode, has_love_life_content,
       love_life_raw, love_life_cleaned, love_life_emotion_intensity, love_life_ai_summary,
-      actualIsBackdated, JSON.stringify(detected_people),
+      actualIsBackdated, JSON.stringify(detected_people), JSON.stringify(activities),
     ]);
 
     const newEntry = result.rows[0];
@@ -243,10 +244,10 @@ router.put('/:id', async (req, res) => {
       'mood_social_battery', 'mood_physical', 'mood_focus', 'mood_overall', 'mood_source',
       'life_areas', 'tags', 'has_love_life_content',
       'love_life_raw', 'love_life_cleaned', 'love_life_emotion_intensity', 'love_life_ai_summary',
-      'detected_people',
+      'detected_people', 'activities',
     ];
 
-    const jsonFields = new Set(['key_themes', 'action_items', 'life_areas', 'tags', 'detected_people']);
+    const jsonFields = new Set(['key_themes', 'action_items', 'life_areas', 'tags', 'detected_people', 'activities']);
     const updates = [];
     const params = [];
     let idx = 1;
