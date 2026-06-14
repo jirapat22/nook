@@ -1,24 +1,5 @@
 import { api, showToast, updateStreakDisplay, todayStr } from '../app.js';
-
-// Activity tags (must match the fixed set the AI is told to use in routes/ai.js).
-// ACTIVITY_ORDER also defines the display order on the day card.
-const ACTIVITY_META = {
-  work:     { emoji: '💼', label: 'Work' },
-  gym:      { emoji: '🏋️', label: 'Gym' },
-  social:   { emoji: '👥', label: 'Social' },
-  family:   { emoji: '👨‍👩‍👧', label: 'Family' },
-  food:     { emoji: '🍽️', label: 'Food' },
-  shopping: { emoji: '🛒', label: 'Shopping' },
-  chores:   { emoji: '🧹', label: 'Chores' },
-  travel:   { emoji: '✈️', label: 'Travel' },
-  hobby:    { emoji: '🎮', label: 'Hobby' },
-  rest:     { emoji: '😌', label: 'Rest' },
-  health:   { emoji: '🩺', label: 'Health' },
-  study:    { emoji: '📚', label: 'Study' },
-  date:     { emoji: '❤️', label: 'Date' },
-  outdoors: { emoji: '🌳', label: 'Outdoors' },
-};
-const ACTIVITY_ORDER = ['work','gym','social','family','food','shopping','chores','travel','hobby','rest','health','study','date','outdoors'];
+import { dayActivityKeys, renderActivityChips } from '../components/activities.js';
 
 export class HomeView {
   constructor() {}
@@ -203,11 +184,8 @@ function dayCard(dateStr, entries, todayStr) {
   const latest = entries[0]; // already sorted latest-first
   const snippet = latest.first_person_summary || latest.ai_summary || latest.important_today || latest.content_preview || 'Entry recorded';
 
-  // Activities across the day — union, ordered by the canonical ACTIVITY_ORDER
-  // so the at-a-glance row is stable. Cap at 6 to avoid overflow.
-  const dayActivities = new Set();
-  for (const e of entries) for (const k of (e.activities || [])) dayActivities.add(k);
-  const activities = ACTIVITY_ORDER.filter(k => dayActivities.has(k)).slice(0, 6);
+  // Activities across the day (union, ordered, capped) for the at-a-glance row.
+  const activities = dayActivityKeys(entries);
 
   // Has love-life across the day?
   const hasLove = entries.some(e => e.has_love_life_content);
@@ -225,7 +203,7 @@ function dayCard(dateStr, entries, todayStr) {
           ${hasLove ? '<span class="entry-card-love">💕</span>' : ''}
         </div>
       </div>
-      ${activities.length ? `<div class="day-card-activities">${activities.map(k => `<span class="activity-chip">${ACTIVITY_META[k].emoji} ${ACTIVITY_META[k].label}</span>`).join('')}</div>` : ''}
+      ${renderActivityChips(activities)}
       <p class="day-card-snippet">${escHtml(snippet)}</p>
       ${topThemes.length ? `<div class="day-card-themes">${topThemes.map(t => `<span class="entry-card-tag">${escHtml(t)}</span>`).join('')}</div>` : ''}
     </a>`;

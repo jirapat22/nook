@@ -1,4 +1,5 @@
 import { api } from '../app.js';
+import { dayActivityKeys, renderActivityChips } from '../components/activities.js';
 
 // DayView — shows all entries for a single calendar day as a vertical timeline.
 // Reached from home day-card tap (#day/YYYY-MM-DD).
@@ -54,6 +55,7 @@ export class DayView {
             <span class="day-glance-stat"><strong>${entries.length}</strong> ${entries.length === 1 ? 'entry' : 'entries'}</span>
             ${avgMood != null ? `<span class="day-glance-stat"><span class="mood-dot ${moodClass(avgMood)}"></span> Mood avg <strong>${avgMood}/10</strong></span>` : ''}
           </div>
+          ${renderActivityChips(dayActivityKeys(entries))}
           ${topThemes.length ? `<div class="day-glance-themes">${topThemes.map(t => `<span class="chip chip-primary">${escHtml(t)}</span>`).join('')}</div>` : ''}
         </div>` : ''}
 
