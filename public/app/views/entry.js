@@ -1196,11 +1196,12 @@ export class EntryView {
 
           ${entry.ai_summary && !firstPerson && !userEdit ? `<div class="card mb-12"><p class="font-display text-muted" style="font-style:italic">${entry.ai_summary}</p></div>` : ''}
 
-          <!-- Quick mood log for an entry with no mood yet — one tap, no modal -->
-          ${entry.mood_overall == null ? `
+          <!-- Mood: show Nook's read for you to confirm/correct until you've
+               confirmed it once. After that it's hidden (change it via ✏️). -->
+          ${!['user_confirmed', 'user_edited'].includes(entry.mood_source) ? `
             <div class="card mb-12 mood-inline-card" id="mood-inline">
-              <div class="ai-section-label">How did this feel?</div>
-              ${renderMoodFaces(null)}
+              <div class="ai-section-label">${entry.mood_overall != null ? 'Nook read your mood as this — tap to confirm or change' : 'How did this feel?'}</div>
+              ${renderMoodFaces(entry.mood_overall)}
             </div>` : ''}
 
           <!-- Main first-person diary block -->

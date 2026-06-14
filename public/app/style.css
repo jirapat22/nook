@@ -1083,16 +1083,20 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
 
 .heatmap {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-rows: repeat(7, 12px);
+  grid-auto-flow: column;
+  grid-auto-columns: 12px;
   gap: 3px;
   margin-top: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
 }
 .heatmap-cell {
-  aspect-ratio: 1;
-  border-radius: 3px;
+  border-radius: 2px;
   background: var(--color-surface-offset);
   transition: background var(--transition);
 }
+.heatmap-empty { background: transparent; }
 .heatmap-cell.level-1 { background: color-mix(in srgb, var(--color-primary) 25%, var(--color-surface-offset)); }
 .heatmap-cell.level-2 { background: color-mix(in srgb, var(--color-primary) 50%, var(--color-surface-offset)); }
 .heatmap-cell.level-3 { background: color-mix(in srgb, var(--color-primary) 75%, var(--color-surface-offset)); }

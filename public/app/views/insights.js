@@ -343,11 +343,19 @@ export class InsightsView {
       data.forEach(e => { const key = String(e.date).split('T')[0]; counts[key] = (counts[key] || 0) + 1; });
       const maxCount = Math.max(1, ...Object.values(counts));
 
-      // Last 84 days (12 weeks) in a 7-col grid
+      // Last 84 days (12 weeks), GitHub-style: 7 rows (weekdays) × weeks as
+      // columns. Pad leading blanks so each column is a clean week (Sun–Sat).
       const days = 84;
+      const today = new Date();
+      const start = new Date(today);
+      start.setDate(today.getDate() - (days - 1));
       const cells = [];
-      for (let i = days - 1; i >= 0; i--) {
-        const d = new Date(Date.now() - i * 86400000);
+      for (let i = 0; i < start.getDay(); i++) {
+        cells.push('<div class="heatmap-cell heatmap-empty"></div>');
+      }
+      for (let i = 0; i < days; i++) {
+        const d = new Date(start);
+        d.setDate(start.getDate() + i);
         const dateStr = todayStr(d); // local date, matches how entries are dated
         const count = counts[dateStr] || 0;
         const level = count === 0 ? 0 : Math.ceil((count / maxCount) * 4);
