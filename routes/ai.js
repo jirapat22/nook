@@ -27,6 +27,10 @@ function escapeRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// Fixed activity vocabulary — used both in the analyze prompt and to validate
+// what comes back. Keep in sync with the client's components/activities.js.
+const ACTIVITY_KEYS = ['work','gym','social','family','food','shopping','chores','travel','hobby','rest','health','study','date','outdoors'];
+
 // Helper: call Groq chat completion
 async function groqChat(apiKey, messages, { temperature = 0.3, max_tokens = 2048 } = {}) {
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -323,7 +327,7 @@ MOOD RULES (read carefully — this matters):
 - "overall" is a holistic read — do NOT just average the sub-dimensions.
 
 Life areas should be from: Health & Fitness, Work & Career, Relationships & Social, Personal Growth, Creativity, Finance, Travel & Adventure, Mental Health, Family, Love Life, Hobbies, Home & Lifestyle.
-"activities" is a glanceable list of WHAT THE USER ACTUALLY DID that day, chosen ONLY from this exact set (use the lowercase keys): work, gym, social, family, food, shopping, chores, travel, hobby, rest, health, study, date, outdoors. Include only the ones clearly present in the entry (0-6), most prominent first. Guidance: gym = any exercise/workout/sport; social = hanging out with friends/people; food = cooking, eating out, a notable meal; chores = cleaning, errands, laundry, home tasks; hobby = games, reading, music, making things; rest = relaxing, napping, doing nothing; health = appointments, self-care, being unwell; study = learning/studying; date = romantic/love-life time; outdoors = nature, walks, being outside. Do NOT invent keys outside this set.
+"activities" is a glanceable list of WHAT THE USER ACTUALLY DID that day, chosen ONLY from this exact set (use the lowercase keys): ${ACTIVITY_KEYS.join(', ')}. Include only the ones clearly present in the entry (0-6), most prominent first. Guidance: gym = any exercise/workout/sport; social = hanging out with friends/people; food = cooking, eating out, a notable meal; chores = cleaning, errands, laundry, home tasks; hobby = games, reading, music, making things; rest = relaxing, napping, doing nothing; health = appointments, self-care, being unwell; study = learning/studying; date = romantic/love-life time; outdoors = nature, walks, being outside. Do NOT invent keys outside this set.
 For people_mentioned, each item: { "name": string, "context": string, "facts_extracted": [], "sentiment": -5 to 5, "emotion_toward": string, "inferred_relationship": one of: "friend" | "family" | "crush" | "partner" | "colleague" | "pet" | "group" | "acquaintance" | "unknown", "uncertain": boolean }
   - inferred_relationship: best guess based on how the user talks about them. "my friend", "mum", "boss", "colleague" are strong signals. Use "pet" for animals the user names (dogs, cats, etc.) and "group" for collective entities ("the team", "the friend group"). Use "unknown" only when there's no clue.
   - BE THOROUGH: include EVERYONE the user refers to, even briefly or only by role ("my boss", "a girl at the gym", "my landlord") — give them the best name/label you can. It's better to surface a person and let the user confirm than to silently miss them.
@@ -388,12 +392,11 @@ followup_question should be ONE warm, natural follow-up question. Ask one whenev
     }
 
     // Keep only valid, de-duplicated activity keys (the AI is told to use this set).
-    const ALLOWED_ACTIVITIES = ['work','gym','social','family','food','shopping','chores','travel','hobby','rest','health','study','date','outdoors'];
     if (Array.isArray(analysis.activities)) {
       const seen = new Set();
       analysis.activities = analysis.activities
         .map(a => String(a || '').toLowerCase().trim())
-        .filter(a => ALLOWED_ACTIVITIES.includes(a) && !seen.has(a) && seen.add(a))
+        .filter(a => ACTIVITY_KEYS.includes(a) && !seen.has(a) && seen.add(a))
         .slice(0, 6);
     } else {
       analysis.activities = [];

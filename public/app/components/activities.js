@@ -1,7 +1,8 @@
 // Activity tags — the fixed set the AI uses (must match routes/ai.js) plus the
 // emoji/label mapping and helpers for the glanceable "what I did" chip rows.
 
-export const ACTIVITY_META = {
+// Insertion order is also the display order for the chip row.
+const ACTIVITY_META = {
   work:     { emoji: '💼', label: 'Work' },
   gym:      { emoji: '🏋️', label: 'Gym' },
   social:   { emoji: '👥', label: 'Social' },
@@ -17,21 +18,19 @@ export const ACTIVITY_META = {
   date:     { emoji: '❤️', label: 'Date' },
   outdoors: { emoji: '🌳', label: 'Outdoors' },
 };
-
-// Canonical display order for the chip row.
-export const ACTIVITY_ORDER = ['work','gym','social','family','food','shopping','chores','travel','hobby','rest','health','study','date','outdoors'];
+const ACTIVITY_ORDER = Object.keys(ACTIVITY_META);
 
 // Union of activity keys across a day's entries, ordered and capped for display.
-export function dayActivityKeys(entries, cap = 6) {
+export function dayActivityKeys(entries) {
   const set = new Set();
   for (const e of (entries || [])) for (const k of (e.activities || [])) set.add(k);
-  return ACTIVITY_ORDER.filter(k => set.has(k)).slice(0, cap);
+  return ACTIVITY_ORDER.filter(k => set.has(k)).slice(0, 6);
 }
 
 // HTML for a chip row. Unknown keys are skipped. Returns '' when nothing to show.
-export function renderActivityChips(keys, wrapClass = 'day-card-activities') {
+export function renderActivityChips(keys) {
   const chips = (keys || [])
     .filter(k => ACTIVITY_META[k])
     .map(k => `<span class="activity-chip">${ACTIVITY_META[k].emoji} ${ACTIVITY_META[k].label}</span>`);
-  return chips.length ? `<div class="${wrapClass}">${chips.join('')}</div>` : '';
+  return chips.length ? `<div class="day-card-activities">${chips.join('')}</div>` : '';
 }

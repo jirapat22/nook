@@ -2,7 +2,7 @@
 // and the entry detail view so "set my mood" is always a single tap, never a
 // slider. Each face maps to a representative 0-10 overall value.
 
-export const MOOD_FACES = [
+const MOOD_FACES = [
   { emoji: '😞', value: 2, label: 'Rough' },
   { emoji: '🙁', value: 4, label: 'Meh'   },
   { emoji: '😐', value: 5, label: 'Okay'  },
@@ -11,7 +11,7 @@ export const MOOD_FACES = [
 ];
 
 // Which face best represents a given 0-10 overall value (-1 = none selected).
-export function faceIndexForValue(v) {
+function faceIndexForValue(v) {
   if (v == null) return -1;
   if (v <= 2) return 0;
   if (v <= 4) return 1;
