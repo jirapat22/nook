@@ -12,6 +12,7 @@ import { SettingsView } from './views/settings.js';
 import { SearchView }   from './views/search.js';
 import { DayView }      from './views/day.js';
 import { OnboardingView } from './views/onboarding.js';
+import { installReporting, reportApiError, reportHandled } from './report.js';
 
 // ── Global state ───────────────────────────────────────────
 export const AppState = {
@@ -31,32 +32,31 @@ export function todayStr(d = new Date()) {
 }
 
 // ── API helper ─────────────────────────────────────────────
+// Single request core so the error reporting hook lives in one place: it flags
+// server 5xx and write-request network failures (see report.js for the policy).
+async function request(method, path, opts) {
+  let res;
+  try {
+    res = await fetch(path, opts);
+  } catch (err) {
+    reportApiError({ method, path, status: null, error: err.message });
+    throw err;
+  }
+  if (!res.ok) {
+    reportApiError({ method, path, status: res.status });
+    const e = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(e.error || `HTTP ${res.status}`), e);
+  }
+  return res.json();
+}
+
+const JSON_HEADERS = { 'Content-Type': 'application/json' };
 export const api = {
-  async get(path) {
-    const res = await fetch(path);
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw Object.assign(new Error(e.error || `HTTP ${res.status}`), e); }
-    return res.json();
-  },
-  async post(path, data) {
-    const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw Object.assign(new Error(e.error || `HTTP ${res.status}`), e); }
-    return res.json();
-  },
-  async postForm(path, formData) {
-    const res = await fetch(path, { method: 'POST', body: formData });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw Object.assign(new Error(e.error || `HTTP ${res.status}`), e); }
-    return res.json();
-  },
-  async put(path, data) {
-    const res = await fetch(path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw Object.assign(new Error(e.error || `HTTP ${res.status}`), e); }
-    return res.json();
-  },
-  async delete(path) {
-    const res = await fetch(path, { method: 'DELETE' });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw Object.assign(new Error(e.error || `HTTP ${res.status}`), e); }
-    return res.json();
-  },
+  get:      (path)       => request('GET', path),
+  post:     (path, data) => request('POST', path, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(data) }),
+  postForm: (path, fd)   => request('POST', path, { method: 'POST', body: fd }),
+  put:      (path, data) => request('PUT', path, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify(data) }),
+  delete:   (path)       => request('DELETE', path, { method: 'DELETE' }),
 };
 
 // ── Toast notifications ─────────────────────────────────────
@@ -393,6 +393,9 @@ function renderShell() {
 
 // ── Init ─────────────────────────────────────────────────────
 async function init() {
+  // Install error/feedback capture first so failures during boot are caught.
+  installReporting();
+
   // Register SW first — this lets the browser start fetching the new SW
   // in parallel with the settings load rather than sequentially after it.
   // Also: when a new SW is waiting, tell it to skip waiting immediately so
@@ -411,7 +414,7 @@ async function init() {
           }
         });
       });
-    }).catch(err => console.warn('SW registration failed:', err));
+    }).catch(err => { console.warn('SW registration failed:', err); reportHandled(err, { where: 'sw-register' }); });
 
     // When the SW controller changes (new SW took over), reload once so the
     // page runs fresh JS instead of a mix of old-cached + new.

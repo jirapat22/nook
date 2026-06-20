@@ -1,5 +1,6 @@
 import { api } from '../app.js';
 import { dayActivityKeys, renderActivityChips } from '../components/activities.js';
+import { assert } from '../report.js';
 
 // DayView — shows all entries for a single calendar day as a vertical timeline.
 // Reached from home day-card tap (#day/YYYY-MM-DD).
@@ -25,6 +26,14 @@ export class DayView {
       container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">😕</div><p>Could not load this day</p><a href="#home" class="btn btn-primary btn-sm mt-12">Back home</a></div>`;
       return;
     }
+
+    // Invariant: a day query must only return entries bucketed to that day —
+    // a mismatch means a timezone bug crept back into date handling.
+    assert(
+      entries.every(e => String(e.date).split('T')[0] === this.dateStr),
+      'day view entries match requested date',
+      { requested: this.dateStr, got: entries.map(e => String(e.date).split('T')[0]) }
+    );
 
     // Sort by created_at DESC (latest at top)
     entries.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));

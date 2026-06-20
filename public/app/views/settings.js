@@ -1,4 +1,5 @@
 import { api, showToast, applyTheme, AppState, scheduleReminder } from '../app.js';
+import { reportManual } from '../report.js';
 
 export class SettingsView {
   constructor() {}
@@ -433,16 +434,19 @@ export class SettingsView {
     const addNote = () => {
       const text = noteInput.value.trim();
       if (!text) return;
+      const type = noteType.value === 'bug' ? 'bug' : 'idea';
       this.notes.push({
         id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
         text,
-        type: noteType.value === 'bug' ? 'bug' : 'idea',
+        type,
         done: false,
         created_at: new Date().toISOString(),
       });
       noteInput.value = '';
       this.renderNotes();
       this.saveNotes();
+      // Also forward as a manual report (always sent; queued offline if needed).
+      reportManual({ message: `[${type}] ${text}`, context: { type, kind: 'manual' } });
     };
     container.querySelector('#note-add').addEventListener('click', addNote);
     noteInput.addEventListener('keydown', e => { if (e.key === 'Enter') addNote(); });

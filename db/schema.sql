@@ -83,6 +83,22 @@ CREATE TABLE IF NOT EXISTS settings (
   value JSONB
 );
 
+-- Bug/idea reports: auto-captured errors (frontend/backend), invariants, and
+-- manual feedback. Stored locally, best-effort forwarded to Orbit (orbit_sent).
+CREATE TABLE IF NOT EXISTS reports (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  app VARCHAR(20),
+  source VARCHAR(20),          -- 'frontend' | 'backend' | 'manual'
+  message TEXT,
+  stack TEXT,
+  context JSONB DEFAULT '{}',
+  orbit_sent BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+-- Startup flush scans unsent; dedupe window queries by (source, message, created_at).
+CREATE INDEX IF NOT EXISTS idx_reports_unsent ON reports(created_at) WHERE orbit_sent = FALSE;
+CREATE INDEX IF NOT EXISTS idx_reports_dedupe ON reports(source, created_at DESC);
+
 -- Insert defaults (won't override existing)
 INSERT INTO settings (key, value) VALUES
   ('theme', '"warm-earthy"'),

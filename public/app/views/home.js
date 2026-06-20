@@ -1,5 +1,6 @@
 import { api, showToast, updateStreakDisplay, todayStr } from '../app.js';
 import { dayActivityKeys, renderActivityChips } from '../components/activities.js';
+import { assert } from '../report.js';
 
 export class HomeView {
   constructor() {}
@@ -171,6 +172,7 @@ function dayCard(dateStr, entries, todayStr) {
   // Day at-a-glance computed inline
   const moodVals = entries.map(e => e.mood_overall).filter(v => v != null);
   const avgMood = moodVals.length ? Math.round(moodVals.reduce((a, b) => a + b, 0) / moodVals.length * 10) / 10 : null;
+  assert(avgMood == null || (avgMood >= 0 && avgMood <= 10), 'day average mood within 0-10', { date: dateStr, avgMood });
   const mCls = avgMood == null ? 'none' : avgMood >= 7 ? 'high' : avgMood >= 4 ? 'mid' : 'low';
 
   // Top-3 themes across the day (frequency-sorted)

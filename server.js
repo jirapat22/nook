@@ -11,6 +11,7 @@ const insightsRouter = require('./routes/insights');
 const peopleRouter = require('./routes/people');
 const tagsRouter = require('./routes/tags');
 const { syncAllPeople, markPersonDeleted } = require('./lib/orbit');
+const { saveReport, reportHandled, flushUnsent } = require('./lib/reports');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -32,6 +33,35 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Capture any 5xx response as a backend report (route-handled DB errors etc.),
+// in one place instead of touching every catch block. The global error handler
+// below reports uncaught errors with a real stack and sets _reported to avoid a
+// duplicate here. Skips the report endpoint itself (no self-loops).
+app.use((req, res, next) => {
+  const origJson = res.json.bind(res);
+  res.json = (body) => { res.locals._body = body; return origJson(body); };
+  res.on('finish', () => {
+    if (res.statusCode >= 500 && !res.locals._reported && req.path !== '/api/reports') {
+      const b = res.locals._body || {};
+      reportHandled(new Error(b.error || `HTTP ${res.statusCode}`),
+        { method: req.method, path: req.originalUrl, code: b.code, statusCode: res.statusCode });
+    }
+  });
+  next();
+});
+
+// Bug/idea reports — store locally + best-effort forward to Orbit. Always
+// resolves fast and never errors out to the client (reporting must not block).
+app.post('/api/reports', async (req, res) => {
+  try {
+    const { source, message, stack, context } = req.body || {};
+    const result = await saveReport({ source, message, stack, context });
+    res.status(201).json({ ok: true, ...result });
+  } catch {
+    res.status(200).json({ ok: false });
+  }
+});
 
 // Health check
 app.get('/health', (req, res) => {
@@ -224,14 +254,18 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Global error handler
+// Global error handler — anything that reaches here is a "shouldn't happen"
+// error worth capturing (with the route that produced it).
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
+  res.locals._reported = true; // full stack here; skip the finish-hook duplicate
+  reportHandled(err, { method: req.method, path: req.originalUrl });
   res.status(500).json({ error: 'Internal server error', code: 'SERVER_ERROR' });
 });
 
-// Start server — init DB first, then listen
+// Start server — init DB first, then re-forward any unsent reports, then listen
 initDB().then(() => {
+  flushUnsent().catch(() => {});
   app.listen(PORT, () => {
     console.log(`🌿 Nook is running at http://localhost:${PORT}`);
   });

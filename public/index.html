@@ -27,8 +27,9 @@
     </div>
   </div>
 
-  <!-- Chart.js for Insights view -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <!-- Chart.js for Insights view. crossorigin so its errors arrive with a real
+       message+stack instead of an opaque "Script error." -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" crossorigin="anonymous"></script>
   <script type="module" src="/app/app.js"></script>
 </body>
 </html>
