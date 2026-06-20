@@ -2274,6 +2274,22 @@ button.entry-person-chip { cursor: pointer; font-family: inherit; }
 }
 .note-delete:hover { color: #c0392b; }
 
+/* Captured reports viewer (Settings) */
+.report-row { padding: 8px 0; border-bottom: 1px solid var(--color-border-light); }
+.report-row:last-child { border-bottom: none; }
+.report-row-head { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
+.report-badge {
+  font-size: 0.62rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 1px 6px; border-radius: 999px; background: var(--color-surface-offset); color: var(--color-text-muted);
+}
+.report-badge.report-manual   { background: var(--color-primary-light); color: var(--color-primary); }
+.report-badge.report-frontend { background: #fdecea; color: #c0392b; }
+.report-badge.report-backend  { background: #eaf1fb; color: #2d6a9f; }
+.report-sent { font-size: 0.68rem; color: var(--color-text-faint); }
+.report-time { font-size: 0.68rem; color: var(--color-text-faint); margin-left: auto; }
+.report-msg { font-size: 0.82rem; color: var(--color-text); word-break: break-word; }
+.report-ctx { font-size: 0.68rem; color: var(--color-text-faint); margin-top: 2px; }
+
 /* ──────────────────────────────────────────
    MOOD TRACKER COMPONENT
    ────────────────────────────────────────── */

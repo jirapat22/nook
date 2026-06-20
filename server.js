@@ -63,6 +63,21 @@ app.post('/api/reports', async (req, res) => {
   }
 });
 
+// Recent reports for the in-app viewer.
+app.get('/api/reports', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+    const r = await db.query(
+      `SELECT id, app, source, message, context, orbit_sent, created_at
+       FROM reports ORDER BY created_at DESC LIMIT $1`,
+      [limit]
+    );
+    res.json(r.rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load reports', code: 'DB_ERROR' });
+  }
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

@@ -194,6 +194,16 @@ export class SettingsView {
           <div id="notes-list"></div>
         </div>
 
+        <!-- Captured reports (auto errors + manual feedback) -->
+        <div class="settings-section-title">🐞 Captured reports</div>
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <p class="text-sm text-muted" style="margin:0">Errors and feedback captured by the app. ✓ = forwarded to Orbit.</p>
+            <button class="btn btn-secondary btn-sm" id="reports-refresh">Refresh</button>
+          </div>
+          <div id="reports-list"><p class="text-sm text-muted">Loading…</p></div>
+        </div>
+
         <!-- Roadmap -->
         <div class="settings-section-title">Coming Soon</div>
         <div class="roadmap-list">
@@ -450,6 +460,38 @@ export class SettingsView {
     };
     container.querySelector('#note-add').addEventListener('click', addNote);
     noteInput.addEventListener('keydown', e => { if (e.key === 'Enter') addNote(); });
+
+    // Captured reports viewer
+    const reportsList = container.querySelector('#reports-list');
+    const loadReports = async () => {
+      reportsList.innerHTML = '<p class="text-sm text-muted">Loading…</p>';
+      try {
+        const reports = await api.get('/api/reports?limit=50');
+        if (!reports.length) {
+          reportsList.innerHTML = '<p class="text-sm text-faint">No reports captured yet.</p>';
+          return;
+        }
+        reportsList.innerHTML = reports.map(r => {
+          const ctx = r.context || {};
+          const where = ctx.path || ctx.screen || '';
+          const sub = [ctx.kind, where].filter(Boolean).map(escHtml).join(' · ');
+          return `
+            <div class="report-row">
+              <div class="report-row-head">
+                <span class="report-badge report-${escHtml(r.source)}">${escHtml(r.source || '?')}</span>
+                <span class="report-sent">${r.orbit_sent ? '✓ sent' : '⏳ pending'}</span>
+                <span class="report-time">${timeAgo(r.created_at)}</span>
+              </div>
+              <div class="report-msg">${escHtml(r.message || '')}</div>
+              ${sub ? `<div class="report-ctx">${sub}</div>` : ''}
+            </div>`;
+        }).join('');
+      } catch {
+        reportsList.innerHTML = '<p class="text-sm text-faint">Could not load reports.</p>';
+      }
+    };
+    container.querySelector('#reports-refresh').addEventListener('click', loadReports);
+    loadReports();
   }
 
   renderNotes() {
@@ -505,6 +547,14 @@ export class SettingsView {
 
 function escHtml(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function timeAgo(ts) {
+  const s = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
 }
 
 function themeSwatch(id, bg, accent, label, current) {
