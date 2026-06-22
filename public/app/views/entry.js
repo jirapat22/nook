@@ -798,6 +798,10 @@ export class EntryView {
       }
       showToast('Entry saved. Your nook remembers. 🌿', 'success');
       if (a.people_mentioned?.length) await this.linkPeopleMentions(saved.id, a.people_mentioned);
+      // Saved without AI analysis (e.g. "Save what I said", or analysis failed)?
+      // Heal it in the background so it still gets a summary/themes/activities
+      // instead of sitting blank until the user notices and re-analyses.
+      if (!this.analysis && rawContent.trim()) this.backgroundAnalyze(saved.id, rawContent);
       setTimeout(() => { location.hash = '#home'; }, 1200);
     } catch (err) {
       showToast('Could not save — please try again', 'error');
@@ -805,6 +809,27 @@ export class EntryView {
       if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save entry'; }
       if (inlineBtn) { inlineBtn.disabled = false; inlineBtn.textContent = '💾 Save what I said'; }
     }
+  }
+
+  // Best-effort: analyse an entry that was saved without AI analysis and write
+  // the results back. Fire-and-forget — failures are swallowed (the raw entry
+  // is already saved; the user can still re-analyse manually later).
+  async backgroundAnalyze(entryId, content) {
+    try {
+      const a = await api.post('/api/ai/analyze', { content });
+      const payload = {
+        ai_summary: a.ai_summary || null,
+        first_person_summary: a.first_person_summary || null,
+        key_themes: a.key_themes || [],
+        action_items: a.action_items || [],
+        important_today: a.important_today || null,
+        life_areas: a.life_areas || [],
+        tags: a.suggested_tags || [],
+        activities: Array.isArray(a.activities) ? a.activities : [],
+        detected_people: Array.isArray(a.people_mentioned) ? a.people_mentioned : [],
+      };
+      await api.put(`/api/entries/${entryId}`, payload);
+    } catch { /* non-fatal — entry stays as-is, re-analyse remains available */ }
   }
 
   async linkPeopleMentions(entryId, mentioned) {
@@ -1281,8 +1306,7 @@ export class EntryView {
             const text = typeof i === 'string' ? i : (i.text || '');
             const st = entry.action_items_state && entry.action_items_state[text];
             const done = st === 'done' || st === true;
-            const esc = text.replace(/"/g, '&quot;');
-            return `<label class="action-item${done ? ' done' : ''}"><input type="checkbox" data-text="${esc}" ${done ? 'checked' : ''}><span>${text}</span></label>`;
+            return `<label class="action-item${done ? ' done' : ''}"><input type="checkbox" data-text="${escHtml(text)}" ${done ? 'checked' : ''}><span>${escHtml(text)}</span></label>`;
           }).join('')}</div></div>` : ''}
 
           <!-- People linked to this entry -->

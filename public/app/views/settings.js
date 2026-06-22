@@ -15,8 +15,8 @@ export class SettingsView {
     const ttsSpeed = parseFloat(settings.tts_speed) || 1;
     const transcribeLang = (typeof settings.transcribe_language === 'string'
       ? settings.transcribe_language.replace(/^"|"$/g, '') : '') || 'en';
-    const apiKey = typeof settings.groq_api_key === 'string' && settings.groq_api_key !== 'null'
-      ? settings.groq_api_key : '';
+    // The key itself is never sent to the client anymore — only whether one is set.
+    const apiKeySet = settings.groq_api_key_set === true;
     const reminderEnabled = settings.reminder_enabled === 'true' || settings.reminder_enabled === true;
     const reminderTime = (settings.reminder_time || '"21:00"').replace(/"/g, '');
     const userName = typeof settings.user_name === 'string'
@@ -109,12 +109,12 @@ export class SettingsView {
           <div class="form-label mb-8">Groq API Key</div>
           <div class="api-key-input-wrap">
             <input type="password" class="input" id="api-key-input"
-              value="${apiKey}"
-              placeholder="gsk_..." autocomplete="off">
+              value=""
+              placeholder="${apiKeySet ? '•••••••• saved — type to replace' : 'gsk_...'}" autocomplete="off">
             <span class="api-key-show-btn" id="api-key-show">Show</span>
           </div>
           <p class="text-xs text-faint mt-8">
-            Get a free key at <a href="https://console.groq.com" target="_blank" style="color:var(--color-primary)">console.groq.com</a>
+            ${apiKeySet ? '✓ A key is saved. ' : ''}Get a free key at <a href="https://console.groq.com" target="_blank" style="color:var(--color-primary)">console.groq.com</a>
           </p>
           <button class="btn btn-primary btn-sm mt-12" id="save-api-key">Save key</button>
         </div>
@@ -272,11 +272,14 @@ export class SettingsView {
       this.textContent = apiInput.type === 'password' ? 'Show' : 'Hide';
     });
 
-    // Save API key
+    // Save API key — empty means "leave the saved one as-is" (the field never
+    // pre-fills the real key anymore, so saving blank must not wipe it).
     container.querySelector('#save-api-key').addEventListener('click', async () => {
       const key = apiInput.value.trim();
+      if (!key) { showToast('Type a key to save', ''); return; }
       try {
         await api.put('/api/settings/groq_api_key', { value: key });
+        apiInput.value = '';
         showToast('API key saved ✓', 'success');
       } catch {
         showToast('Could not save key', 'error');

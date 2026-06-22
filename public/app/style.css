@@ -2274,6 +2274,23 @@ button.entry-person-chip { cursor: pointer; font-family: inherit; }
 }
 .note-delete:hover { color: #c0392b; }
 
+/* Unlock / password gate overlay */
+.unlock-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: var(--color-bg, #f7f4ee);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+.unlock-box {
+  width: 100%; max-width: 320px;
+  display: flex; flex-direction: column; gap: 12px; align-items: center;
+  text-align: center;
+}
+.unlock-box .unlock-logo { font-size: 2.4rem; }
+.unlock-box h2 { margin: 0; }
+.unlock-box .input { width: 100%; }
+.unlock-error { color: #c0392b; font-size: 0.8rem; margin: 0; }
+
 /* Captured reports viewer (Settings) */
 .report-row { padding: 8px 0; border-bottom: 1px solid var(--color-border-light); }
 .report-row:last-child { border-bottom: none; }

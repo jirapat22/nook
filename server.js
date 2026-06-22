@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const db = require('./db/db');
 
 const entriesRouter = require('./routes/entries');
@@ -51,6 +52,36 @@ app.use((req, res, next) => {
   next();
 });
 
+// ─── Auth: optional shared-password gate ────────────────────────────
+// Set APP_PASSWORD in the environment to lock the API. When it's unset, the
+// app stays open (so existing/local deploys don't break). The client gets a
+// deterministic token (sha256 of the password) after /api/login and sends it
+// as x-app-token on every request.
+const APP_PASSWORD = process.env.APP_PASSWORD || '';
+const EXPECTED_TOKEN = APP_PASSWORD
+  ? crypto.createHash('sha256').update(APP_PASSWORD).digest('hex')
+  : null;
+// orbit-summary stays public (Orbit's widget fetches it); login is how you get in.
+const AUTH_EXEMPT = new Set(['/api/login', '/api/orbit-summary']);
+
+app.post('/api/login', (req, res) => {
+  if (!EXPECTED_TOKEN) return res.json({ ok: true, token: null, authRequired: false });
+  const pw = Buffer.from(String((req.body && req.body.password) || ''));
+  const expected = Buffer.from(APP_PASSWORD);
+  const ok = pw.length === expected.length && crypto.timingSafeEqual(pw, expected);
+  if (ok) return res.json({ ok: true, token: EXPECTED_TOKEN, authRequired: true });
+  return res.status(401).json({ ok: false, error: 'Wrong password', code: 'BAD_PASSWORD' });
+});
+
+app.use((req, res, next) => {
+  if (!EXPECTED_TOKEN) return next();                  // auth disabled
+  if (!req.path.startsWith('/api/')) return next();    // app shell + static stay open
+  if (AUTH_EXEMPT.has(req.path)) return next();
+  const tok = (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || req.headers['x-app-token'] || '';
+  if (tok && tok === EXPECTED_TOKEN) return next();
+  return res.status(401).json({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+});
+
 // Bug/idea reports — store locally + best-effort forward to Orbit. Always
 // resolves fast and never errors out to the client (reporting must not block).
 app.post('/api/reports', async (req, res) => {
@@ -89,6 +120,10 @@ app.get('/api/settings', async (req, res) => {
     const result = await db.query('SELECT key, value FROM settings');
     const settings = {};
     result.rows.forEach(row => { settings[row.key] = row.value; });
+    // Never expose the secret over the API — only whether one is saved.
+    const k = settings.groq_api_key;
+    settings.groq_api_key_set = typeof k === 'string' && k !== 'null' && k.replace(/"/g, '').trim() !== '';
+    delete settings.groq_api_key;
     res.json(settings);
   } catch (err) {
     console.error('GET /api/settings error:', err);
@@ -265,6 +300,11 @@ app.post('/api/orbit/mark-deleted', async (req, res) => {
 });
 
 // SPA fallback — serve index.html for any unknown route
+// Unknown API routes return JSON 404 instead of the SPA shell (clearer errors).
+app.all('/api/*', (req, res) => {
+  res.status(404).json({ error: 'Not found', code: 'NOT_FOUND' });
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });

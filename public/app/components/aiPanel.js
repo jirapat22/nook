@@ -111,21 +111,21 @@ export class AiPanel {
       <div>
         ${a.first_person_summary ? `
           <div class="ai-section-label">Today, in your words</div>
-          <p class="ai-summary-text" style="font-size:1rem;line-height:1.6;margin-bottom:10px">${a.first_person_summary}</p>
+          <p class="ai-summary-text" style="font-size:1rem;line-height:1.6;margin-bottom:10px">${escHtml(a.first_person_summary)}</p>
         ` : ''}
         ${a.ai_summary ? `
           <div class="ai-section-label">Overview</div>
-          <p class="ai-summary-text" style="font-style:italic;color:var(--color-text-muted)">${a.ai_summary}</p>
+          <p class="ai-summary-text" style="font-style:italic;color:var(--color-text-muted)">${escHtml(a.ai_summary)}</p>
         ` : ''}
         ${a.cleaned_content ? `
           <div id="cleaned-content" style="margin-top:8px">
             <div class="ai-section-label">Cleaned-up entry</div>
-            <p class="ai-summary-text">${a.cleaned_content}</p>
+            <p class="ai-summary-text">${escHtml(a.cleaned_content)}</p>
           </div>
           ${a.raw_transcript || '' ? `
             <div id="raw-content" style="display:none;margin-top:8px">
               <div class="ai-section-label">Original</div>
-              <p class="ai-summary-text text-muted" style="font-style:italic">${a.raw_transcript || ''}</p>
+              <p class="ai-summary-text text-muted" style="font-style:italic">${escHtml(a.raw_transcript || '')}</p>
             </div>
             <span class="ai-cleaned-toggle" id="toggle-raw">📄 Show original</span>
           ` : ''}

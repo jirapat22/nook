@@ -1,5 +1,9 @@
 // LoveLifeSection — displays love life content with guided prompts
 
+function escHtml(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 const REFLECTION_PROMPTS = [
   'What actually happened vs. what did you interpret?',
   'What do you genuinely want here?',
@@ -34,7 +38,7 @@ export class LoveLifeSection {
         </div>
         <div class="love-section-body" id="love-body">
           ${a.love_life_content ? `
-            <p>${a.love_life_content}</p>
+            <p>${escHtml(a.love_life_content)}</p>
           ` : ''}
 
           ${showCooldown ? `

@@ -32,15 +32,25 @@ export function todayStr(d = new Date()) {
 }
 
 // ── API helper ─────────────────────────────────────────────
-// Single request core so the error reporting hook lives in one place: it flags
-// server 5xx and write-request network failures (see report.js for the policy).
-async function request(method, path, opts) {
+// Single request core so the auth header + error reporting hook live in one
+// place: attaches the unlock token, shows the unlock screen on 401, and flags
+// server 5xx / write-request network failures (see report.js for the policy).
+function authToken() { try { return localStorage.getItem('nook_auth_token') || ''; } catch { return ''; } }
+
+async function request(method, path, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  const token = authToken();
+  if (token) headers['x-app-token'] = token;
   let res;
   try {
-    res = await fetch(path, opts);
+    res = await fetch(path, { ...opts, headers });
   } catch (err) {
     reportApiError({ method, path, status: null, error: err.message });
     throw err;
+  }
+  if (res.status === 401) {
+    showUnlock();
+    throw Object.assign(new Error('Unauthorized'), { code: 'UNAUTHORIZED' });
   }
   if (!res.ok) {
     reportApiError({ method, path, status: res.status });
@@ -48,6 +58,50 @@ async function request(method, path, opts) {
     throw Object.assign(new Error(e.error || `HTTP ${res.status}`), e);
   }
   return res.json();
+}
+
+// Full-screen password gate, shown when the server returns 401. No-op if the
+// server has no APP_PASSWORD set (nothing 401s, so this never fires).
+let _unlockShown = false;
+function showUnlock() {
+  if (_unlockShown) return;
+  _unlockShown = true;
+  const el = document.createElement('div');
+  el.className = 'unlock-overlay';
+  el.innerHTML = `
+    <div class="unlock-box">
+      <div class="unlock-logo">🌿</div>
+      <h2>Nook is locked</h2>
+      <p class="text-sm text-muted">Enter the password to continue.</p>
+      <input type="password" id="unlock-input" class="input" placeholder="Password" autocomplete="current-password">
+      <button class="btn btn-primary" id="unlock-btn" style="width:100%">Unlock</button>
+      <p class="unlock-error" id="unlock-error" hidden></p>
+    </div>`;
+  document.body.appendChild(el);
+  const input = el.querySelector('#unlock-input');
+  const errEl = el.querySelector('#unlock-error');
+  const submit = async () => {
+    const password = input.value;
+    if (!password) return;
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.token) {
+        try { localStorage.setItem('nook_auth_token', data.token); } catch {}
+        location.reload();
+      } else {
+        errEl.hidden = false; errEl.textContent = data.error || 'Wrong password';
+      }
+    } catch {
+      errEl.hidden = false; errEl.textContent = 'Network error — try again';
+    }
+  };
+  el.querySelector('#unlock-btn').addEventListener('click', submit);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+  input.focus();
 }
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
