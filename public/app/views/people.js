@@ -137,13 +137,18 @@ export class PeopleView {
       let html = sectionDefs.map(def => {
         const group = humans.filter(p => (p.relationship_type || 'unknown') === def.key);
         if (!group.length) return '';
+        // Friends are split into their subgroups (Uni gang, etc.); other types
+        // stay as one flat list.
+        const body = def.key === 'friend'
+          ? renderFriendSubgroups(group)
+          : `<div class="people-list">${group.map(p => personCard(p)).join('')}</div>`;
         return `
           <div class="people-rel-section">
             <div class="people-rel-section-header">
               <span>${def.emoji} ${def.label}</span>
               <span class="people-section-count">${group.length}</span>
             </div>
-            <div class="people-list">${group.map(p => personCard(p)).join('')}</div>
+            ${body}
           </div>`;
       }).join('');
 
@@ -169,8 +174,11 @@ export class PeopleView {
       if (this.activeSubgroup !== 'all') {
         filtered = filtered.filter(p => (p.subgroup || '').trim() === this.activeSubgroup);
       }
+      const body = (this.activeFilter === 'friend' && this.activeSubgroup === 'all')
+        ? renderFriendSubgroups(filtered)            // friends: split into subgroups
+        : `<div class="people-list">${filtered.map(p => personCard(p)).join('')}</div>`;
       listContainer.innerHTML = filtered.length
-        ? `<div class="people-list">${filtered.map(p => personCard(p)).join('')}</div>`
+        ? body
         : `<div class="empty-state" style="padding:24px 0"><p class="text-muted">No people in this category yet.</p></div>`;
     }
 
@@ -820,6 +828,32 @@ function personCard(p) {
 
 function capitalize(str) {
   return str ? str[0].toUpperCase() + str.slice(1) : '';
+}
+
+// Split a list of friends into labelled sub-sections by their subgroup
+// ("Uni gang", etc.). Friends with no subgroup go under "No group". If nobody
+// has a subgroup, falls back to a single flat list (no noisy headers).
+function renderFriendSubgroups(friends) {
+  const bySub = new Map();
+  for (const p of friends) {
+    const key = (p.subgroup || '').trim() || '__none__';
+    if (!bySub.has(key)) bySub.set(key, []);
+    bySub.get(key).push(p);
+  }
+  const named = [...bySub.keys()].filter(k => k !== '__none__').sort((a, b) => a.localeCompare(b));
+  if (!named.length) {
+    return `<div class="people-list">${friends.map(p => personCard(p)).join('')}</div>`;
+  }
+  const order = bySub.has('__none__') ? [...named, '__none__'] : named;
+  return order.map(key => {
+    const list = bySub.get(key);
+    const label = key === '__none__' ? 'No group' : key;
+    return `
+      <div class="friend-subgroup">
+        <div class="friend-subgroup-header">${escHtml(label)} <span class="people-section-count">${list.length}</span></div>
+        <div class="people-list">${list.map(p => personCard(p)).join('')}</div>
+      </div>`;
+  }).join('');
 }
 
 function escHtml(s) {

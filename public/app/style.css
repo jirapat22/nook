@@ -1081,22 +1081,30 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
 .insight-delta.positive { color: var(--color-success); }
 .insight-delta.negative { color: var(--color-danger); }
 
+.heatmap-wrap { overflow-x: auto; margin-top: 8px; padding-bottom: 2px; }
 .heatmap {
   display: grid;
   grid-template-rows: repeat(7, 12px);
   grid-auto-flow: column;
   grid-auto-columns: 12px;
   gap: 3px;
-  margin-top: 8px;
-  overflow-x: auto;
-  padding-bottom: 2px;
+}
+.heatmap-months {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 4px;
+}
+.heatmap-month {
+  font-size: 0.62rem;
+  color: var(--color-text-faint);
+  white-space: nowrap;
+  overflow: visible;
 }
 .heatmap-cell {
   border-radius: 2px;
   background: var(--color-surface-offset);
   transition: background var(--transition);
 }
-.heatmap-empty { background: transparent; }
 .heatmap-cell.level-1 { background: color-mix(in srgb, var(--color-primary) 25%, var(--color-surface-offset)); }
 .heatmap-cell.level-2 { background: color-mix(in srgb, var(--color-primary) 50%, var(--color-surface-offset)); }
 .heatmap-cell.level-3 { background: color-mix(in srgb, var(--color-primary) 75%, var(--color-surface-offset)); }
@@ -2049,6 +2057,15 @@ button.entry-person-chip { cursor: pointer; font-family: inherit; }
   text-transform: uppercase;
   letter-spacing: 0.06em;
   margin-bottom: 10px;
+}
+/* Friend subgroup sub-sections (indented under the Friends header) */
+.friend-subgroup { margin-bottom: 14px; }
+.friend-subgroup:last-child { margin-bottom: 0; }
+.friend-subgroup-header {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.78rem; font-weight: 600;
+  color: var(--color-primary);
+  margin: 0 0 8px 2px;
 }
 .people-section-count {
   background: var(--color-bg-secondary);

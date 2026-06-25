@@ -320,7 +320,10 @@ export class InsightsView {
     return `
       <div class="chart-card">
         <h3>🗓️ Journaling Activity</h3>
-        <div class="heatmap" id="heatmap-grid"></div>
+        <div class="heatmap-wrap">
+          <div class="heatmap-months" id="heatmap-months"></div>
+          <div class="heatmap" id="heatmap-grid"></div>
+        </div>
         <div style="display:flex;align-items:center;gap:6px;margin-top:8px">
           <span class="text-xs text-faint">Less</span>
           <div class="heatmap-cell" style="width:14px;height:14px"></div>
@@ -335,6 +338,7 @@ export class InsightsView {
 
   async mountHeatmap() {
     const grid = this.container.querySelector('#heatmap-grid');
+    const monthsEl = this.container.querySelector('#heatmap-months');
     if (!grid) return;
     try {
       const data = await api.get('/api/entries?limit=365');
@@ -343,16 +347,15 @@ export class InsightsView {
       data.forEach(e => { const key = String(e.date).split('T')[0]; counts[key] = (counts[key] || 0) + 1; });
       const maxCount = Math.max(1, ...Object.values(counts));
 
-      // Last 84 days (12 weeks), GitHub-style: 7 rows (weekdays) × weeks as
-      // columns. Pad leading blanks so each column is a clean week (Sun–Sat).
+      // Last 84 days, 7 rows × 12 columns (a column = 7 consecutive days). No
+      // leading padding — the grid starts at the earliest day (no front gap).
       const days = 84;
+      const cols = Math.ceil(days / 7);
       const today = new Date();
       const start = new Date(today);
       start.setDate(today.getDate() - (days - 1));
+
       const cells = [];
-      for (let i = 0; i < start.getDay(); i++) {
-        cells.push('<div class="heatmap-cell heatmap-empty"></div>');
-      }
       for (let i = 0; i < days; i++) {
         const d = new Date(start);
         d.setDate(start.getDate() + i);
@@ -362,6 +365,29 @@ export class InsightsView {
         cells.push(`<div class="heatmap-cell level-${level}" title="${dateStr}: ${count} entr${count !== 1 ? 'ies' : 'y'}"></div>`);
       }
       grid.innerHTML = cells.join('');
+
+      // Month labels above the columns. Each column's first day decides its
+      // month; consecutive same-month columns are spanned under one label.
+      if (monthsEl) {
+        const labels = [];
+        let c = 0;
+        while (c < cols) {
+          const first = new Date(start);
+          first.setDate(start.getDate() + c * 7);
+          const m = first.getMonth();
+          let span = 1;
+          while (c + span < cols) {
+            const d2 = new Date(start);
+            d2.setDate(start.getDate() + (c + span) * 7);
+            if (d2.getMonth() !== m) break;
+            span++;
+          }
+          labels.push(`<span class="heatmap-month" style="grid-column:${c + 1}/span ${span}">${first.toLocaleDateString('en-GB', { month: 'short' })}</span>`);
+          c += span;
+        }
+        monthsEl.style.gridTemplateColumns = `repeat(${cols}, 12px)`;
+        monthsEl.innerHTML = labels.join('');
+      }
     } catch { grid.innerHTML = ''; }
   }
 
