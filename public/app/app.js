@@ -518,8 +518,10 @@ async function init() {
     healMissingEntries(api, { cap: 5, delay: 1000 }).then(({ done }) => {
       if (done > 0) {
         showToast(`Caught up on ${done} entr${done === 1 ? 'y' : 'ies'} ✨`, 'success');
+        // Refresh any view that could be showing a now-stale (just-healed) entry —
+        // not just Home — so the toast's claim matches what's on screen.
         const view = (location.hash.replace(/^#/, '').split('/')[0]) || 'home';
-        if (view === 'home') handleRoute(); // refresh so new chips/summaries show
+        if (['home', 'day', 'new-entry'].includes(view)) handleRoute();
       }
     }).catch(() => {});
   }

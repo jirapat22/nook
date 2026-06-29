@@ -30,23 +30,29 @@ export function analysisToPayload(a, { fillMood = false } = {}) {
 
 // Analyse entries saved without AI analysis and write the results back. Paced,
 // best-effort (failures are skipped and retried on a later run). `cap` limits
-// how many to process this pass (0 = all). Returns { done, failed, total }.
+// how many to process this pass (0 = all). Returns { done, failed, skipped, total }.
 export async function healMissingEntries(api, { cap = 0, delay = 800, onProgress } = {}) {
   const all = await api.get('/api/entries?limit=365');
   const missing = all.filter(e => !e.first_person_summary && !e.ai_summary);
   const batch = cap ? missing.slice(0, cap) : missing;
-  let done = 0, failed = 0;
+  let done = 0, failed = 0, skipped = 0;
   for (let i = 0; i < batch.length; i++) {
     if (onProgress) onProgress(i + 1, batch.length);
     try {
       const full = await api.get(`/api/entries/${batch[i].id}`);
       const content = (full.user_edited_content || full.cleaned_content || full.raw_transcript || '').trim();
-      if (!content) continue;
+      if (!content) { skipped++; continue; }
       const a = await api.post('/api/ai/analyze', { content });
       await api.put(`/api/entries/${batch[i].id}`, analysisToPayload(a, { fillMood: full.mood_overall == null }));
       done++;
-    } catch { failed++; }
+    } catch (err) {
+      failed++;
+      // NO_API_KEY will fail for every remaining entry too — stop burning the
+      // budget on calls that can't possibly succeed (this runs on every app
+      // load, so without this a missing/invalid key wastes `cap` calls each time).
+      if (err && err.code === 'NO_API_KEY') break;
+    }
     await new Promise(r => setTimeout(r, delay));
   }
-  return { done, failed, total: missing.length, processed: batch.length };
+  return { done, failed, skipped, total: missing.length, processed: batch.length };
 }

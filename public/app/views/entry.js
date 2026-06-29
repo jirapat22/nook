@@ -1442,28 +1442,8 @@ export class EntryView {
         reanalyseBtn.textContent = '✨ Analysing…';
         try {
           const a = await api.post('/api/ai/analyze', { content });
-          const payload = {
-            ai_summary: a.ai_summary || null,
-            first_person_summary: a.first_person_summary || null,
-            key_themes: a.key_themes || [],
-            action_items: a.action_items || [],
-            important_today: a.important_today || null,
-            life_areas: a.life_areas || [],
-            tags: a.suggested_tags || [],
-            detected_people: Array.isArray(a.people_mentioned) ? a.people_mentioned : [],
-            activities: Array.isArray(a.activities) ? a.activities : [],
-          };
           // Only fill mood when the entry has none — don't clobber a manual rating.
-          if (entry.mood_overall == null && a.mood) {
-            const m = a.mood;
-            Object.assign(payload, {
-              mood_energy: m.energy ?? null, mood_happiness: m.happiness ?? null,
-              mood_anxiety: m.anxiety ?? null, mood_confidence: m.confidence ?? null,
-              mood_motivation: m.motivation ?? null, mood_social_battery: m.social_battery ?? null,
-              mood_physical: m.physical ?? null, mood_focus: m.focus ?? null,
-              mood_overall: m.overall ?? null, mood_source: 'ai_detected',
-            });
-          }
+          const payload = analysisToPayload(a, { fillMood: entry.mood_overall == null });
           await api.put(`/api/entries/${this.entryId}`, payload);
           if (a.people_mentioned?.length) {
             await this.linkPeopleMentions(this.entryId, a.people_mentioned);

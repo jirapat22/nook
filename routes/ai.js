@@ -380,7 +380,11 @@ followup_question should be ONE warm, natural follow-up question. Ask one whenev
     // Safeguard for SUB-dimensions only: Llama gravitates to 5 when uncertain, so
     // null out smells-like-default sub-dimension values and mark them uncertain.
     // "overall" is intentionally exempt — it's always a best guess the user confirms.
-    if (analysis.mood && typeof analysis.mood === 'object') {
+    // Normalize first: the fallback model (smaller, tighter token budget) can omit
+    // the whole "mood" key rather than emit it with nulls. Without this, the block
+    // below never runs and the "overall is never null" guarantee silently breaks.
+    if (!analysis.mood || typeof analysis.mood !== 'object') analysis.mood = {};
+    {
       const subKeys = ['energy','happiness','anxiety','confidence','motivation','social_battery','physical','focus'];
       const numeric = subKeys
         .map(k => ({ k, v: analysis.mood[k] }))

@@ -403,14 +403,17 @@ export class SettingsView {
       amBtn.disabled = true;
       amResult.textContent = 'Finding entries…';
       try {
-        const { done, failed, total } = await healMissingEntries(api, {
+        const { done, failed, skipped, total } = await healMissingEntries(api, {
           cap: 0, delay: 700,
           onProgress: (i, n) => { amResult.textContent = `Analysing ${i} of ${n}…`; },
         });
         if (!total) {
           amResult.textContent = '✓ All entries are analysed.';
         } else {
-          amResult.textContent = `Done — analysed ${done}${failed ? `, ${failed} still failed (try again in a bit)` : ''}.`;
+          const parts = [`analysed ${done}`];
+          if (failed) parts.push(`${failed} failed (try again in a bit)`);
+          if (skipped) parts.push(`${skipped} had no text to analyse`);
+          amResult.textContent = `Done — ${parts.join(', ')}.`;
           showToast(failed ? `Analysed ${done}, ${failed} failed` : `Analysed ${done} ✓`, failed ? 'error' : 'success');
         }
       } catch {
