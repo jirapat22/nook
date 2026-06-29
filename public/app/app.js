@@ -13,6 +13,7 @@ import { SearchView }   from './views/search.js';
 import { DayView }      from './views/day.js';
 import { OnboardingView } from './views/onboarding.js';
 import { installReporting, reportApiError, reportHandled } from './report.js';
+import { healMissingEntries } from './analyze-helpers.js';
 
 // ── Global state ───────────────────────────────────────────
 export const AppState = {
@@ -509,6 +510,19 @@ async function init() {
   // Initial route
   await handleRoute();
   AppState.initialized = true;
+
+  // Best-effort: quietly fill in any entries saved without AI analysis (capped
+  // + paced; server falls back to a faster model when Groq is busy). Runs once
+  // per load, online only, and silent unless it actually heals something.
+  if (navigator.onLine) {
+    healMissingEntries(api, { cap: 5, delay: 1000 }).then(({ done }) => {
+      if (done > 0) {
+        showToast(`Caught up on ${done} entr${done === 1 ? 'y' : 'ies'} ✨`, 'success');
+        const view = (location.hash.replace(/^#/, '').split('/')[0]) || 'home';
+        if (view === 'home') handleRoute(); // refresh so new chips/summaries show
+      }
+    }).catch(() => {});
+  }
 }
 
 // Wait for DOM

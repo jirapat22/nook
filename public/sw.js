@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nook-v59';
+const CACHE_NAME = 'nook-v60';
 const API_CACHE  = 'nook-api-v1'; // separate cache for GET API responses
 const STATIC_ASSETS = [
   '/',
@@ -6,6 +6,7 @@ const STATIC_ASSETS = [
   '/app/style.css',
   '/app/app.js',
   '/app/report.js',
+  '/app/analyze-helpers.js',
   '/app/views/home.js',
   '/app/views/entry.js',
   '/app/views/calendar.js',

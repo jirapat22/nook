@@ -3,6 +3,7 @@ import { VoiceRecorder }   from '../components/voiceRecorder.js';
 import { AiPanel }         from '../components/aiPanel.js';
 import { LoveLifeSection } from '../components/loveLifeSection.js';
 import { renderMoodFaces, wireMoodFaces } from '../components/moodFaces.js';
+import { analysisToPayload } from '../analyze-helpers.js';
 
 export class EntryView {
   constructor(params = []) {
@@ -817,18 +818,8 @@ export class EntryView {
   async backgroundAnalyze(entryId, content) {
     try {
       const a = await api.post('/api/ai/analyze', { content });
-      const payload = {
-        ai_summary: a.ai_summary || null,
-        first_person_summary: a.first_person_summary || null,
-        key_themes: a.key_themes || [],
-        action_items: a.action_items || [],
-        important_today: a.important_today || null,
-        life_areas: a.life_areas || [],
-        tags: a.suggested_tags || [],
-        activities: Array.isArray(a.activities) ? a.activities : [],
-        detected_people: Array.isArray(a.people_mentioned) ? a.people_mentioned : [],
-      };
-      await api.put(`/api/entries/${entryId}`, payload);
+      // A raw-saved entry has no mood yet, so let analysis fill it.
+      await api.put(`/api/entries/${entryId}`, analysisToPayload(a, { fillMood: true }));
     } catch { /* non-fatal — entry stays as-is, re-analyse remains available */ }
   }
 
