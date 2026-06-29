@@ -31,8 +31,14 @@ function escapeRegex(s) {
 // what comes back. Keep in sync with the client's components/activities.js.
 const ACTIVITY_KEYS = ['work','gym','social','family','food','shopping','chores','travel','hobby','rest','health','study','date','outdoors'];
 
+// Primary model is higher quality; fallback is far cheaper with much higher
+// rate limits, so analysis still completes when the primary is throttled.
+const PRIMARY_MODEL = 'llama-3.3-70b-versatile';
+const FALLBACK_MODEL = 'llama-3.1-8b-instant';
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
 // Helper: call Groq chat completion
-async function groqChat(apiKey, messages, { temperature = 0.3, max_tokens = 2048 } = {}) {
+async function groqChat(apiKey, messages, { temperature = 0.3, max_tokens = 2048, model = PRIMARY_MODEL } = {}) {
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -40,7 +46,7 @@ async function groqChat(apiKey, messages, { temperature = 0.3, max_tokens = 2048
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
+      model,
       messages,
       temperature,
       max_tokens,
@@ -49,7 +55,9 @@ async function groqChat(apiKey, messages, { temperature = 0.3, max_tokens = 2048
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Groq API error ${res.status}: ${body}`);
+    const err = new Error(`Groq API error ${res.status}: ${body.slice(0, 200)}`);
+    err.status = res.status;
+    throw err;
   }
   const data = await res.json();
   const choice = data.choices?.[0];
@@ -64,6 +72,31 @@ async function groqChat(apiKey, messages, { temperature = 0.3, max_tokens = 2048
   } catch {
     throw new Error('Groq returned malformed JSON');
   }
+}
+
+// Resilient analysis: try the primary model, a short backoff retry, then the
+// high-rate-limit fallback model. This survives Groq's free-tier tokens-per-
+// minute throttling (the main reason analyses were failing) so an entry still
+// gets analysed instead of being left blank. max_tokens 4000 is plenty now
+// that cleaned_content is no longer regenerated, and lowers token pressure.
+async function analyzeResilient(apiKey, messages) {
+  const plan = [
+    { model: PRIMARY_MODEL,  wait: 0 },
+    { model: PRIMARY_MODEL,  wait: 3500 },   // brief backoff for a transient/rate blip
+    { model: FALLBACK_MODEL, wait: 0 },      // high-limit fallback so it completes
+    { model: FALLBACK_MODEL, wait: 2500 },
+  ];
+  let lastErr;
+  for (const step of plan) {
+    if (step.wait) await sleep(step.wait);
+    try {
+      return await groqChat(apiKey, messages, { max_tokens: 4000, model: step.model });
+    } catch (err) {
+      lastErr = err;
+      console.warn(`[analyze] ${step.model} failed (${err.status || '?'}): ${err.message}`);
+    }
+  }
+  throw lastErr;
 }
 
 // POST /api/ai/transcribe — audio blob → text
@@ -342,23 +375,7 @@ followup_question should be ONE warm, natural follow-up question. Ask one whenev
       { role: 'user', content: content || context },
     ];
 
-    // Generous token budget: first_person_summary + ai_summary + people can be
-    // large, and a truncated JSON fails to parse, leaving the entry with no
-    // analysis at all. 8000 covers very long entries; llama-3.3-70b allows more.
-    // Retry once on a transient failure (network blip, rate limit, malformed
-    // JSON) — a single hiccup used to leave entries with no AI analysis.
-    let analysis, lastErr;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        analysis = await groqChat(apiKey, messages, { max_tokens: 8000 });
-        break;
-      } catch (err) {
-        lastErr = err;
-        console.warn(`analyze groqChat attempt ${attempt + 1} failed:`, err.message);
-        if (attempt === 0) await new Promise(r => setTimeout(r, 800));
-      }
-    }
-    if (!analysis) throw lastErr;
+    const analysis = await analyzeResilient(apiKey, messages);
 
     // Safeguard for SUB-dimensions only: Llama gravitates to 5 when uncertain, so
     // null out smells-like-default sub-dimension values and mark them uncertain.

@@ -131,6 +131,17 @@ export class SettingsView {
           <button class="btn btn-secondary btn-sm" id="mood-cleanup-btn">Clean up default moods</button>
         </div>
 
+        <!-- Analyse missing entries -->
+        <div class="settings-section-title">Re-analyse entries</div>
+        <div class="card">
+          <p class="text-sm" style="margin-bottom:10px">
+            Some entries were saved without AI analysis (no summary, themes, or activities).
+            This fills them in — it paces itself and falls back to a faster model if Groq is busy.
+          </p>
+          <button class="btn btn-secondary btn-sm" id="analyze-missing-btn">Analyse missing entries</button>
+          <div id="analyze-missing-result" style="font-size:0.8rem;color:var(--color-text-muted);margin-top:8px"></div>
+        </div>
+
         <!-- Tag / Theme management -->
         <div class="settings-section-title">Manage tags &amp; themes</div>
         <div class="card">
@@ -382,6 +393,59 @@ export class SettingsView {
       moodBtn.textContent = 'Clean up default moods';
     });
     loadMoodPreview();
+
+    // Analyse missing entries — fills in any entry saved without AI analysis.
+    // Paces itself; the server falls back to a faster model when Groq throttles.
+    const amBtn = container.querySelector('#analyze-missing-btn');
+    const amResult = container.querySelector('#analyze-missing-result');
+    amBtn?.addEventListener('click', async () => {
+      amBtn.disabled = true;
+      amResult.textContent = 'Finding entries…';
+      let all = [];
+      try { all = await api.get('/api/entries?limit=365'); }
+      catch { amResult.textContent = 'Could not load entries.'; amBtn.disabled = false; return; }
+      const missing = all.filter(e => !e.first_person_summary && !e.ai_summary);
+      if (!missing.length) { amResult.textContent = '✓ All entries are analysed.'; amBtn.disabled = false; return; }
+
+      let done = 0, failed = 0;
+      for (let i = 0; i < missing.length; i++) {
+        amResult.textContent = `Analysing ${i + 1} of ${missing.length}…`;
+        try {
+          const full = await api.get(`/api/entries/${missing[i].id}`);
+          const content = (full.user_edited_content || full.cleaned_content || full.raw_transcript || '').trim();
+          if (!content) continue;
+          const a = await api.post('/api/ai/analyze', { content });
+          const payload = {
+            ai_summary: a.ai_summary || null,
+            first_person_summary: a.first_person_summary || null,
+            key_themes: a.key_themes || [],
+            action_items: a.action_items || [],
+            important_today: a.important_today || null,
+            life_areas: a.life_areas || [],
+            tags: a.suggested_tags || [],
+            activities: Array.isArray(a.activities) ? a.activities : [],
+            detected_people: Array.isArray(a.people_mentioned) ? a.people_mentioned : [],
+          };
+          // Only fill mood when the entry has none — never clobber a set rating.
+          if (full.mood_overall == null && a.mood) {
+            const m = a.mood;
+            Object.assign(payload, {
+              mood_energy: m.energy ?? null, mood_happiness: m.happiness ?? null,
+              mood_anxiety: m.anxiety ?? null, mood_confidence: m.confidence ?? null,
+              mood_motivation: m.motivation ?? null, mood_social_battery: m.social_battery ?? null,
+              mood_physical: m.physical ?? null, mood_focus: m.focus ?? null,
+              mood_overall: m.overall ?? null, mood_source: 'ai_detected',
+            });
+          }
+          await api.put(`/api/entries/${missing[i].id}`, payload);
+          done++;
+        } catch { failed++; }
+        await new Promise(r => setTimeout(r, 700)); // gentle pacing
+      }
+      amResult.textContent = `Done — analysed ${done}${failed ? `, ${failed} still failed (try again in a bit)` : ''}.`;
+      showToast(failed ? `Analysed ${done}, ${failed} failed` : `Analysed ${done} ✓`, failed ? 'error' : 'success');
+      amBtn.disabled = false;
+    });
 
     // Tag/theme management
     const tagField   = container.querySelector('#tag-field');
