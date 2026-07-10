@@ -198,6 +198,33 @@ function themeIconSvg(theme) {
 // ── Daily reminder ──────────────────────────────────────────
 let _swReg = null;
 
+// ── Update banner ────────────────────────────────────────────
+// Shown instead of auto-reloading when a new SW version is ready. Refresh
+// happens on the user's own tap, never forced — an unprompted reload could
+// wipe an in-progress voice recording or unsaved draft.
+let _updateBannerShown = false;
+function showUpdateBanner() {
+  if (_updateBannerShown) return;
+  _updateBannerShown = true;
+  const banner = document.createElement('div');
+  banner.id = 'update-banner';
+  banner.className = 'update-banner';
+  banner.innerHTML = `
+    <span>✨ A new version of Nook is ready</span>
+    <button class="btn btn-primary btn-sm" id="update-refresh-btn">Refresh</button>
+  `;
+  document.body.appendChild(banner);
+  banner.querySelector('#update-refresh-btn').addEventListener('click', () => {
+    if (_swReg?.waiting) {
+      _swReg.waiting.postMessage({ type: 'SKIP_WAITING' });
+    } else {
+      // Nothing waiting to activate (edge case) — just reload to pick up
+      // whatever the server has now.
+      location.reload();
+    }
+  });
+}
+
 export async function showLocalNotification(title, body) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   const opts = { body, icon: '/icons/icon.svg', badge: '/icons/icon.svg', tag: 'nook-reminder' };
@@ -469,26 +496,29 @@ async function init() {
 
   // Register SW first — this lets the browser start fetching the new SW
   // in parallel with the settings load rather than sequentially after it.
-  // Also: when a new SW is waiting, tell it to skip waiting immediately so
-  // stale JS files don't outlive a deploy.
+  // A new SW is never force-activated: swapping the running code out from
+  // under a mid-recording user would be much worse than a stale cache for a
+  // few minutes. Instead we surface a banner and let them choose when.
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').then(reg => {
       _swReg = reg;
-      // New SW installed and waiting — activate it now without waiting for
-      // all tabs to close. The page will reload via controllerchange below.
-      if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+      // A waiting worker already exists at boot — a tab was left open across
+      // a deploy. navigator.serviceWorker.controller being set is what tells
+      // us this is an update to an already-running app, not the first install
+      // (a first install has no controller yet and never enters "waiting").
+      if (reg.waiting && navigator.serviceWorker.controller) showUpdateBanner();
       reg.addEventListener('updatefound', () => {
         const nw = reg.installing;
         nw?.addEventListener('statechange', () => {
           if (nw.state === 'installed' && navigator.serviceWorker.controller) {
-            nw.postMessage({ type: 'SKIP_WAITING' });
+            showUpdateBanner();
           }
         });
       });
     }).catch(err => { console.warn('SW registration failed:', err); reportHandled(err, { where: 'sw-register' }); });
 
-    // When the SW controller changes (new SW took over), reload once so the
-    // page runs fresh JS instead of a mix of old-cached + new.
+    // Reload happens only once the new SW actually takes control — which now
+    // only happens after the user taps Refresh on the banner (see below).
     let reloading = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (!reloading) { reloading = true; location.reload(); }
