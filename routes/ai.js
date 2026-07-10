@@ -314,7 +314,7 @@ router.post('/analyze', async (req, res) => {
     const systemPrompt = `You are Nook, a warm and insightful personal journal assistant.
 Analyze the user's journal entry and return a JSON object with EXACTLY this structure:
 {
-  "first_person_summary": "A diary-style narrative of the day in FIRST PERSON ('Today I...', 'I felt...', 'I'm thinking about...'). Cover EVERYTHING meaningful the user said — every person, event, plan, worry, and unresolved thread (e.g. 'the thing with Luke'). Do NOT compress the day into a few lines or drop details to be brief: let the length match how much they shared, so a long entry gets a long summary. Fix grammar and remove filler, but keep all the substance. It should read like the user's own complete diary entry in their voice, not a short report or highlight reel.",
+  "first_person_summary": "A diary-style narrative of the day in FIRST PERSON ('Today I...', 'I felt...', 'I'm thinking about...'). Cover EVERYTHING meaningful the user said — every person, event, plan, worry, and unresolved thread (e.g. 'the thing with Luke'). Do NOT compress the day into a few lines or drop details to be brief: let the length match how much they shared, so a long entry gets a long summary. Fix grammar and remove filler, but keep all the substance. It should read like the user's own complete diary entry in their voice, not a short report or highlight reel. Light markdown for structure, used sparingly: if the entry covers several distinct events or topics (e.g. work, then gym, then a call with a friend), separate them into short paragraphs (blank line between) or a '- ' bullet per event so it's scannable at a glance — don't force structure on a single continuous thought. **Bold** only a genuinely standout fact or number (a time, a duration, an amount) here and there, not every sentence.",
   "ai_summary": "2-3 sentence outside-view summary (third-person OK here — this is the brief overview shown in lists).",
   "key_themes": ["theme1", "theme2"],
   "action_items": ["thing to do 1"],
@@ -334,6 +334,7 @@ Analyze the user's journal entry and return a JSON object with EXACTLY this stru
   "life_areas": [],
   "suggested_tags": [],
   "activities": [],
+  "sleep_hours": null,
   "has_love_life_content": false,
   "love_life_content": null,
   "love_life_emotion_intensity": null,
@@ -361,6 +362,7 @@ MOOD RULES (read carefully — this matters):
 
 Life areas should be from: Health & Fitness, Work & Career, Relationships & Social, Personal Growth, Creativity, Finance, Travel & Adventure, Mental Health, Family, Love Life, Hobbies, Home & Lifestyle.
 "activities" is a glanceable list of WHAT THE USER ACTUALLY DID that day, chosen ONLY from this exact set (use the lowercase keys): ${ACTIVITY_KEYS.join(', ')}. Include only the ones clearly present in the entry (0-6), most prominent first. Guidance: gym = any exercise/workout/sport; social = hanging out with friends/people; food = cooking, eating out, a notable meal; chores = cleaning, errands, laundry, home tasks; hobby = games, reading, music, making things; rest = relaxing, napping, doing nothing; health = appointments, self-care, being unwell; study = learning/studying; date = romantic/love-life time; outdoors = nature, walks, being outside. Do NOT invent keys outside this set.
+"sleep_hours" — ONLY set this when the entry directly states or clearly implies how long they slept (e.g. "only got 5 hours of sleep", "slept great, a full 8 hours", "went to bed at 2am and up at 7" -> 5). A number, decimals allowed (e.g. 6.5). Leave null if sleep isn't mentioned — do NOT guess or infer from mood/tiredness alone.
 For people_mentioned, each item: { "name": string, "context": string, "facts_extracted": [], "sentiment": -5 to 5, "emotion_toward": string, "inferred_relationship": one of: "friend" | "family" | "crush" | "partner" | "colleague" | "pet" | "group" | "acquaintance" | "unknown", "uncertain": boolean }
   - inferred_relationship: best guess based on how the user talks about them. "my friend", "mum", "boss", "colleague" are strong signals. Use "pet" for animals the user names (dogs, cats, etc.) and "group" for collective entities ("the team", "the friend group"). Use "unknown" only when there's no clue.
   - BE THOROUGH: include EVERYONE the user refers to, even briefly or only by role ("my boss", "a girl at the gym", "my landlord") — give them the best name/label you can. It's better to surface a person and let the user confirm than to silently miss them.
@@ -422,6 +424,13 @@ followup_question should be ONE warm, natural follow-up question. Ask one whenev
     } else {
       analysis.activities = [];
     }
+
+    // sleep_hours: only trust a plausible number, discard anything else the
+    // model might hallucinate (a string, a huge number, negative, etc).
+    const sh = analysis.sleep_hours;
+    analysis.sleep_hours = (typeof sh === 'number' && isFinite(sh) && sh >= 0 && sh <= 24)
+      ? Math.round(sh * 2) / 2  // nearest half-hour — matches the manual stepper
+      : null;
 
     res.json(analysis);
   } catch (err) {

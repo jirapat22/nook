@@ -160,6 +160,11 @@ ALTER TABLE entries ADD COLUMN IF NOT EXISTS detected_people JSONB DEFAULT '[]';
 -- food, shopping, chores, travel, hobby, rest, health, study, date, outdoors).
 ALTER TABLE entries ADD COLUMN IF NOT EXISTS activities JSONB DEFAULT '[]';
 
+-- Hours slept, either AI-extracted from the entry text ("only slept 5 hours")
+-- or set manually. Sleep is a once-a-day metric but stored per-entry like mood —
+-- the day view shows the first non-null value across that day's entries.
+ALTER TABLE entries ADD COLUMN IF NOT EXISTS sleep_hours NUMERIC(3,1);
+
 -- Full-text search vector + GIN index (covers cleaned content, summary, themes, tags)
 ALTER TABLE entries ADD COLUMN IF NOT EXISTS search_vector tsvector;
 CREATE INDEX IF NOT EXISTS idx_entries_search_vector ON entries USING GIN(search_vector);

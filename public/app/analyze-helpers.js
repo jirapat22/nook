@@ -15,6 +15,10 @@ export function analysisToPayload(a, { fillMood = false } = {}) {
     activities: Array.isArray(a.activities) ? a.activities : [],
     detected_people: Array.isArray(a.people_mentioned) ? a.people_mentioned : [],
   };
+  // Only set when the AI actually detected a mention this round — never null
+  // out an existing (manually-set or previously-detected) value just because
+  // a re-analysis pass didn't happen to catch it again.
+  if (a.sleep_hours != null) payload.sleep_hours = a.sleep_hours;
   if (fillMood && a.mood) {
     const m = a.mood;
     Object.assign(payload, {

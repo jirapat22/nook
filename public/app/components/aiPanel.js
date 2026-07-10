@@ -1,18 +1,28 @@
 // AiPanel — displays the AI analysis results card
 
 import { renderMoodFaces, wireMoodFaces } from './moodFaces.js';
+import { renderMarkdown } from '../markdown.js';
 
 export class AiPanel {
-  constructor(analysis = {}, moodOverrides = {}, onMoodChange = () => {}) {
+  constructor(analysis = {}, moodOverrides = {}, onMoodChange = () => {}, tagOverrides = null, onTagsChange = () => {}) {
     this.analysis     = analysis;
     this.moodOverrides = moodOverrides;
     this.onMoodChange = onMoodChange;
+    this.onTagsChange = onTagsChange;
     this.showRaw      = false;
+    // Editable copy of the AI's suggested tags — tapping × actually removes
+    // one (the old toggle just dimmed a CSS class and changed nothing), and
+    // you can type your own instead of only accepting what the AI guessed.
+    // Seeded from tagOverrides when given so edits survive a follow-up
+    // question triggering a fresh analysis (which would otherwise re-mount
+    // a brand new panel from the new suggested_tags, discarding your edits).
+    this.tags = Array.isArray(tagOverrides) ? [...tagOverrides]
+      : Array.isArray(analysis.suggested_tags) ? [...analysis.suggested_tags] : [];
   }
 
   mount(container) {
     const a = this.analysis;
-    if (!a || (!a.ai_summary && !a.first_person_summary && !a.cleaned_content)) {
+    if (!a || (!a.first_person_summary && !a.cleaned_content)) {
       container.innerHTML = '';
       return;
     }
@@ -26,8 +36,8 @@ export class AiPanel {
         <div class="ai-panel-body" id="panel-body">
           ${this.renderSummary(a)}
           ${this.renderMoodSection(a)}
-          ${this.renderMetaChips(a)}
-          ${this.renderImportant(a)}
+          ${this.renderTags()}
+          ${this.renderAreasAndPeople(a)}
           ${this.renderActionItems(a)}
         </div>
       </div>
@@ -96,25 +106,52 @@ export class AiPanel {
       });
     });
 
-    // Tag approve/reject
-    container.querySelectorAll('.chip-btn[data-tag]').forEach(chip => {
-      chip.addEventListener('click', () => {
-        chip.classList.toggle('chip-primary');
+    this.wireTags(container);
+  }
+
+  // Editable tag list: each chip has a real × that removes it (the old chip
+  // toggle just dimmed a CSS class and changed nothing on save), plus an
+  // input to type your own instead of only accepting AI suggestions.
+  wireTags(container) {
+    container.querySelectorAll('.tag-chip-remove').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tag = btn.closest('.tag-chip')?.dataset.tag;
+        this.tags = this.tags.filter(t => t !== tag);
+        this.onTagsChange(this.tags);
+        this.rerenderTags(container);
       });
     });
+    const input = container.querySelector('#tag-add-input');
+    const addBtn = container.querySelector('#tag-add-btn');
+    const addTag = () => {
+      const val = (input.value || '').trim();
+      if (!val) return;
+      if (!this.tags.some(t => t.toLowerCase() === val.toLowerCase())) {
+        this.tags = [...this.tags, val];
+        this.onTagsChange(this.tags);
+        this.rerenderTags(container);
+      }
+      input.value = '';
+      container.querySelector('#tag-add-input')?.focus();
+    };
+    addBtn?.addEventListener('click', addTag);
+    input?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } });
+  }
+
+  rerenderTags(container) {
+    const section = container.querySelector('#tags-section');
+    if (!section) return;
+    section.outerHTML = this.renderTags();
+    this.wireTags(container);
   }
 
   renderSummary(a) {
-    if (!a.ai_summary && !a.cleaned_content && !a.first_person_summary) return '';
+    if (!a.cleaned_content && !a.first_person_summary) return '';
     return `
       <div>
         ${a.first_person_summary ? `
           <div class="ai-section-label">Today, in your words</div>
-          <p class="ai-summary-text" style="font-size:1rem;line-height:1.6;margin-bottom:10px">${escHtml(a.first_person_summary)}</p>
-        ` : ''}
-        ${a.ai_summary ? `
-          <div class="ai-section-label">Overview</div>
-          <p class="ai-summary-text" style="font-style:italic;color:var(--color-text-muted)">${escHtml(a.ai_summary)}</p>
+          <div class="ai-summary-text md-content" style="font-size:1rem;line-height:1.6;margin-bottom:10px">${renderMarkdown(a.first_person_summary)}</div>
         ` : ''}
         ${a.cleaned_content ? `
           <div id="cleaned-content" style="margin-top:8px">
@@ -129,19 +166,6 @@ export class AiPanel {
             <span class="ai-cleaned-toggle" id="toggle-raw">📄 Show original</span>
           ` : ''}
         ` : ''}
-      </div>`;
-  }
-
-  renderImportant(a) {
-    if (!a.important_today) return '';
-    return `
-      <div>
-        <div class="ai-section-label">Most important</div>
-        <div class="card" style="background:var(--color-primary-light);border-color:var(--color-primary);margin:0">
-          <p style="font-size:0.9375rem;color:var(--color-primary);font-family:var(--font-display);font-style:italic">
-            "${a.important_today}"
-          </p>
-        </div>
       </div>`;
   }
 
@@ -200,21 +224,39 @@ export class AiPanel {
       </div>`;
   }
 
-  // Life areas, suggested tags, and people mentioned were three separately
-  // labeled sections that all boil down to the same thing — small facts about
-  // the entry. One row, one label, distinguished by icon instead of a header each.
-  renderMetaChips(a) {
-    const tags   = a.suggested_tags || [];
-    const areas  = a.life_areas     || [];
+  // Tags are the one editable chip type — actually add/remove, not a fake
+  // toggle. Kept in its own section (not merged with areas/people) so the
+  // add-tag input has somewhere to live without cluttering the read-only row.
+  renderTags() {
+    return `
+      <div id="tags-section">
+        <div class="ai-section-label">Tags</div>
+        <div class="meta-chip-row">
+          ${this.tags.map(tag => `
+            <span class="chip chip-primary tag-chip" data-tag="${escHtml(tag)}">
+              🏷 ${escHtml(tag)}
+              <button type="button" class="tag-chip-remove" aria-label="Remove ${escHtml(tag)}">×</button>
+            </span>`).join('')}
+          <span class="tag-add-row">
+            <input type="text" id="tag-add-input" class="tag-add-input" placeholder="+ add tag" maxlength="30">
+            <button type="button" id="tag-add-btn" class="tag-add-btn" aria-label="Add tag">＋</button>
+          </span>
+        </div>
+      </div>`;
+  }
+
+  // Life areas and people mentioned — AI-inferred categorization, not
+  // something you curate per-entry the way tags are, so they stay read-only.
+  renderAreasAndPeople(a) {
+    const areas  = a.life_areas || [];
     const people = (a.people_mentioned || []).filter(p => p && p.name);
-    if (!tags.length && !areas.length && !people.length) return '';
+    if (!areas.length && !people.length) return '';
 
     return `
       <div>
         <div class="ai-section-label">Details</div>
         <div class="meta-chip-row">
           ${areas.map(area => `<span class="chip chip-primary">🧭 ${escHtml(area)}</span>`).join('')}
-          ${tags.map(tag => `<span class="chip chip-btn chip-primary" data-tag="${escHtml(tag)}">🏷 ${escHtml(tag)} ✓</span>`).join('')}
           ${people.map(p => {
             const name = String(p.name).trim();
             return `<span class="chip chip-person" data-name="${escHtml(name)}" title="${escHtml(p.context || '')}">👤 ${escHtml(name)}${p.uncertain ? ' ?' : ''}</span>`;

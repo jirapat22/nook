@@ -4,6 +4,7 @@ import { AiPanel }         from '../components/aiPanel.js';
 import { LoveLifeSection } from '../components/loveLifeSection.js';
 import { renderMoodFaces, wireMoodFaces } from '../components/moodFaces.js';
 import { analysisToPayload } from '../analyze-helpers.js';
+import { renderMarkdown } from '../markdown.js';
 
 export class EntryView {
   constructor(params = []) {
@@ -16,6 +17,8 @@ export class EntryView {
     this.recorder  = null;
     this.container = null;
     this.moodOverrides = {};
+    // null = no edits yet, use the AI's suggested_tags as-is on save.
+    this.tagOverrides = null;
     this.rawContent = '';
     // In-flow followups: { question, text } pairs captured during the analyze loop.
     // Saved as the entry's followups[] array so they remain distinct sub-blocks
@@ -431,7 +434,12 @@ export class EntryView {
       this._inflightControllers = this._inflightControllers.filter(c => c !== ctl);
       micBtn.classList.remove('processing');
       this.container.querySelector('#mic-glow')?.classList.remove('processing');
-      if (!hint.textContent.startsWith('✓')) {
+      // analyzeContent's own catch sets a specific "AI couldn't analyse" hint
+      // and flags it via hintOverridden — don't stomp that with the generic
+      // reset a few lines later in the same tick.
+      if (hint.dataset.hintOverridden === 'true') {
+        delete hint.dataset.hintOverridden;
+      } else if (!hint.textContent.startsWith('✓')) {
         hint.textContent = 'Tap mic to record a new one';
       }
     }
@@ -638,11 +646,30 @@ export class EntryView {
       this.renderAnalysisResults();
       this.showActionBar();
 
+      // Once we have a polished recap, collapse the raw transcript behind a
+      // toggle instead of leaving it as a permanent duplicate above the AI
+      // panel — first_person_summary already says the same thing, better.
+      const transcriptEl = this.container.querySelector('#transcript-display');
+      if (transcriptEl && this.analysis.first_person_summary && this.rawContent) {
+        transcriptEl.innerHTML = `
+          <details class="entry-source-toggle">
+            <summary>Show what I said (original)</summary>
+            <p class="entry-source-text">${escHtml(this.rawContent)}</p>
+          </details>`;
+        transcriptEl.classList.remove('placeholder');
+      }
+
       if (this.analysis.followup_question && this.mode === 'drive') {
         speak(this.analysis.followup_question);
       }
       if (this.analysis.followup_question && this.followupRound < 3) {
         this.renderFollowup(this.analysis.followup_question);
+      } else {
+        // No next question — clear the section instead of leaving whatever
+        // was there before (e.g. the "thinking…" spinner from a just-answered
+        // follow-up) stuck on screen forever.
+        const section = this.container.querySelector('#followup-section');
+        if (section) section.innerHTML = '';
       }
     } catch (err) {
       clearTimeout(timeoutId);
@@ -652,14 +679,26 @@ export class EntryView {
       this.showActionBar();
       // Reset the hint so it doesn't keep showing "✓ Got it — adding AI insights…"
       // forever after the AI failed. Save button is right there, no need to nag.
+      // _hintOverridden marks this as intentional so the caller's generic
+      // finally-block reset (transcribeAndAnalyze) doesn't immediately erase it.
       const driveHint = this.container.querySelector('#mic-hint');
-      if (driveHint) driveHint.textContent = 'AI couldn\'t analyse — your words are still saveable below';
+      if (driveHint) { driveHint.textContent = 'AI couldn\'t analyse — your words are still saveable below'; driveHint.dataset.hintOverridden = 'true'; }
+      // Same reasoning as the success branch — don't leave an orphaned spinner
+      // if this failure happened mid follow-up-answer.
+      const section = this.container.querySelector('#followup-section');
+      if (section) section.innerHTML = '';
     } finally {
       this._inflightControllers = this._inflightControllers.filter(c => c !== ctl);
     }
   }
 
   renderFollowup(question) {
+    // Speaking the question aloud (drive mode) but only accepting a typed
+    // answer forced a voice→text mode switch mid-recording. Add a mic option
+    // so answering stays voice-first when that's how the entry started.
+    this._followupRecorder?.destroy();
+    this._followupRecorder = null;
+
     const section = this.container.querySelector('#followup-section');
     section.innerHTML = `
       <div class="followup-section">
@@ -669,17 +708,53 @@ export class EntryView {
         </div>
         <div class="followup-input-row">
           <input type="text" class="input" id="followup-answer" placeholder="Your answer…" />
+          <button type="button" class="followup-mic-btn" id="followup-mic" title="Answer by voice" aria-label="Answer by voice">🎙</button>
           <button class="btn btn-ghost btn-sm" id="followup-skip">Skip</button>
           <button class="btn btn-primary btn-sm" id="followup-send">Send</button>
         </div>
       </div>
     `;
 
-    const input = section.querySelector('#followup-answer');
+    const input  = section.querySelector('#followup-answer');
+    const micBtn = section.querySelector('#followup-mic');
+
+    micBtn.addEventListener('click', () => {
+      if (this._followupRecorder?.isRecording) { this._followupRecorder.stop(); return; }
+      micBtn.classList.add('recording');
+      micBtn.textContent = '⏹';
+      const prevPlaceholder = input.placeholder;
+      input.placeholder = 'Listening…';
+      this._followupRecorder = new VoiceRecorder({
+        onStop: async (blob) => {
+          micBtn.classList.remove('recording');
+          micBtn.textContent = '🎙';
+          input.placeholder = prevPlaceholder;
+          if (this._destroyed || !blob || blob.size === 0) return;
+          input.disabled = true;
+          input.placeholder = 'Transcribing…';
+          try {
+            const ext = blob.type.includes('mp4') ? 'mp4' : blob.type.includes('ogg') ? 'ogg' : 'webm';
+            const form = new FormData();
+            form.append('audio', blob, `answer.${ext}`);
+            const res = await fetch('/api/ai/transcribe', { method: 'POST', body: form });
+            if (res.ok && !this._destroyed) {
+              const result = await res.json();
+              input.value = (result.transcript || '').trim();
+            }
+          } catch { /* transcription failed — user can just type instead */ }
+          if (this._destroyed) return;
+          input.disabled = false;
+          input.placeholder = prevPlaceholder;
+          input.focus();
+        },
+      });
+      this._followupRecorder.start();
+    });
 
     const send = async () => {
       const answer = input.value.trim();
       if (!answer) return;
+      if (this._followupRecorder?.isRecording) this._followupRecorder.stop();
       this.followupRound++;
       // Track Q&A separately so it ends up in followups[] on save,
       // not concatenated into raw_transcript (which fragmented the entry)
@@ -693,7 +768,11 @@ export class EntryView {
     };
 
     section.querySelector('#followup-send').addEventListener('click', send);
-    section.querySelector('#followup-skip').addEventListener('click', () => { section.innerHTML = ''; });
+    section.querySelector('#followup-skip').addEventListener('click', () => {
+      this._followupRecorder?.destroy();
+      this._followupRecorder = null;
+      section.innerHTML = '';
+    });
     input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
   }
 
@@ -702,7 +781,10 @@ export class EntryView {
     const a = this.analysis;
 
     const panelSection = this.container.querySelector('#ai-panel-section');
-    new AiPanel(a, this.moodOverrides, overrides => { this.moodOverrides = overrides; }).mount(panelSection);
+    new AiPanel(
+      a, this.moodOverrides, overrides => { this.moodOverrides = overrides; },
+      this.tagOverrides, tags => { this.tagOverrides = tags; }
+    ).mount(panelSection);
 
     if (a.has_love_life_content) {
       new LoveLifeSection(a).mount(this.container.querySelector('#love-section'));
@@ -715,6 +797,7 @@ export class EntryView {
     this.followupRound = 0;
     this.conversationHistory = [];
     this.inflowFollowups = [];
+    this.tagOverrides = null;
     ['#followup-section','#ai-panel-section','#love-section','#mood-section'].forEach(sel => {
       const el = this.container.querySelector(sel);
       if (el) el.innerHTML = '';
@@ -780,7 +863,9 @@ export class EntryView {
         ? 'user_confirmed'
         : (this.analysis ? 'ai_detected' : null),
       life_areas: a.life_areas || [],
-      tags: a.suggested_tags || [],
+      // tagOverrides reflects any tags added/removed in the panel; null means
+      // no edits were made, so fall back to what the AI suggested.
+      tags: this.tagOverrides ?? (a.suggested_tags || []),
       entry_mode: this.mode === 'drive' ? 'voice' : 'text',
       has_love_life_content: a.has_love_life_content || false,
       love_life_raw: a.love_life_content || null,
@@ -790,6 +875,7 @@ export class EntryView {
       // detected but never linked (skipped/missed), instead of losing them.
       detected_people: Array.isArray(a.people_mentioned) ? a.people_mentioned : [],
       activities: Array.isArray(a.activities) ? a.activities : [],
+      sleep_hours: a.sleep_hours ?? null,
     };
 
     try {
@@ -1243,7 +1329,7 @@ export class EntryView {
 
           <!-- Main first-person diary block -->
           ${firstPerson || userEdit ? `<div class="ai-section-label">Today, in your words</div>` : ''}
-          <div class="entry-content-block" id="entry-content-display">${mainContent}</div>
+          <div class="entry-content-block md-content" id="entry-content-display">${renderMarkdown(mainContent)}</div>
 
           <!-- Edit mode for main content (hidden by default) -->
           <textarea class="textarea hidden" id="entry-content-edit" style="min-height:200px;margin-bottom:12px"></textarea>
@@ -1477,8 +1563,10 @@ export class EntryView {
       const actionsDiv    = container.querySelector('#entry-actions');
 
       editBtn.addEventListener('click', () => {
-        // Switch to edit mode
-        editEl.value = displayEl.textContent;
+        // Switch to edit mode. displayEl now holds rendered markdown HTML,
+        // so .textContent would return the flattened text with formatting
+        // syntax stripped — edit the original source instead.
+        editEl.value = mainContent;
         displayEl.classList.add('hidden');
         editEl.classList.remove('hidden');
         editEl.focus();
@@ -1811,6 +1899,7 @@ export class EntryView {
     }
     this._inflightControllers = [];
     this.recorder?.destroy();
+    this._followupRecorder?.destroy();
     this.stopWaveformAnimation();
     this.stopRecordingTimer();
     this.releaseWakeLock();

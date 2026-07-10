@@ -1,6 +1,7 @@
-import { api } from '../app.js';
+import { api, showToast } from '../app.js';
 import { dayActivityKeys, renderActivityChips } from '../components/activities.js';
 import { assert } from '../report.js';
+import { renderMarkdown } from '../markdown.js';
 
 export class DayView {
   constructor(params = []) {
@@ -47,6 +48,12 @@ export class DayView {
     }
     const topThemes = [...themeCount.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([t]) => t);
 
+    // Sleep is a once-a-day metric stored per-entry (like mood) — first entry
+    // that has it wins. entries[0] is the latest of the day, used as the
+    // target when setting a value for the first time.
+    const sleepEntry = entries.find(e => e.sleep_hours != null);
+    const sleepHours = sleepEntry ? Number(sleepEntry.sleep_hours) : null;
+
     container.innerHTML = `
       <div class="day-view">
         <div class="day-header">
@@ -57,6 +64,9 @@ export class DayView {
         ${entries.length ? `
         <div class="day-summary-strip">
           ${avgMood != null ? `<span class="day-summary-mood"><span class="mood-dot ${moodClass(avgMood)}"></span>${avgMood}/10</span>` : ''}
+          <button type="button" class="day-sleep-chip" id="day-sleep-chip">
+            🛌 ${sleepHours != null ? `${sleepHours}h` : '+ sleep'}
+          </button>
           ${renderActivityChips(activities)}
           ${topThemes.length ? `<div class="day-summary-themes">${topThemes.map(t => `<span class="entry-card-tag">${escHtml(t)}</span>`).join('')}</div>` : ''}
         </div>` : ''}
@@ -86,6 +96,58 @@ export class DayView {
         location.hash = `#new-entry/${btn.dataset.id}`;
       });
     });
+
+    container.querySelector('#day-sleep-chip')?.addEventListener('click', () => {
+      // Target the entry that already holds the value (editing), or the most
+      // recent entry of the day (setting it for the first time).
+      const target = sleepEntry || entries[0];
+      if (target) this.showSleepModal(target.id, sleepHours);
+    });
+  }
+
+  showSleepModal(entryId, currentHours) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-backdrop';
+    modal.innerHTML = `
+      <div class="modal-sheet">
+        <div class="modal-handle"></div>
+        <div class="modal-title">Hours of sleep</div>
+        <input type="number" class="input" id="sleep-hours-input" min="0" max="24" step="0.5"
+          value="${currentHours ?? ''}" placeholder="e.g. 7.5" style="margin-bottom:16px">
+        <div class="modal-actions">
+          ${currentHours != null ? '<button class="btn btn-ghost" id="sleep-clear">Clear</button>' : ''}
+          <button class="btn btn-secondary" id="sleep-cancel">Cancel</button>
+          <button class="btn btn-primary" id="sleep-save">Save</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    const input = modal.querySelector('#sleep-hours-input');
+    input.focus();
+
+    const cleanup = () => modal.remove();
+    modal.querySelector('#sleep-cancel').addEventListener('click', cleanup);
+    modal.addEventListener('click', e => { if (e.target === modal) cleanup(); });
+
+    const save = async (value) => {
+      const saveBtn = modal.querySelector('#sleep-save');
+      saveBtn.disabled = true;
+      try {
+        await api.put(`/api/entries/${entryId}`, { sleep_hours: value });
+        modal.remove();
+        showToast(value == null ? 'Sleep cleared' : `Sleep saved — ${value}h`, 'success');
+        await this.mount(this.container);
+      } catch {
+        showToast('Could not save — try again', 'error');
+        saveBtn.disabled = false;
+      }
+    };
+
+    modal.querySelector('#sleep-save').addEventListener('click', () => {
+      const raw = input.value.trim();
+      const val = raw === '' ? null : Math.max(0, Math.min(24, parseFloat(raw)));
+      save(Number.isNaN(val) ? null : val);
+    });
+    modal.querySelector('#sleep-clear')?.addEventListener('click', () => save(null));
   }
 
   destroy() {}
@@ -117,7 +179,7 @@ function timelineEntry(entry) {
             <button class="timeline-edit-btn" data-id="${entry.id}" title="Open entry">Edit ✏️</button>
           </div>
         </div>
-        <p class="timeline-summary">${escHtml(bodyText)}</p>
+        <div class="timeline-summary md-content">${renderMarkdown(bodyText)}</div>
       </div>
     </div>`;
 }
