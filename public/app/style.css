@@ -1763,23 +1763,28 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
 }
 .timeline-entry:last-child .timeline-rail::after { display: none; }
 .timeline-body { flex: 1; padding-top: 16px; }
+.timeline-body-header {
+  display: flex; align-items: center; justify-content: flex-end; gap: 6px;
+  min-height: 20px;
+  margin-bottom: 4px;
+}
+.timeline-edit-btn {
+  background: none; border: none; cursor: pointer;
+  font-size: 0.72rem; color: var(--color-text-muted);
+  padding: 2px 6px; border-radius: 6px;
+  opacity: 0.6;
+  transition: opacity 0.15s, background 0.15s;
+}
+.timeline-edit-btn:hover { opacity: 1; background: var(--color-surface-offset); }
 .timeline-summary {
   font-size: 0.9375rem;
-  line-height: 1.5;
+  line-height: 1.6;
   color: var(--color-text);
-  margin: 0 0 6px;
+  margin: 0;
+  white-space: pre-wrap;
 }
-.timeline-meta {
-  display: flex; align-items: center; gap: 8px;
-  flex-wrap: wrap;
-  font-size: 0.75rem;
-  color: var(--color-text-muted);
-}
-.timeline-mood {
-  display: inline-flex; align-items: center; gap: 3px;
-}
-.timeline-themes {
-  display: inline-flex; gap: 4px; flex-wrap: wrap;
+.day-activity-strip {
+  margin-bottom: 4px;
 }
 
 .day-add-cta {

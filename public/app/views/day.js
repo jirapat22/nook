@@ -2,11 +2,9 @@ import { api } from '../app.js';
 import { dayActivityKeys, renderActivityChips } from '../components/activities.js';
 import { assert } from '../report.js';
 
-// DayView — shows all entries for a single calendar day as a vertical timeline.
-// Reached from home day-card tap (#day/YYYY-MM-DD).
 export class DayView {
   constructor(params = []) {
-    this.dateStr = params[0]; // "YYYY-MM-DD"
+    this.dateStr = params[0];
     this.container = null;
   }
 
@@ -27,29 +25,17 @@ export class DayView {
       return;
     }
 
-    // Invariant: a day query must only return entries bucketed to that day —
-    // a mismatch means a timezone bug crept back into date handling.
     assert(
       entries.every(e => String(e.date).split('T')[0] === this.dateStr),
       'day view entries match requested date',
       { requested: this.dateStr, got: entries.map(e => String(e.date).split('T')[0]) }
     );
 
-    // Sort by created_at DESC (latest at top)
     entries.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
     const dayLabel = formatDayLabel(this.dateStr);
-    const todayStr = todayLocal();
-    const isToday = this.dateStr === todayStr;
-
-    // Day at a glance
-    const moodVals = entries.map(e => e.mood_overall).filter(v => v != null);
-    const avgMood = moodVals.length ? Math.round(moodVals.reduce((a, b) => a + b, 0) / moodVals.length * 10) / 10 : null;
-    const themeCount = new Map();
-    for (const e of entries) {
-      for (const t of (e.key_themes || [])) themeCount.set(t, (themeCount.get(t) || 0) + 1);
-    }
-    const topThemes = [...themeCount.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([t]) => t);
+    const isToday = this.dateStr === todayLocal();
+    const activities = dayActivityKeys(entries);
 
     container.innerHTML = `
       <div class="day-view">
@@ -58,15 +44,7 @@ export class DayView {
           <h2 class="day-title">${dayLabel}</h2>
         </div>
 
-        ${entries.length ? `
-        <div class="day-glance card">
-          <div class="day-glance-row">
-            <span class="day-glance-stat"><strong>${entries.length}</strong> ${entries.length === 1 ? 'entry' : 'entries'}</span>
-            ${avgMood != null ? `<span class="day-glance-stat"><span class="mood-dot ${moodClass(avgMood)}"></span> Mood avg <strong>${avgMood}/10</strong></span>` : ''}
-          </div>
-          ${renderActivityChips(dayActivityKeys(entries))}
-          ${topThemes.length ? `<div class="day-glance-themes">${topThemes.map(t => `<span class="chip chip-primary">${escHtml(t)}</span>`).join('')}</div>` : ''}
-        </div>` : ''}
+        ${activities.length ? `<div class="day-activity-strip">${renderActivityChips(activities)}</div>` : ''}
 
         ${entries.length === 0 ? `
           <div class="empty-state" style="padding:40px 0">
@@ -87,9 +65,10 @@ export class DayView {
         </div>` : ''}
       </div>`;
 
-    container.querySelectorAll('.timeline-entry').forEach(el => {
-      el.addEventListener('click', () => {
-        location.hash = `#new-entry/${el.dataset.id}`;
+    container.querySelectorAll('.timeline-edit-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        location.hash = `#new-entry/${btn.dataset.id}`;
       });
     });
   }
@@ -103,22 +82,22 @@ function timelineEntry(entry) {
   const time = entry.created_at
     ? new Date(entry.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
     : (entry.time_of_day || '');
-  const themes = Array.isArray(entry.key_themes) ? entry.key_themes.slice(0, 3) : [];
-  const rawSum = entry.first_person_summary || entry.ai_summary || entry.important_today || entry.content_preview || 'Entry recorded';
-  const summary = rawSum.length > 140 ? rawSum.slice(0, 137) + '…' : rawSum;
+
+  // Show full AI recap if available, otherwise fall back to content preview (no truncation)
+  const bodyText = entry.first_person_summary || entry.ai_summary || entry.important_today || entry.content_preview || 'Entry recorded';
+
   return `
-    <div class="timeline-entry" data-id="${entry.id}">
+    <div class="timeline-entry">
       <div class="timeline-rail">
         <div class="timeline-time">${time}</div>
         <div class="timeline-dot ${mCls}"></div>
       </div>
       <div class="timeline-body">
-        <p class="timeline-summary">${escHtml(summary)}</p>
-        <div class="timeline-meta">
-          ${mood != null ? `<span class="timeline-mood"><span class="mood-dot ${mCls}"></span>${mood}/10</span>` : ''}
-          ${themes.length ? `<div class="timeline-themes">${themes.map(t => `<span class="entry-card-tag">${escHtml(t)}</span>`).join('')}</div>` : ''}
-          ${entry.has_love_life_content ? '<span class="entry-card-love">💕</span>' : ''}
+        <div class="timeline-body-header">
+          ${entry.has_love_life_content ? '<span class="entry-card-love" style="font-size:0.8rem">💕</span>' : ''}
+          <button class="timeline-edit-btn" data-id="${entry.id}" title="Open entry">Edit ✏️</button>
         </div>
+        <p class="timeline-summary">${escHtml(bodyText)}</p>
       </div>
     </div>`;
 }

@@ -11,7 +11,7 @@ export class HomeView {
     const today = todayStr();
 
     const [entries, streakData, onThisDay, settings, pendingActions] = await Promise.all([
-      api.get('/api/entries?limit=10').catch(() => []),
+      api.get('/api/entries?limit=50').catch(() => []),
       api.get(`/api/insights/streaks?today=${today}`).catch(() => ({ current: 0 })),
       api.get(`/api/entries/on-this-day?date=${today}`).catch(() => []),
       api.get('/api/settings').catch(() => ({})),
@@ -207,7 +207,6 @@ function dayCard(dateStr, entries, todayStr) {
       </div>
       ${renderActivityChips(activities)}
       <p class="day-card-snippet">${escHtml(snippet)}</p>
-      ${topThemes.length ? `<div class="day-card-themes">${topThemes.map(t => `<span class="entry-card-tag">${escHtml(t)}</span>`).join('')}</div>` : ''}
     </a>`;
 }
 
