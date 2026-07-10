@@ -25,11 +25,10 @@ export class AiPanel {
         </div>
         <div class="ai-panel-body" id="panel-body">
           ${this.renderSummary(a)}
+          ${this.renderMoodSection(a)}
+          ${this.renderMetaChips(a)}
           ${this.renderImportant(a)}
           ${this.renderActionItems(a)}
-          ${this.renderMoodSection(a)}
-          ${this.renderTagsAndAreas(a)}
-          ${this.renderPeopleMentioned(a)}
         </div>
       </div>
     `;
@@ -89,8 +88,8 @@ export class AiPanel {
       });
     });
 
-    // People pills → navigate to profile
-    container.querySelectorAll('.people-pill[data-name]').forEach(pill => {
+    // People chips → navigate to profile
+    container.querySelectorAll('.chip-person[data-name]').forEach(pill => {
       pill.addEventListener('click', async () => {
         // We'll just link to people list for now; full lookup requires async
         location.hash = '#people';
@@ -201,41 +200,24 @@ export class AiPanel {
       </div>`;
   }
 
-  renderTagsAndAreas(a) {
-    const tags  = a.suggested_tags || [];
-    const areas = a.life_areas     || [];
-    if (!tags.length && !areas.length) return '';
-
-    return `
-      <div>
-        ${areas.length ? `
-          <div class="ai-section-label">Life areas</div>
-          <div class="tags-row mb-8">
-            ${areas.map(area => `<span class="chip chip-primary">${area}</span>`).join('')}
-          </div>` : ''}
-        ${tags.length ? `
-          <div class="ai-section-label">Suggested tags</div>
-          <div class="tags-row">
-            ${tags.map(tag => `<span class="chip chip-btn chip-primary" data-tag="${tag}">${tag} ✓</span>`).join('')}
-          </div>` : ''}
-      </div>`;
-  }
-
-  renderPeopleMentioned(a) {
+  // Life areas, suggested tags, and people mentioned were three separately
+  // labeled sections that all boil down to the same thing — small facts about
+  // the entry. One row, one label, distinguished by icon instead of a header each.
+  renderMetaChips(a) {
+    const tags   = a.suggested_tags || [];
+    const areas  = a.life_areas     || [];
     const people = (a.people_mentioned || []).filter(p => p && p.name);
-    if (!people.length) return '';
+    if (!tags.length && !areas.length && !people.length) return '';
+
     return `
       <div>
-        <div class="ai-section-label">People mentioned</div>
-        <div class="people-mention-list">
+        <div class="ai-section-label">Details</div>
+        <div class="meta-chip-row">
+          ${areas.map(area => `<span class="chip chip-primary">🧭 ${escHtml(area)}</span>`).join('')}
+          ${tags.map(tag => `<span class="chip chip-btn chip-primary" data-tag="${escHtml(tag)}">🏷 ${escHtml(tag)} ✓</span>`).join('')}
           ${people.map(p => {
             const name = String(p.name).trim();
-            const initial = name ? name[0].toUpperCase() : '?';
-            return `
-            <div class="people-pill${p.uncertain ? ' people-pill-uncertain' : ''}" data-name="${escHtml(name)}" title="${escHtml(p.context || '')}">
-              <div class="people-pill-avatar">${escHtml(initial)}</div>
-              <span>${escHtml(name)}${p.uncertain ? ' <span style="opacity:0.6">?</span>' : ''}</span>
-            </div>`;
+            return `<span class="chip chip-person" data-name="${escHtml(name)}" title="${escHtml(p.context || '')}">👤 ${escHtml(name)}${p.uncertain ? ' ?' : ''}</span>`;
           }).join('')}
         </div>
       </div>`;
