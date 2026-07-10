@@ -17,7 +17,7 @@ import { healMissingEntries } from './analyze-helpers.js';
 
 // ── Global state ───────────────────────────────────────────
 export const AppState = {
-  theme: 'warm-earthy',
+  theme: 'light',
   ttsEnabled: true,
   ttsSpeed: 1,
   streakCount: 0,
@@ -169,12 +169,30 @@ export async function speak(text, rate = null) {
 }
 
 // ── Theme ───────────────────────────────────────────────────
+// One brand, two brightness levels. Old installs may still have one of the
+// three retired preset names saved — map those to the closest surviving mode
+// instead of a DB migration.
+const LEGACY_THEME_MAP = { 'warm-earthy': 'light', 'clean-minimal': 'light', 'dark-intimate': 'dark' };
+
 export function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
-  AppState.theme = theme;
-  // Update meta theme-color
-  const themeColors = { 'warm-earthy': '#c8a97e', 'dark-intimate': '#141210', 'clean-minimal': '#f8f8f7' };
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColors[theme] || '#c8a97e');
+  const resolved = LEGACY_THEME_MAP[theme] || (theme === 'dark' ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-theme', resolved);
+  AppState.theme = resolved;
+  const themeColors = { light: '#efe8df', dark: '#1c1722' };
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColors[resolved]);
+}
+
+function themeIconSvg(theme) {
+  return theme === 'dark'
+    // Moon — tap to switch to light
+    ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px">
+        <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+      </svg>`
+    // Sun — tap to switch to dark
+    : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px">
+        <circle cx="12" cy="12" r="5"/>
+        <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+      </svg>`;
 }
 
 // ── Daily reminder ──────────────────────────────────────────
@@ -370,11 +388,8 @@ function renderShell() {
             <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
           </svg>
         </a>
-        <button class="theme-toggle" id="theme-toggle" title="Cycle theme" aria-label="Toggle theme">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px">
-            <circle cx="12" cy="12" r="5"/>
-            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
-          </svg>
+        <button class="theme-toggle" id="theme-toggle" title="Switch to ${AppState.theme === 'dark' ? 'light' : 'dark'}" aria-label="Toggle light/dark">
+          ${themeIconSvg(AppState.theme)}
         </button>
         <a href="#settings" class="top-bar-icon-btn" aria-label="Settings" title="Settings">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px">
@@ -436,12 +451,13 @@ function renderShell() {
     </nav>
   `;
 
-  // Theme toggle cycle
-  const themes = ['warm-earthy', 'dark-intimate', 'clean-minimal'];
+  // Theme toggle — light/dark only now (one brand, two brightness levels)
   document.getElementById('theme-toggle').addEventListener('click', async () => {
-    const idx = themes.indexOf(AppState.theme);
-    const next = themes[(idx + 1) % themes.length];
+    const next = AppState.theme === 'dark' ? 'light' : 'dark';
     applyTheme(next);
+    const btn = document.getElementById('theme-toggle');
+    btn.innerHTML = themeIconSvg(next);
+    btn.title = `Switch to ${next === 'dark' ? 'light' : 'dark'}`;
     try { await api.put('/api/settings/theme', { value: next }); } catch {}
   });
 }

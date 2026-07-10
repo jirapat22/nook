@@ -4,8 +4,8 @@
   "description": "Your personal journal",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f7f4ee",
-  "theme_color": "#c8a97e",
+  "background_color": "#efe8df",
+  "theme_color": "#efe8df",
   "orientation": "portrait-primary",
   "icons": [
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },

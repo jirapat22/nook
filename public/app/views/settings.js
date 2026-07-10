@@ -11,7 +11,9 @@ export class SettingsView {
     let settings = {};
     try { settings = await api.get('/api/settings'); } catch {}
 
-    const theme = settings.theme || 'warm-earthy';
+    // Old installs may have one of the three retired preset names saved.
+    const LEGACY_THEME_MAP = { 'warm-earthy': 'light', 'clean-minimal': 'light', 'dark-intimate': 'dark' };
+    const theme = LEGACY_THEME_MAP[settings.theme] || (settings.theme === 'dark' ? 'dark' : 'light');
     const ttsEnabled = settings.tts_enabled !== false;
     const ttsSpeed = parseFloat(settings.tts_speed) || 1;
     const transcribeLang = (typeof settings.transcribe_language === 'string'
@@ -45,9 +47,8 @@ export class SettingsView {
         <div class="card">
           <div class="form-label mb-8">Theme</div>
           <div class="theme-swatches" id="theme-swatches">
-            ${themeSwatch('warm-earthy',    '#f7f4ee', '#c8843a',  'Warm Earthy',  theme)}
-            ${themeSwatch('dark-intimate',  '#141210', '#d4956a',  'Dark Intimate', theme)}
-            ${themeSwatch('clean-minimal',  '#f8f8f7', '#2d6a4f',  'Clean Minimal', theme)}
+            ${themeSwatch('light', '#efe8df', '#d97d3f', 'Light', theme)}
+            ${themeSwatch('dark',  '#1c1722', '#e8935a', 'Dark',  theme)}
           </div>
         </div>
 

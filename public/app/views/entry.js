@@ -186,6 +186,7 @@ export class EntryView {
     container.innerHTML = `
       <div class="drive-mode">
         <div class="mic-container">
+          <div class="mic-glow" id="mic-glow"></div>
           <!-- Mic / start button -->
           <button class="mic-btn" id="mic-btn" aria-label="Start recording">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -373,6 +374,7 @@ export class EntryView {
   // button without forcing the user to re-record their audio.
   async transcribeAndAnalyze(audioBlob, { micBtn, hint, transcript }) {
     micBtn.classList.add('processing');
+    this.container.querySelector('#mic-glow')?.classList.add('processing');
     transcript.innerHTML = `
       <span class="transcribe-spinner"><span></span><span></span><span></span></span>
       <span style="margin-left:8px">Transcribing your recording…</span>`;
@@ -428,6 +430,7 @@ export class EntryView {
     } finally {
       this._inflightControllers = this._inflightControllers.filter(c => c !== ctl);
       micBtn.classList.remove('processing');
+      this.container.querySelector('#mic-glow')?.classList.remove('processing');
       if (!hint.textContent.startsWith('✓')) {
         hint.textContent = 'Tap mic to record a new one';
       }
@@ -466,6 +469,7 @@ export class EntryView {
       onStart: () => {
         micBtn.classList.add('recording');
         micBtn.setAttribute('aria-label', 'Recording in progress');
+        this.container.querySelector('#mic-glow')?.classList.add('recording');
         hint.textContent = 'Listening… say "stop recording" or tap Stop';
         waveform.classList.remove('hidden');
         recStatus.classList.remove('hidden');
@@ -480,6 +484,7 @@ export class EntryView {
         if (this._destroyed) return; // view navigated away mid-recording
         // Reset UI immediately
         micBtn.classList.remove('recording', 'processing');
+        this.container.querySelector('#mic-glow')?.classList.remove('recording');
         stopBtn.classList.add('hidden');
         waveform.classList.add('hidden');
         recStatus.classList.add('hidden');

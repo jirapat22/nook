@@ -2,80 +2,64 @@
    NOOK — Design System
    ============================================================ */
 
-/* ── Theme tokens ── */
+/* ── Theme tokens ──
+   One identity, not three: ink (dark) and paper (light) are the same brand
+   at different brightness, tied together by --color-primary — the "ember" —
+   which stays warm and lit in both. See .mic-glow for where that's literal. */
 :root,
-[data-theme="warm-earthy"] {
-  --color-bg:             #f7f4ee;
-  --color-surface:        #faf8f3;
-  --color-surface-2:      #fffef9;
-  --color-surface-offset: #f0ebe0;
-  --color-border:         #ddd5c4;
-  --color-border-light:   #ede8dd;
-  --color-text:           #2d2416;
-  --color-text-muted:     #7a6e5e;
-  --color-text-faint:     #b8ad9d;
-  --color-primary:        #c8843a;
-  --color-primary-hover:  #a8682a;
-  --color-primary-light:  #f5e9d8;
-  --color-love:           #d4697a;
-  --color-love-light:     #fae8eb;
-  --color-success:        #5a9e6f;
-  --color-warning:        #c8a03a;
-  --color-danger:         #c85a3a;
-  --shadow-sm:            0 1px 3px rgba(45,36,22,0.08);
-  --shadow-md:            0 4px 12px rgba(45,36,22,0.10);
-  --shadow-lg:            0 8px 24px rgba(45,36,22,0.14);
+[data-theme="light"] {
+  --color-bg:             #efe8df;
+  --color-surface:        #f8f4ee;
+  --color-surface-2:      #fffdfa;
+  --color-surface-offset: #e6ddd0;
+  --color-border:         #d9cebb;
+  --color-border-light:   #e8e0d2;
+  --color-text:           #2a2230;
+  --color-text-muted:     #7c7080;
+  --color-text-faint:     #b3a8b0;
+  --color-primary:        #d97d3f;
+  --color-primary-hover:  #b8632c;
+  --color-primary-light:  #f6e3d1;
+  --color-love:           #c05f72;
+  --color-love-light:     #f8e3e7;
+  --color-success:        #6f8f5f;
+  --color-warning:        #c79a3d;
+  --color-danger:         #c1573f;
+  --shadow-sm:            0 1px 3px rgba(42,34,48,0.08);
+  --shadow-md:            0 4px 12px rgba(42,34,48,0.10);
+  --shadow-lg:            0 8px 24px rgba(42,34,48,0.14);
   --radius-sm:            8px;
   --radius-md:            14px;
   --radius-lg:            20px;
   --radius-xl:            28px;
-  --font-display:         'Lora', Georgia, serif;
-  --font-body:            'Inter', -apple-system, sans-serif;
+  --font-display:         'Fraunces', Georgia, serif;
+  --font-body:            'Hanken Grotesk', -apple-system, sans-serif;
   --nav-height:           64px;
   --top-bar-height:       56px;
   --transition:           200ms ease;
 }
 
-[data-theme="dark-intimate"] {
-  --color-bg:             #141210;
-  --color-surface:        #1c1916;
-  --color-surface-2:      #231f1b;
-  --color-surface-offset: #0f0d0b;
-  --color-border:         #2e2820;
-  --color-border-light:   #261f18;
-  --color-text:           #e8e0d0;
-  --color-text-muted:     #9a8e7e;
-  --color-text-faint:     #5a5048;
-  --color-primary:        #d4956a;
-  --color-primary-hover:  #e8a878;
-  --color-primary-light:  #2e1e10;
-  --color-love:           #c4697a;
-  --color-love-light:     #2a1218;
-  --color-success:        #6aae7f;
+[data-theme="dark"] {
+  --color-bg:             #1c1722;
+  --color-surface:        #241d2b;
+  --color-surface-2:      #2c2433;
+  --color-surface-offset: #16121b;
+  --color-border:         #372d40;
+  --color-border-light:   #2c2433;
+  --color-text:           #f0e8e0;
+  --color-text-muted:     #a89aa8;
+  --color-text-faint:     #6b5f6e;
+  --color-primary:        #e8935a;
+  --color-primary-hover:  #f0a86f;
+  --color-primary-light:  #3a2418;
+  --color-love:           #d17a8f;
+  --color-love-light:     #3a1f28;
+  --color-success:        #85a374;
+  --color-warning:        #d9ac5c;
+  --color-danger:         #d4735a;
   --shadow-sm:            0 1px 3px rgba(0,0,0,0.3);
   --shadow-md:            0 4px 12px rgba(0,0,0,0.4);
   --shadow-lg:            0 8px 24px rgba(0,0,0,0.5);
-}
-
-[data-theme="clean-minimal"] {
-  --color-bg:             #f8f8f7;
-  --color-surface:        #ffffff;
-  --color-surface-2:      #fafafa;
-  --color-surface-offset: #f2f2f0;
-  --color-border:         #e0e0de;
-  --color-border-light:   #ebebea;
-  --color-text:           #1a1a1a;
-  --color-text-muted:     #6a6a6a;
-  --color-text-faint:     #adadad;
-  --color-primary:        #2d6a4f;
-  --color-primary-hover:  #1e4d39;
-  --color-primary-light:  #e8f4ef;
-  --color-love:           #c4687a;
-  --color-love-light:     #fce8ed;
-  --color-success:        #3a8f5a;
-  --shadow-sm:            0 1px 3px rgba(0,0,0,0.06);
-  --shadow-md:            0 4px 12px rgba(0,0,0,0.09);
-  --shadow-lg:            0 8px 24px rgba(0,0,0,0.12);
 }
 
 /* ── Base reset ── */
@@ -560,11 +544,40 @@ p  { line-height: 1.65; }
 /* Drive Mode */
 .drive-mode { padding: 24px 16px; }
 .mic-container {
+  position: relative;
   display: flex; flex-direction: column;
   align-items: center; gap: 20px;
   padding: 24px 0;
 }
+/* Signature moment: a lamp left on for you. Idle, it breathes softly in the
+   brand's ember — an invitation, not a notification. While recording it
+   shifts to match the mic button's own red pulse, echoing "I'm listening"
+   instead of competing with it. */
+.mic-glow {
+  position: absolute;
+  top: 72px; left: 50%;
+  width: 190px; height: 190px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--color-primary) 0%, transparent 68%);
+  filter: blur(18px);
+  pointer-events: none;
+  z-index: 0;
+  animation: lampBreathe 4s ease-in-out infinite;
+  transition: background 0.4s ease;
+}
+.mic-glow.recording {
+  background: radial-gradient(circle, var(--color-danger) 0%, transparent 68%);
+  animation: lampBreatheActive 1.5s ease-in-out infinite;
+}
+.mic-glow.processing { opacity: 0.12; animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .mic-glow { animation: none; opacity: 0.32; }
+  .mic-glow.recording { opacity: 0.5; }
+}
 .mic-btn {
+  position: relative;
+  z-index: 1;
   width: 96px; height: 96px;
   border-radius: 50%;
   background: var(--color-primary);
@@ -2499,7 +2512,9 @@ button.entry-person-chip { cursor: pointer; font-family: inherit; }
 @keyframes spin       { to { transform: rotate(360deg); } }
 /* spinner speed controlled here */
 @keyframes pulse      { 0%,100%{opacity:0.6;transform:scale(1)} 50%{opacity:1;transform:scale(1.1)} }
-@keyframes micPulse   { 0%,100%{box-shadow:0 0 0 0 rgba(200,90,58,0.5)} 50%{box-shadow:0 0 0 20px rgba(200,90,58,0)} }
+@keyframes micPulse   { 0%,100%{box-shadow:0 0 0 0 rgba(193,87,63,0.5)} 50%{box-shadow:0 0 0 20px rgba(193,87,63,0)} }
+@keyframes lampBreathe       { 0%,100%{transform:scale(1);   opacity:0.26} 50%{transform:scale(1.08); opacity:0.42} }
+@keyframes lampBreatheActive { 0%,100%{transform:scale(1);   opacity:0.42} 50%{transform:scale(1.14); opacity:0.62} }
 @keyframes slideUp    { from{transform:translateY(20px);opacity:0} to{transform:translateY(0);opacity:1} }
 @keyframes fadeIn     { from{opacity:0} to{opacity:1} }
 @keyframes toastIn    { from{transform:translateX(-50%) translateY(20px);opacity:0} to{transform:translateX(-50%) translateY(0);opacity:1} }
