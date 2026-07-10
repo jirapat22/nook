@@ -37,6 +37,16 @@ export class DayView {
     const isToday = this.dateStr === todayLocal();
     const activities = dayActivityKeys(entries);
 
+    // Day-level big picture: avg mood + top themes. People stay per-entry —
+    // they're tied to a specific moment, not the whole day.
+    const moodVals = entries.map(e => e.mood_overall).filter(v => v != null);
+    const avgMood = moodVals.length ? Math.round(moodVals.reduce((a, b) => a + b, 0) / moodVals.length * 10) / 10 : null;
+    const themeCount = new Map();
+    for (const e of entries) {
+      for (const t of (e.key_themes || [])) themeCount.set(t, (themeCount.get(t) || 0) + 1);
+    }
+    const topThemes = [...themeCount.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([t]) => t);
+
     container.innerHTML = `
       <div class="day-view">
         <div class="day-header">
@@ -44,7 +54,12 @@ export class DayView {
           <h2 class="day-title">${dayLabel}</h2>
         </div>
 
-        ${activities.length ? `<div class="day-activity-strip">${renderActivityChips(activities)}</div>` : ''}
+        ${entries.length ? `
+        <div class="day-summary-strip">
+          ${avgMood != null ? `<span class="day-summary-mood"><span class="mood-dot ${moodClass(avgMood)}"></span>${avgMood}/10</span>` : ''}
+          ${renderActivityChips(activities)}
+          ${topThemes.length ? `<div class="day-summary-themes">${topThemes.map(t => `<span class="entry-card-tag">${escHtml(t)}</span>`).join('')}</div>` : ''}
+        </div>` : ''}
 
         ${entries.length === 0 ? `
           <div class="empty-state" style="padding:40px 0">
@@ -86,6 +101,8 @@ function timelineEntry(entry) {
   // Show full AI recap if available, otherwise fall back to content preview (no truncation)
   const bodyText = entry.first_person_summary || entry.ai_summary || entry.important_today || entry.content_preview || 'Entry recorded';
 
+  const people = Array.isArray(entry.detected_people) ? entry.detected_people.filter(p => p && p.name) : [];
+
   return `
     <div class="timeline-entry">
       <div class="timeline-rail">
@@ -94,8 +111,11 @@ function timelineEntry(entry) {
       </div>
       <div class="timeline-body">
         <div class="timeline-body-header">
-          ${entry.has_love_life_content ? '<span class="entry-card-love" style="font-size:0.8rem">💕</span>' : ''}
-          <button class="timeline-edit-btn" data-id="${entry.id}" title="Open entry">Edit ✏️</button>
+          ${people.length ? `<div class="timeline-people">${people.map(p => `<span class="timeline-people-chip">👤 ${escHtml(p.name)}</span>`).join('')}</div>` : '<span></span>'}
+          <div class="timeline-body-header-right">
+            ${entry.has_love_life_content ? '<span class="entry-card-love" style="font-size:0.8rem">💕</span>' : ''}
+            <button class="timeline-edit-btn" data-id="${entry.id}" title="Open entry">Edit ✏️</button>
+          </div>
         </div>
         <p class="timeline-summary">${escHtml(bodyText)}</p>
       </div>

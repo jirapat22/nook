@@ -60,7 +60,7 @@ router.get('/', async (req, res) => {
         first_person_summary, ai_summary, key_themes, important_today, action_items, action_items_state,
         LEFT(COALESCE(NULLIF(user_edited_content, ''), NULLIF(cleaned_content, ''), NULLIF(raw_transcript, ''), ''), 400) AS content_preview,
         mood_overall, mood_energy, mood_happiness, mood_anxiety,
-        life_areas, tags, activities, entry_mode, has_love_life_content${rankSelect}
+        life_areas, tags, activities, detected_people, entry_mode, has_love_life_content${rankSelect}
       FROM entries
       ${where}
       ORDER BY ${orderBy}
