@@ -2,6 +2,29 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db/db');
 
+// jsonb array columns must actually get an array — destructuring defaults
+// (`= []`) only cover `undefined`, not an explicit `null` or a stray string/
+// object in the request body. Without this guard, a bad value like
+// `{"tags": null}` stores jsonb `null` instead of `[]`, and every later
+// `jsonb_array_elements_text(tags)` query (tags.js, insights.js) throws for
+// that row and breaks the whole aggregate, not just this entry.
+const asArray = v => Array.isArray(v) ? v : [];
+
+// Manual edit paths (mood-edit modal, sleep chip, or a direct API call) aren't
+// clamped client-side the way an AI response is (routes/ai.js) — enforce the
+// same bounds here so an out-of-range value can never persist.
+const RANGE_FIELDS = {
+  mood_energy: [0, 10], mood_happiness: [0, 10], mood_anxiety: [0, 10],
+  mood_confidence: [0, 10], mood_motivation: [0, 10], mood_social_battery: [0, 10],
+  mood_physical: [0, 10], mood_focus: [0, 10], mood_overall: [0, 10],
+  sleep_hours: [0, 24],
+};
+function clampField(field, value) {
+  const range = RANGE_FIELDS[field];
+  if (!range || typeof value !== 'number' || !isFinite(value)) return value;
+  return Math.min(range[1], Math.max(range[0], value));
+}
+
 // GET /api/entries — list entries with optional filters
 router.get('/', async (req, res) => {
   try {
@@ -157,8 +180,16 @@ router.get('/:id', async (req, res) => {
 // POST /api/entries — create entry
 router.post('/', async (req, res) => {
   try {
+    // Require the client's own local date — defaulting to server UTC here
+    // was the same class of bug fixed for is_backdated below (a day off for
+    // any user not on UTC), it just never surfaced because the frontend
+    // always sends `date` today. Guarding it stops that from becoming a
+    // silent landmine for a future direct API caller.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(req.body.date || '')) {
+      return res.status(400).json({ error: 'date (YYYY-MM-DD) is required', code: 'VALIDATION_ERROR' });
+    }
     const {
-      date = new Date().toISOString().split('T')[0],
+      date,
       time_of_day,
       raw_transcript,
       cleaned_content,
@@ -192,8 +223,14 @@ router.post('/', async (req, res) => {
       sleep_hours,
     } = req.body;
 
-    const today = new Date().toISOString().split('T')[0];
-    const actualIsBackdated = is_backdated || date < today;
+    // The client already computes is_backdated correctly from its own local
+    // date. Previously this was OR'd with a UTC-based re-check that could be
+    // a day ahead/behind the user's actual local date (e.g. evening in a
+    // timezone west of UTC, after UTC has already rolled over) and flip a
+    // same-day entry to "backdated". Only re-derive it here if the client
+    // explicitly sends its local `today` to compare against.
+    const todayLocal = /^\d{4}-\d{2}-\d{2}$/.test(req.body.today || '') ? req.body.today : null;
+    const actualIsBackdated = is_backdated || (todayLocal ? date < todayLocal : false);
 
     const result = await db.query(`
       INSERT INTO entries (
@@ -215,12 +252,16 @@ router.post('/', async (req, res) => {
       ) RETURNING *
     `, [
       date, time_of_day, raw_transcript, cleaned_content, user_edited_content,
-      ai_summary, first_person_summary, JSON.stringify(key_themes), JSON.stringify(action_items), important_today,
-      mood_energy, mood_happiness, mood_anxiety, mood_confidence, mood_motivation,
-      mood_social_battery, mood_physical, mood_focus, mood_overall, mood_source,
-      JSON.stringify(life_areas), JSON.stringify(tags), entry_mode, has_love_life_content,
+      ai_summary, first_person_summary, JSON.stringify(asArray(key_themes)), JSON.stringify(asArray(action_items)), important_today,
+      clampField('mood_energy', mood_energy), clampField('mood_happiness', mood_happiness),
+      clampField('mood_anxiety', mood_anxiety), clampField('mood_confidence', mood_confidence),
+      clampField('mood_motivation', mood_motivation),
+      clampField('mood_social_battery', mood_social_battery), clampField('mood_physical', mood_physical),
+      clampField('mood_focus', mood_focus), clampField('mood_overall', mood_overall), mood_source,
+      JSON.stringify(asArray(life_areas)), JSON.stringify(asArray(tags)), entry_mode, has_love_life_content,
       love_life_raw, love_life_cleaned, love_life_emotion_intensity, love_life_ai_summary,
-      actualIsBackdated, JSON.stringify(detected_people), JSON.stringify(activities), sleep_hours ?? null,
+      actualIsBackdated, JSON.stringify(asArray(detected_people)), JSON.stringify(asArray(activities)),
+      clampField('sleep_hours', sleep_hours) ?? null,
     ]);
 
     const newEntry = result.rows[0];
@@ -255,8 +296,11 @@ router.put('/:id', async (req, res) => {
 
     for (const field of fields) {
       if (req.body[field] !== undefined) {
+        const value = jsonFields.has(field)
+          ? JSON.stringify(asArray(req.body[field]))
+          : clampField(field, req.body[field]);
         updates.push(`${field} = $${idx++}`);
-        params.push(jsonFields.has(field) ? JSON.stringify(req.body[field]) : req.body[field]);
+        params.push(value);
       }
     }
 

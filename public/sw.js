@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nook-v68';
+const CACHE_NAME = 'nook-v69';
 const API_CACHE  = 'nook-api-v1'; // separate cache for GET API responses
 const STATIC_ASSETS = [
   '/',
@@ -27,16 +27,18 @@ const STATIC_ASSETS = [
   '/icons/icon.svg',
 ];
 
-// Install: cache static assets + skip waiting immediately
+// Install: cache static assets. Does NOT auto skipWaiting — that would
+// activate immediately and reload every open tab out from under the user
+// (could wipe an in-progress voice recording). Activation only happens when
+// the page explicitly asks for it via the message handler below, after the
+// user taps "Refresh" on the update banner (see app.js showUpdateBanner).
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(STATIC_ASSETS)).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then(cache => cache.addAll(STATIC_ASSETS))
   );
 });
 
-// Allow the page to trigger skipWaiting so a new SW activates immediately
-// rather than waiting for all tabs to close. Page handles the reload via
-// controllerchange listener in app.js.
+// Page-triggered activation — the only path that should ever fire this.
 self.addEventListener('message', event => {
   if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
 });
@@ -59,9 +61,12 @@ self.addEventListener('fetch', event => {
   // Only handle same-origin requests
   if (url.origin !== self.location.origin) return;
 
-  // API: stale-while-revalidate for GETs, queue-on-fail for mutations
-  // Previously a 503 deploy hiccup would render every view as empty.
-  // Now: serve last cached body, then refresh in background.
+  // API: network-first with cache fallback for GETs, queue-on-fail for
+  // mutations. (Not true stale-while-revalidate — every successful online
+  // GET hits the network first and overwrites the cache; the cache is only
+  // ever served when that fetch actually fails or times out.) Previously a
+  // 503 deploy hiccup would render every view as empty — now it falls back
+  // to the last cached body instead.
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(handleApi(request));
     return;

@@ -178,8 +178,8 @@ export class AiPanel {
         <div class="action-items-list">
           ${items.map(item => `
             <div class="action-item">
-              <input type="checkbox" aria-label="${item}">
-              <span>${item}</span>
+              <input type="checkbox" aria-label="${escHtml(item)}">
+              <span>${escHtml(item)}</span>
             </div>`).join('')}
         </div>
       </div>`;

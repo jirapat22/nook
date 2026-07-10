@@ -212,7 +212,7 @@ export class PeopleView {
         </div>
         <div class="form-group">
           <label class="form-label">Nicknames &amp; aliases</label>
-          <input type="text" class="input" id="person-aliases" value="${(prefill.aliases || []).join(', ')}" placeholder="e.g. Raf, Ella — separate with commas">
+          <input type="text" class="input" id="person-aliases" value="${escHtml((prefill.aliases || []).join(', '))}" placeholder="e.g. Raf, Ella — separate with commas">
           <div id="nickname-suggestions" style="margin-top:6px"></div>
           <div style="font-size:0.75rem;color:var(--color-text-faint);margin-top:4px">Nook will recognise all of these names in your entries</div>
         </div>
@@ -695,7 +695,7 @@ export class PersonView {
         </div>
         <div class="form-group">
           <label class="form-label">Nicknames &amp; aliases</label>
-          <input type="text" class="input" id="edit-aliases" value="${existingAliases.join(', ')}" placeholder="e.g. Raf, Ella — separate with commas">
+          <input type="text" class="input" id="edit-aliases" value="${escHtml(existingAliases.join(', '))}" placeholder="e.g. Raf, Ella — separate with commas">
           <div style="font-size:0.75rem;color:var(--color-text-faint);margin-top:4px">Nook will recognise all of these names in your entries</div>
         </div>
         <div class="form-group">

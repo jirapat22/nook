@@ -120,16 +120,18 @@ router.post('/', async (req, res) => {
 // POST /api/people/dedup — merge duplicate people with the same name (case-insensitive)
 // Keeps the entry with the most mentions (ties broken by earliest created_at).
 router.post('/dedup', async (req, res) => {
+  const client = await db.getClient();
   try {
-    const dupsResult = await db.query(`
+    const dupsResult = await client.query(`
       SELECT LOWER(name) as name_lc, COUNT(*) as cnt
       FROM people
       GROUP BY LOWER(name)
       HAVING COUNT(*) > 1
     `);
     const merged = [];
+    await client.query('BEGIN');
     for (const row of dupsResult.rows) {
-      const group = await db.query(`
+      const group = await client.query(`
         SELECT p.id, p.name, p.aliases, COALESCE(COUNT(pm.id), 0)::int as mentions
         FROM people p
         LEFT JOIN person_mentions pm ON pm.person_id = p.id
@@ -142,22 +144,33 @@ router.post('/dedup', async (req, res) => {
       // previous one (keeper.aliases from the SELECT is never mutated in-place).
       let accumulated = Array.isArray(keeper.aliases) ? [...keeper.aliases] : [];
       for (const dupe of dupes) {
+        // Lock the dupe's people row before moving its mentions — without
+        // this, a concurrent POST /link-mention could insert a new mention
+        // against dupe.id in the gap between the move and the delete below,
+        // and that mention would be silently cascade-deleted with the dupe
+        // row. The lock forces any concurrent FK insert referencing this
+        // row to wait until this transaction commits.
+        await client.query('SELECT id FROM people WHERE id = $1 FOR UPDATE', [dupe.id]);
         // Tell Orbit to archive this node BEFORE we lose the ID
         markPersonDeleted(dupe.id, dupe.name).catch(() => {});
         // Move mentions, merge aliases, delete dupe
-        await db.query('UPDATE person_mentions SET person_id = $1 WHERE person_id = $2', [keeper.id, dupe.id]);
-        const merged = new Set([...accumulated, dupe.name, ...(Array.isArray(dupe.aliases) ? dupe.aliases : [])]);
-        merged.delete(keeper.name);
-        accumulated = [...merged]; // carry forward for next iteration
-        await db.query('UPDATE people SET aliases = $1, updated_at = NOW() WHERE id = $2', [JSON.stringify(accumulated), keeper.id]);
-        await db.query('DELETE FROM people WHERE id = $1', [dupe.id]);
+        await client.query('UPDATE person_mentions SET person_id = $1 WHERE person_id = $2', [keeper.id, dupe.id]);
+        const mergedAliases = new Set([...accumulated, dupe.name, ...(Array.isArray(dupe.aliases) ? dupe.aliases : [])]);
+        mergedAliases.delete(keeper.name);
+        accumulated = [...mergedAliases]; // carry forward for next iteration
+        await client.query('UPDATE people SET aliases = $1, updated_at = NOW() WHERE id = $2', [JSON.stringify(accumulated), keeper.id]);
+        await client.query('DELETE FROM people WHERE id = $1', [dupe.id]);
       }
       merged.push({ kept: keeper.name, removed: dupes.length });
     }
+    await client.query('COMMIT');
     res.json({ ok: true, merged });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('POST /api/people/dedup error:', err);
     res.status(500).json({ error: 'Dedup failed', code: 'DB_ERROR' });
+  } finally {
+    client.release();
   }
 });
 
@@ -239,17 +252,24 @@ router.get('/:id/sentiment-trend', async (req, res) => {
 
 // POST /api/people/:id/merge — merge source person into target
 router.post('/:id/merge', async (req, res) => {
+  const sourceId = req.params.id; // UUID — do NOT parseInt
+  const { target_id } = req.body;
+  if (!target_id) return res.status(400).json({ error: 'target_id is required', code: 'VALIDATION_ERROR' });
+  if (String(sourceId) === String(target_id)) return res.status(400).json({ error: 'Cannot merge a person with themselves', code: 'VALIDATION_ERROR' });
+
+  const client = await db.getClient();
   try {
-    const sourceId = req.params.id; // UUID — do NOT parseInt
-    const { target_id } = req.body;
-    if (!target_id) return res.status(400).json({ error: 'target_id is required', code: 'VALIDATION_ERROR' });
-    if (String(sourceId) === String(target_id)) return res.status(400).json({ error: 'Cannot merge a person with themselves', code: 'VALIDATION_ERROR' });
+    await client.query('BEGIN');
+    // Lock the source row before moving its mentions — same reasoning as
+    // /dedup: without this, a concurrent POST /link-mention could insert a
+    // new mention against sourceId in the gap between the move and the
+    // delete below, and it would be silently cascade-deleted with the
+    // source row.
+    const sourceResult = await client.query('SELECT name, aliases FROM people WHERE id = $1 FOR UPDATE', [sourceId]);
+    if (!sourceResult.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Source person not found', code: 'NOT_FOUND' }); }
 
-    const sourceResult = await db.query('SELECT name, aliases FROM people WHERE id = $1', [sourceId]);
-    if (!sourceResult.rows.length) return res.status(404).json({ error: 'Source person not found', code: 'NOT_FOUND' });
-
-    const targetResult = await db.query('SELECT name, aliases FROM people WHERE id = $1', [target_id]);
-    if (!targetResult.rows.length) return res.status(404).json({ error: 'Target person not found', code: 'NOT_FOUND' });
+    const targetResult = await client.query('SELECT name, aliases FROM people WHERE id = $1', [target_id]);
+    if (!targetResult.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Target person not found', code: 'NOT_FOUND' }); }
 
     const sourceName = sourceResult.rows[0].name;
     const sourceAliases = sourceResult.rows[0].aliases || [];
@@ -262,19 +282,23 @@ router.post('/:id/merge', async (req, res) => {
     const newAliases = [...newAliasSet];
 
     // Move all mentions from source to target
-    await db.query('UPDATE person_mentions SET person_id = $1 WHERE person_id = $2', [target_id, sourceId]);
+    await client.query('UPDATE person_mentions SET person_id = $1 WHERE person_id = $2', [target_id, sourceId]);
 
     // Update target aliases
-    await db.query('UPDATE people SET aliases = $1, updated_at = NOW() WHERE id = $2', [JSON.stringify(newAliases), target_id]);
+    await client.query('UPDATE people SET aliases = $1, updated_at = NOW() WHERE id = $2', [JSON.stringify(newAliases), target_id]);
 
     // Delete source person
-    await db.query('DELETE FROM people WHERE id = $1', [sourceId]);
+    await client.query('DELETE FROM people WHERE id = $1', [sourceId]);
 
-    const updated = await db.query('SELECT * FROM people WHERE id = $1', [target_id]);
+    const updated = await client.query('SELECT * FROM people WHERE id = $1', [target_id]);
+    await client.query('COMMIT');
     res.json({ merged: true, person: updated.rows[0] });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('POST /api/people/:id/merge error:', err);
     res.status(500).json({ error: 'Failed to merge people', code: 'DB_ERROR' });
+  } finally {
+    client.release();
   }
 });
 

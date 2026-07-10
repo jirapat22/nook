@@ -115,7 +115,7 @@ export class InsightsView {
       btn.textContent = 'Generating...';
       try {
         const data = await api.get('/api/insights/weekly-summary');
-        result.innerHTML = `<div class="weekly-summary-text">${data.summary || 'No summary available.'}</div>`;
+        result.innerHTML = `<div class="weekly-summary-text">${data.summary ? escHtml(data.summary) : 'No summary available.'}</div>`;
       } catch {
         showToast('Could not generate summary', 'error');
       }
@@ -209,7 +209,7 @@ export class InsightsView {
           const cls = delta > 0 ? 'positive' : delta < 0 ? 'negative' : '';
           return `
           <div class="insight-card" style="margin-bottom:0;box-shadow:none;border:1px solid var(--color-border-light)">
-            <p>On <strong>${c.area}</strong> days, your mood averages <strong>${c.avg_mood}/10</strong></p>
+            <p>On <strong>${escHtml(c.area)}</strong> days, your mood averages <strong>${c.avg_mood}/10</strong></p>
             ${delta != null ? `<div class="insight-delta ${cls}">${sign}${delta} vs your average</div>` : ''}
           </div>`;
         }).join('')}
@@ -231,10 +231,10 @@ export class InsightsView {
             const sentIcon  = sent > 1 ? '😊' : sent < -1 ? '😟' : '😐';
             return `
               <a href="#person/${p.id}" class="top-person-row">
-                <div class="top-person-avatar${p.photo_url ? ' has-photo' : ''}">${p.photo_url ? `<img src="${p.photo_url}" alt="">` : initials}</div>
+                <div class="top-person-avatar${p.photo_url ? ' has-photo' : ''}">${p.photo_url ? `<img src="${escHtml(p.photo_url)}" alt="">` : initials}</div>
                 <div class="top-person-info">
-                  <div class="top-person-name">${p.name}</div>
-                  <div class="top-person-meta">${p.relationship_type || '—'} · ${p.mention_count} mention${p.mention_count !== 1 ? 's' : ''}</div>
+                  <div class="top-person-name">${escHtml(p.name)}</div>
+                  <div class="top-person-meta">${p.relationship_type ? escHtml(p.relationship_type) : '—'} · ${p.mention_count} mention${p.mention_count !== 1 ? 's' : ''}</div>
                 </div>
                 <div class="top-person-sentiment ${sentClass}">${sentIcon}</div>
               </a>`;
@@ -449,4 +449,8 @@ function formatShortDate(dateStr) {
   // Use local date constructor to avoid UTC off-by-one in UTC+7
   const [y, m, d] = String(dateStr).split('T')[0].split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+function escHtml(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

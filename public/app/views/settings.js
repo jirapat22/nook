@@ -37,7 +37,7 @@ export class SettingsView {
         <div class="card">
           <div class="form-label mb-8">What should Nook call you?</div>
           <div style="display:flex;gap:8px;align-items:center">
-            <input type="text" class="input" id="user-name-input" value="${userName}" placeholder="Your name" maxlength="40" style="flex:1">
+            <input type="text" class="input" id="user-name-input" value="${escHtml(userName)}" placeholder="Your name" maxlength="40" style="flex:1">
             <button class="btn btn-primary btn-sm" id="save-user-name">Save</button>
           </div>
         </div>
@@ -435,8 +435,8 @@ export class SettingsView {
           return;
         }
         tagListEl.innerHTML = `<div class="tag-manage-list">${tags.map(t => `
-          <div class="tag-manage-row" data-tag="${t.tag.replace(/"/g, '&quot;')}">
-            <span class="tag-manage-name">${t.tag}</span>
+          <div class="tag-manage-row" data-tag="${escHtml(t.tag)}">
+            <span class="tag-manage-name">${escHtml(t.tag)}</span>
             <span class="tag-manage-count">${t.count}×</span>
             <button class="btn btn-ghost btn-sm tag-rename-btn">Rename</button>
             <button class="btn btn-ghost btn-sm tag-delete-btn">×</button>

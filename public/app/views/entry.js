@@ -268,6 +268,11 @@ export class EntryView {
     };
 
     micBtn.onclick = () => {
+      // A follow-up question's own mic (renderFollowup) can be live at the
+      // same time this button is still tappable — don't let two
+      // getUserMedia streams + SpeechRecognition instances run at once.
+      if (this._followupRecorder?.isRecording) return;
+
       // Prime TTS on this user-gesture so later speak() calls work on mobile.
       // Mobile browsers refuse to speak unless there's been a recent tap —
       // by the time the AI follow-up comes back (record → transcribe → analyze),
@@ -704,7 +709,7 @@ export class EntryView {
       <div class="followup-section">
         <div class="chat-bubble">
           <span class="bubble-icon">💬</span>
-          <span>${question}</span>
+          <span>${escHtml(question)}</span>
         </div>
         <div class="followup-input-row">
           <input type="text" class="input" id="followup-answer" placeholder="Your answer…" />
@@ -720,6 +725,9 @@ export class EntryView {
 
     micBtn.addEventListener('click', () => {
       if (this._followupRecorder?.isRecording) { this._followupRecorder.stop(); return; }
+      // Same reasoning as the main mic button's guard — don't start a second
+      // concurrent recording if the primary one is somehow still active.
+      if (this.recorder?.isRecording) return;
       micBtn.classList.add('recording');
       micBtn.textContent = '⏹';
       const prevPlaceholder = input.placeholder;
@@ -839,6 +847,7 @@ export class EntryView {
 
     const payload = {
       date,
+      today, // lets the server verify is_backdated against the client's local date, not its own UTC clock
       time_of_day: getTimeOfDay(),
       is_backdated: date < today,
       raw_transcript: rawContent,
@@ -1023,16 +1032,16 @@ export class EntryView {
       modal.innerHTML = `
         <div class="modal-sheet">
           <div class="modal-handle"></div>
-          <div class="modal-title">Which ${mention.name}?</div>
+          <div class="modal-title">Which ${escHtml(mention.name)}?</div>
           <p style="font-size:0.875rem;color:var(--color-text-muted);margin-bottom:16px">
-            "${mention.context || mention.name}" — pick the right person.
+            "${escHtml(mention.context || mention.name)}" — pick the right person.
           </p>
           ${candidates.map(m => `
             <button class="btn btn-secondary" data-id="${m.id}"
               style="width:100%;margin-bottom:8px;text-align:left;display:flex;justify-content:space-between;align-items:center">
               <div>
-                <div><strong>${m.name}</strong></div>
-                ${m.relationship_type ? `<div style="font-size:0.75rem;color:var(--color-text-faint)">${m.relationship_type}${m.mention_count ? ` · ${m.mention_count} mentions` : ''}</div>` : ''}
+                <div><strong>${escHtml(m.name)}</strong></div>
+                ${m.relationship_type ? `<div style="font-size:0.75rem;color:var(--color-text-faint)">${escHtml(m.relationship_type)}${m.mention_count ? ` · ${m.mention_count} mentions` : ''}</div>` : ''}
               </div>
             </button>`).join('')}
           <button class="btn btn-ghost btn-sm" id="repick-cancel" style="width:100%;margin-top:4px">Cancel</button>
@@ -1068,16 +1077,16 @@ export class EntryView {
           <div class="modal-handle"></div>
           <div class="modal-title">Did you mean…?</div>
           <p style="font-size:0.875rem;color:var(--color-text-muted);margin-bottom:16px">
-            You mentioned <strong>${person.name}</strong> — is this one of these people?
+            You mentioned <strong>${escHtml(person.name)}</strong> — is this one of these people?
           </p>
           ${candidates.map(m => `
             <button class="btn btn-secondary" data-id="${m.id}"
               style="width:100%;margin-bottom:8px;text-align:left;display:flex;justify-content:space-between;align-items:center">
-              <strong>${m.name}</strong>
-              ${m.relationship_type ? `<span style="color:var(--color-text-faint);font-size:0.8rem">${m.relationship_type}</span>` : ''}
+              <strong>${escHtml(m.name)}</strong>
+              ${m.relationship_type ? `<span style="color:var(--color-text-faint);font-size:0.8rem">${escHtml(m.relationship_type)}</span>` : ''}
             </button>`).join('')}
           <button class="btn btn-ghost btn-sm" id="dym-new" style="width:100%;margin-top:4px">
-            No — "${person.name}" is someone new
+            No — "${escHtml(person.name)}" is someone new
           </button>
         </div>`;
       document.body.appendChild(modal);
@@ -1110,19 +1119,19 @@ export class EntryView {
       modal.innerHTML = `
         <div class="modal-sheet">
           <div class="modal-handle"></div>
-          <div class="modal-title">Which ${person.name}?</div>
+          <div class="modal-title">Which ${escHtml(person.name)}?</div>
           <p style="font-size:0.875rem;color:var(--color-text-muted);margin-bottom:16px">
-            "${person.context || person.name}" — which person did you mean?
+            "${escHtml(person.context || person.name)}" — which person did you mean?
           </p>
           ${matches.map(m => `
             <button class="btn btn-secondary" data-id="${m.id}"
               style="width:100%;margin-bottom:8px;text-align:left;padding:12px">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-                <strong>${m.name}</strong>
-                ${m.relationship_type ? `<span style="color:var(--color-text-faint);font-size:0.75rem">${m.relationship_type}</span>` : ''}
+                <strong>${escHtml(m.name)}</strong>
+                ${m.relationship_type ? `<span style="color:var(--color-text-faint);font-size:0.75rem">${escHtml(m.relationship_type)}</span>` : ''}
               </div>
               ${m.mention_count ? `<div style="font-size:0.7rem;color:var(--color-text-faint)">${m.mention_count} mention${m.mention_count !== 1 ? 's' : ''}${m.last_mentioned ? ' · last ' + new Date(m.last_mentioned).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}</div>` : ''}
-              ${m.notes ? `<div style="font-size:0.7rem;color:var(--color-text-muted);margin-top:2px;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${m.notes}</div>` : ''}
+              ${m.notes ? `<div style="font-size:0.7rem;color:var(--color-text-muted);margin-top:2px;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(m.notes)}</div>` : ''}
             </button>`).join('')}
           <button class="btn btn-ghost btn-sm" id="ambig-skip" style="width:100%;margin-top:4px">Skip</button>
         </div>`;
@@ -1202,7 +1211,7 @@ export class EntryView {
           </div>
           <div class="form-group">
             <label class="form-label">Notes (optional)</label>
-            <textarea class="textarea" id="confirm-notes" placeholder="${person.facts_extracted?.join(', ') || 'Anything you want to remember...'}" style="min-height:60px"></textarea>
+            <textarea class="textarea" id="confirm-notes" placeholder="${escHtml(person.facts_extracted?.join(', ') || 'Anything you want to remember...')}" style="min-height:60px"></textarea>
           </div>
           <div class="modal-actions">
             <button class="btn btn-ghost btn-sm" id="confirm-skip">${uncertain ? 'Not a person' : 'Skip'}</button>
@@ -1317,7 +1326,7 @@ export class EntryView {
             ${entry.is_backdated ? '<span class="backdated-label">Added after the fact</span>' : ''}
           </div>
 
-          ${entry.ai_summary && !firstPerson && !userEdit ? `<div class="card mb-12"><p class="font-display text-muted" style="font-style:italic">${entry.ai_summary}</p></div>` : ''}
+          ${entry.ai_summary && !firstPerson && !userEdit ? `<div class="card mb-12"><p class="font-display text-muted" style="font-style:italic">${escHtml(entry.ai_summary)}</p></div>` : ''}
 
           <!-- Mood: show Nook's read for you to confirm/correct until you've
                confirmed it once. After that it's hidden (change it via ✏️). -->
@@ -1339,10 +1348,10 @@ export class EntryView {
               <summary>Show what I said (original)</summary>
               ${cleaned && cleaned !== mainContent ? `
                 <div class="ai-section-label" style="margin-top:8px">Cleaned-up version</div>
-                <p class="entry-source-text">${cleaned}</p>` : ''}
+                <p class="entry-source-text">${escHtml(cleaned)}</p>` : ''}
               ${raw && raw !== mainContent && raw !== cleaned ? `
                 <div class="ai-section-label" style="margin-top:8px">Original recording</div>
-                <p class="entry-source-text text-muted" style="font-style:italic">${raw}</p>` : ''}
+                <p class="entry-source-text text-muted" style="font-style:italic">${escHtml(raw)}</p>` : ''}
             </details>` : ''}
 
           ${followups.length ? `
@@ -1350,8 +1359,8 @@ export class EntryView {
               <div class="ai-section-label" style="margin-bottom:8px">Follow-ups today</div>
               ${followups.map(f => `
                 <div class="followup-block">
-                  ${f.question ? `<div class="followup-question">💭 ${f.question}</div>` : ''}
-                  <div class="followup-text">${f.text}</div>
+                  ${f.question ? `<div class="followup-question">💭 ${escHtml(f.question)}</div>` : ''}
+                  <div class="followup-text">${escHtml(f.text)}</div>
                   <div class="followup-time">${f.time_of_day || ''}${f.created_at ? ' · ' + new Date(f.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''}</div>
                 </div>`).join('')}
             </div>` : ''}
@@ -1819,7 +1828,7 @@ export class EntryView {
         <div class="modal-handle"></div>
         <div class="modal-title">Add a follow-up thought</div>
         <p style="font-size:0.875rem;color:var(--color-text-muted);margin-bottom:12px">
-          💭 ${question}
+          💭 ${escHtml(question)}
         </p>
         <textarea class="textarea" id="followup-input" placeholder="Write what comes up…" style="min-height:140px;margin-bottom:12px"></textarea>
         <div class="modal-actions">
@@ -1876,8 +1885,8 @@ export class EntryView {
         </div>
         ${questions.map(q => `
           <div class="reflect-question">
-            <p>${q}</p>
-            <button class="reflect-write-btn" data-q="${q.replace(/"/g, '&quot;')}">→ Write about this</button>
+            <p>${escHtml(q)}</p>
+            <button class="reflect-write-btn" data-q="${escHtml(q)}">→ Write about this</button>
           </div>`).join('')}
       `;
       card.querySelectorAll('.reflect-write-btn').forEach(btn => {

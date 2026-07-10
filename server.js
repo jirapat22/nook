@@ -1,6 +1,5 @@
 require('dotenv').config();
 const express = require('express');
-const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -30,7 +29,11 @@ async function initDB() {
 }
 
 // Middleware
-app.use(cors());
+// No CORS middleware: the frontend is served from this same Express app
+// (express.static below) and every fetch() call uses a relative /api/...
+// path — there's no legitimate cross-origin browser use case. A permissive
+// cors() here was effectively "any website can call this API" whenever
+// APP_PASSWORD is unset, since the browser wouldn't block the request.
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -109,9 +112,18 @@ app.get('/api/reports', async (req, res) => {
   }
 });
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// Health check — Railway (railway.toml) polls this and restarts the service
+// on failure. It used to return "ok" unconditionally, so a broken DB
+// connection or a schema init failure (initDB() below swallows those to
+// keep the process alive) would show as a healthy green check while every
+// /api/* route was actually 500ing. Ping the DB so a real outage surfaces.
+app.get('/health', async (req, res) => {
+  try {
+    await db.query('SELECT 1');
+    res.json({ status: 'ok', db: 'ok', timestamp: new Date().toISOString() });
+  } catch (err) {
+    res.status(503).json({ status: 'error', db: 'unreachable', timestamp: new Date().toISOString() });
+  }
 });
 
 // Settings API (simple CRUD on the settings table)
@@ -285,8 +297,13 @@ app.get('/api/orbit-summary', async (req, res) => {
 // PART 3 — On-demand bulk resync of all Nook people to Orbit.
 // Useful when first connecting, or after a re-deploy with new ORBIT_* env vars.
 app.post('/api/sync-orbit', async (req, res) => {
-  const result = await syncAllPeople();
-  res.json(result);
+  try {
+    const result = await syncAllPeople();
+    res.json(result);
+  } catch (err) {
+    console.error('POST /api/sync-orbit error:', err);
+    res.status(500).json({ error: 'Sync failed', code: 'ORBIT_ERROR' });
+  }
 });
 
 // Mark an array of Orbit external IDs as DONE (archived). Used to clean up

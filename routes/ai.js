@@ -432,6 +432,18 @@ followup_question should be ONE warm, natural follow-up question. Ask one whenev
       ? Math.round(sh * 2) / 2  // nearest half-hour — matches the manual stepper
       : null;
 
+    // Same class of guard as activities/sleep_hours above, for the remaining
+    // free-text array fields: a malformed LLM response (e.g. a string instead
+    // of an array) would otherwise flow straight to the client and, once
+    // saved, break every jsonb_array_elements_text aggregate query for that
+    // entry (routes/tags.js, routes/insights.js) — not just this request.
+    analysis.key_themes = Array.isArray(analysis.key_themes) ? analysis.key_themes.filter(t => typeof t === 'string') : [];
+    analysis.life_areas = Array.isArray(analysis.life_areas) ? analysis.life_areas.filter(t => typeof t === 'string') : [];
+    analysis.suggested_tags = Array.isArray(analysis.suggested_tags) ? analysis.suggested_tags.filter(t => typeof t === 'string') : [];
+    analysis.people_mentioned = Array.isArray(analysis.people_mentioned)
+      ? analysis.people_mentioned.filter(p => p && typeof p === 'object' && typeof p.name === 'string' && p.name.trim())
+      : [];
+
     res.json(analysis);
   } catch (err) {
     console.error('POST /api/ai/analyze error:', err);
