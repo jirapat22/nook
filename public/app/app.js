@@ -54,8 +54,11 @@ async function request(method, path, opts = {}) {
     throw Object.assign(new Error('Unauthorized'), { code: 'UNAUTHORIZED' });
   }
   if (!res.ok) {
-    reportApiError({ method, path, status: res.status });
+    // Parse the body BEFORE reporting so the report can carry the server's
+    // own code/message instead of just a bare status — this was previously
+    // discarded even though the server always sends one.
     const e = await res.json().catch(() => ({}));
+    reportApiError({ method, path, status: res.status, code: e.code, serverError: e.error });
     throw Object.assign(new Error(e.error || `HTTP ${res.status}`), e);
   }
   return res.json();

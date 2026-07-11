@@ -4,7 +4,7 @@
 const ENDPOINT = '/api/reports';
 const OUTBOX_KEY = 'nook_report_outbox';
 const MAX_AUTO_PER_LOAD = 25;       // funnel cap; manual + outbox bypass it
-const APP_VERSION = 'nook-v70';     // keep in step with sw.js CACHE_NAME
+const APP_VERSION = 'nook-v71';     // keep in step with sw.js CACHE_NAME
 
 let autoCount = 0;
 let installed = false;
@@ -96,11 +96,16 @@ export function assert(condition, message, ctx = {}) {
 
 // Called by the api fetch wrapper. Reports server 5xx and write-request network
 // failures only — not GET network blips, not 4xx, not the report endpoint.
-export function reportApiError({ method, path, status, error }) {
+// `code`/`serverError` are whatever the server's JSON error body said (e.g.
+// code: 'AI_ERROR', serverError: 'AI analysis unavailable...') — genuinely
+// more than just a bare status, even though the full internal cause (the
+// actual Groq error) only ever exists in the matching backend-sourced report.
+export function reportApiError({ method, path, status, error, code, serverError }) {
   if (path === ENDPOINT) return;
   const isWrite = /^(POST|PUT|DELETE|PATCH)$/i.test(method || '');
   if (status >= 500) {
-    funnel({ source: 'frontend', message: `API ${status} ${method} ${path}`, context: { kind: 'api', method, path, status } });
+    const codeStr = code ? ` [${code}]` : '';
+    funnel({ source: 'frontend', message: `API ${status} ${method} ${path}${codeStr}`, context: { kind: 'api', method, path, status, code, serverError } });
   } else if (status == null && error && isWrite) {
     funnel({ source: 'frontend', message: `API network fail ${method} ${path}`, stack: String(error), context: { kind: 'api', method, path } });
   }

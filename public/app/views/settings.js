@@ -520,7 +520,7 @@ export class SettingsView {
         reportsList.innerHTML = reports.map(r => {
           const ctx = r.context || {};
           const where = ctx.path || ctx.screen || '';
-          const sub = [ctx.kind, where].filter(Boolean).map(escHtml).join(' · ');
+          const sub = [ctx.kind, ctx.code, where].filter(Boolean).map(escHtml).join(' · ');
           return `
             <div class="report-row">
               <div class="report-row-head">
