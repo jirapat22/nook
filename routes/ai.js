@@ -4,6 +4,7 @@ const multer = require('multer');
 const FormData = require('form-data');
 const fetch = require('node-fetch');
 const db = require('../db/db');
+const { reportHandled } = require('../lib/reports');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -177,6 +178,12 @@ router.post('/transcribe', upload.single('audio'), async (req, res) => {
     res.json({ transcript: data.text });
   } catch (err) {
     console.error('POST /api/ai/transcribe error:', err);
+    // Capture the REAL error (Groq status/message) here — the generic
+    // response body below is what the finish-hook middleware in server.js
+    // would otherwise save as the report's message, which told us nothing
+    // useful across dozens of recurring "AI analysis unavailable" reports.
+    res.locals._reported = true;
+    reportHandled(err, { method: req.method, path: req.originalUrl, groqStatus: err.status });
     res.status(500).json({
       error: 'Transcription service unavailable. Your entry is saved.',
       code: 'SERVER_ERROR',
@@ -447,6 +454,11 @@ followup_question should be ONE warm, natural follow-up question. Ask one whenev
     res.json(analysis);
   } catch (err) {
     console.error('POST /api/ai/analyze error:', err);
+    // Same reasoning as /transcribe above — capture the real Groq
+    // status/message (rate limit, invalid key, malformed JSON, etc.) instead
+    // of letting the generic client-facing message become the report body.
+    res.locals._reported = true;
+    reportHandled(err, { method: req.method, path: req.originalUrl, groqStatus: err.status });
     res.status(500).json({
       error: 'AI analysis unavailable — your entry is saved. We\'ll try again later.',
       code: 'AI_ERROR',
@@ -538,6 +550,8 @@ Return JSON: { "questions": ["q1", "q2"] } — 2 questions max, 1-2 sentences ea
     res.json({ questions: Array.isArray(result.questions) ? result.questions : [] });
   } catch (err) {
     console.error('POST /api/ai/reflect error:', err);
+    res.locals._reported = true;
+    reportHandled(err, { method: req.method, path: req.originalUrl, groqStatus: err.status });
     res.status(500).json({ error: 'Could not generate questions', code: 'AI_ERROR' });
   }
 });

@@ -210,9 +210,12 @@ export class SettingsView {
         <!-- Captured reports (auto errors + manual feedback) -->
         <div class="settings-section-title">🐞 Captured reports</div>
         <div class="card">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px">
             <p class="text-sm text-muted" style="margin:0">Errors and feedback captured by the app. ✓ = forwarded to Orbit.</p>
-            <button class="btn btn-secondary btn-sm" id="reports-refresh">Refresh</button>
+            <div style="display:flex;gap:6px;flex-shrink:0">
+              <button class="btn btn-ghost btn-sm" id="reports-clear">Clear all</button>
+              <button class="btn btn-secondary btn-sm" id="reports-refresh">Refresh</button>
+            </div>
           </div>
           <div id="reports-list"><p class="text-sm text-muted">Loading…</p></div>
         </div>
@@ -534,6 +537,16 @@ export class SettingsView {
       }
     };
     container.querySelector('#reports-refresh').addEventListener('click', loadReports);
+    container.querySelector('#reports-clear').addEventListener('click', async () => {
+      if (!confirm('Clear all captured reports? This just dismisses them from the list — auto-capture keeps running for new issues.')) return;
+      try {
+        await api.delete('/api/reports');
+        showToast('Reports cleared ✓', 'success');
+        loadReports();
+      } catch {
+        showToast('Could not clear reports', 'error');
+      }
+    });
     loadReports();
   }
 

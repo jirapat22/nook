@@ -112,6 +112,21 @@ app.get('/api/reports', async (req, res) => {
   }
 });
 
+// Clear captured reports — either all of them, or a single one via ?id=.
+// For "I've seen this, stop showing it" once you've diagnosed/fixed an
+// issue, not for hiding errors as they happen (auto-capture keeps running).
+app.delete('/api/reports', async (req, res) => {
+  try {
+    const { id } = req.query;
+    const result = id
+      ? await db.query('DELETE FROM reports WHERE id = $1', [id])
+      : await db.query('DELETE FROM reports');
+    res.json({ ok: true, deleted: result.rowCount });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to clear reports', code: 'DB_ERROR' });
+  }
+});
+
 // Health check — Railway (railway.toml) polls this and restarts the service
 // on failure. It used to return "ok" unconditionally, so a broken DB
 // connection or a schema init failure (initDB() below swallows those to
