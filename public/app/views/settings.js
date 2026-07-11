@@ -52,6 +52,23 @@ export class SettingsView {
           </div>
         </div>
 
+        <!-- Notes: ideas to upgrade + bugs found -->
+        <div class="settings-section-title">💡 Ideas &amp; Bugs</div>
+        <div class="card">
+          <p class="text-sm text-muted" style="margin-bottom:10px">
+            Jot down ideas to upgrade Nook or bugs you've spotted. Tick them off when handled.
+          </p>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+            <select class="select input" id="note-type" style="flex:0 0 auto;width:auto">
+              <option value="idea">💡 Idea</option>
+              <option value="bug">🐛 Bug</option>
+            </select>
+            <input type="text" class="input" id="note-input" placeholder="What's on your mind?" maxlength="280" style="flex:1">
+            <button class="btn btn-primary btn-sm" id="note-add">Add</button>
+          </div>
+          <div id="notes-list"></div>
+        </div>
+
         <!-- Voice (Drive Mode) -->
         <div class="settings-section-title">Drive Mode</div>
         <div class="card">
@@ -188,23 +205,6 @@ export class SettingsView {
             </div>
             <button class="btn btn-secondary btn-sm" disabled>Soon</button>
           </div>
-        </div>
-
-        <!-- Notes: ideas to upgrade + bugs found -->
-        <div class="settings-section-title">💡 Ideas &amp; Bugs</div>
-        <div class="card">
-          <p class="text-sm text-muted" style="margin-bottom:10px">
-            Jot down ideas to upgrade Nook or bugs you've spotted. Tick them off when handled.
-          </p>
-          <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
-            <select class="select input" id="note-type" style="flex:0 0 auto;width:auto">
-              <option value="idea">💡 Idea</option>
-              <option value="bug">🐛 Bug</option>
-            </select>
-            <input type="text" class="input" id="note-input" placeholder="What's on your mind?" maxlength="280" style="flex:1">
-            <button class="btn btn-primary btn-sm" id="note-add">Add</button>
-          </div>
-          <div id="notes-list"></div>
         </div>
 
         <!-- Captured reports (auto errors + manual feedback) -->
