@@ -209,6 +209,7 @@ export class PeopleView {
         <div class="form-group">
           <label class="form-label">Full name</label>
           <input type="text" class="input" id="person-name" value="${escHtml(prefill.name || '')}" placeholder="e.g. Rafaella, Mum, Work Alex">
+          <p class="text-xs hidden" id="name-collision-warning" style="color:var(--color-primary);margin-top:4px">You already have someone with this name — add a note below so they don't get mixed up.</p>
         </div>
         <div class="form-group">
           <label class="form-label">Nicknames &amp; aliases</label>
@@ -241,8 +242,9 @@ export class PeopleView {
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">Notes (optional)</label>
+          <label class="form-label" id="person-notes-label">Notes (optional)</label>
           <textarea class="textarea" id="person-notes" placeholder="Anything you want to remember..." style="min-height:80px"></textarea>
+          <p class="text-xs hidden" id="notes-required-error" style="color:var(--color-danger);margin-top:4px">Add a quick note so this person doesn't get confused with your other one of the same name.</p>
         </div>
         <div class="modal-actions">
           <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
@@ -291,6 +293,15 @@ export class PeopleView {
     modal.querySelector('#modal-save').addEventListener('click', async () => {
       const name = modal.querySelector('#person-name').value.trim();
       if (!name) { showToast('Name is required', ''); return; }
+      const notesVal = modal.querySelector('#person-notes').value.trim();
+      const collides = (this.people || []).some(p => p.name.toLowerCase() === name.toLowerCase());
+      const notesErrorEl = modal.querySelector('#notes-required-error');
+      if (collides && !notesVal) {
+        notesErrorEl.classList.remove('hidden');
+        modal.querySelector('#person-notes').focus();
+        return;
+      }
+      notesErrorEl.classList.add('hidden');
       const aliases = modal.querySelector('#person-aliases').value
         .split(',').map(s => s.trim()).filter(s => s.length > 0);
       try {
@@ -298,7 +309,7 @@ export class PeopleView {
           name,
           aliases,
           relationship_type: modal.querySelector('#person-type').value,
-          notes: modal.querySelector('#person-notes').value.trim(),
+          notes: notesVal,
           photo_url: photoDataUrl,
           subgroup: readSubgroup(modal),
           introduced_by_id: modal.querySelector('#person-introduced-by').value || null,
@@ -337,6 +348,24 @@ export class PeopleView {
     nameInput.addEventListener('input', updateSuggestions);
     aliasesInput.addEventListener('input', updateSuggestions);
     updateSuggestions();
+
+    // Warn when the name matches someone already tracked — two different
+    // people sharing a first name (e.g. two separate "Emily"s) is exactly
+    // how a future voice mention can get silently misattached to the wrong
+    // one. A quick note here is what showExactMatchConfirm (entry.js) shows
+    // later to help tell them apart.
+    const collisionWarning = modal.querySelector('#name-collision-warning');
+    const notesLabel = modal.querySelector('#person-notes-label');
+    const notesError = modal.querySelector('#notes-required-error');
+    const checkCollision = () => {
+      const nameLC = nameInput.value.trim().toLowerCase();
+      const collides = !!nameLC && (this.people || []).some(p => p.name.toLowerCase() === nameLC);
+      collisionWarning.classList.toggle('hidden', !collides);
+      notesLabel.textContent = collides ? 'Note — how do you tell them apart?' : 'Notes (optional)';
+      return collides;
+    };
+    nameInput.addEventListener('input', checkCollision);
+    checkCollision();
 
     nameInput.focus();
   }

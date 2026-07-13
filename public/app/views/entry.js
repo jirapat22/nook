@@ -929,6 +929,7 @@ export class EntryView {
       const newPeople = [];
       const ambiguous = [];
       const fuzzy     = [];
+      const exactSingle = []; // { person, match } — confirmed one at a time, not auto-linked
       const autoLinked = []; // { person, chosen, candidates } for post-save undo toast
 
       for (const person of mentioned) {
@@ -942,12 +943,11 @@ export class EntryView {
         });
 
         if (exactMatches.length === 1) {
-          await api.post('/api/people/link-mention', {
-            person_id: exactMatches[0].id, entry_id: entryId,
-            context: person.context, sentiment_score: person.sentiment,
-            facts_extracted: person.facts_extracted || [], emotion_toward: person.emotion_toward,
-            link_method: 'exact',
-          }).catch(() => {});
+          // A same-name match used to auto-link with no confirmation — the
+          // exact bug that let a mention of a brand-new "Emily" silently
+          // attach to a completely different, already-tracked "Emily". Now
+          // always confirmed, same as the fuzzy/ambiguous cases below.
+          exactSingle.push({ person, match: exactMatches[0] });
         } else if (exactMatches.length > 1) {
           // Same name — try context scoring before falling back to a modal
           const scored = exactMatches.map(p => ({ p, s: scoreCandidate(p, person, this.rawContent || '') }))
@@ -980,6 +980,12 @@ export class EntryView {
         }
       }
 
+      // Confirm single exact-name matches one at a time — "same person as
+      // before, or someone new with this name?"
+      for (const { person, match } of exactSingle) {
+        const chosen = await this.showExactMatchConfirm(person, match, entryId);
+        if (chosen === 'new') newPeople.push(person);
+      }
       // Handle exact-same-name ambiguity (when scoring wasn't decisive)
       for (const { person, matches } of ambiguous) {
         await this.showAmbiguousPrompt(person, matches, entryId);
@@ -992,7 +998,7 @@ export class EntryView {
       // Show undo toast for auto-scored picks first (non-blocking), then block on
       // the add-new-people flow so the caller's redirect waits for it to finish.
       if (autoLinked.length) this.showAutoLinkUndoToast(autoLinked, entryId);
-      if (newPeople.length) await this.showPeoplePrompt(newPeople, entryId);
+      if (newPeople.length) await this.showPeoplePrompt(newPeople, entryId, existing);
     } catch (err) { console.warn('People linking error:', err); }
   }
 
@@ -1063,6 +1069,53 @@ export class EntryView {
           }
           resolve();
         });
+      });
+    });
+  }
+
+  // A mentioned name matched exactly one existing person — confirm rather
+  // than silently linking, since two different people can share a first
+  // name (the reported bug: two separate "Emily"s). Shows the existing
+  // person's distinguishing note if they have one, so it's a real decision
+  // and not just re-reading the name back.
+  showExactMatchConfirm(person, match, entryId) {
+    return new Promise(resolve => {
+      document.querySelector('.modal-backdrop')?.remove();
+      const modal = document.createElement('div');
+      modal.className = 'modal-backdrop';
+      modal.innerHTML = `
+        <div class="modal-sheet">
+          <div class="modal-handle"></div>
+          <div class="modal-title">You mentioned ${escHtml(person.name)}</div>
+          ${person.context ? `<p style="font-size:0.875rem;color:var(--color-text-muted);margin-bottom:16px;font-style:italic">"${escHtml(person.context)}"</p>` : ''}
+          <button class="btn btn-secondary" id="exact-link" data-id="${match.id}"
+            style="width:100%;margin-bottom:8px;text-align:left;padding:12px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+              <strong>${escHtml(match.name)}</strong>
+              ${match.relationship_type ? `<span style="color:var(--color-text-faint);font-size:0.75rem">${escHtml(match.relationship_type)}</span>` : ''}
+            </div>
+            ${match.notes ? `<div style="font-size:0.75rem;color:var(--color-text-muted);font-style:italic">${escHtml(match.notes)}</div>` : ''}
+          </button>
+          <button class="btn btn-ghost btn-sm" id="exact-new" style="width:100%;margin-top:4px">
+            + Someone new named ${escHtml(person.name)}
+          </button>
+        </div>`;
+      document.body.appendChild(modal);
+
+      modal.querySelector('#exact-new').addEventListener('click', () => { modal.remove(); resolve('new'); });
+      // Dismissing without choosing must NOT lose the person — fall through
+      // to the "add as new" flow, same reasoning as showDidYouMeanPrompt.
+      modal.addEventListener('click', e => { if (e.target === modal) { modal.remove(); resolve('new'); } });
+
+      modal.querySelector('#exact-link').addEventListener('click', async () => {
+        modal.remove();
+        await api.post('/api/people/link-mention', {
+          person_id: match.id, entry_id: entryId,
+          context: person.context, sentiment_score: person.sentiment,
+          facts_extracted: person.facts_extracted || [], emotion_toward: person.emotion_toward,
+          link_method: 'exact_confirmed',
+        }).catch(() => {});
+        resolve('linked');
       });
     });
   }
@@ -1156,7 +1209,7 @@ export class EntryView {
     });
   }
 
-  showPeoplePrompt(people, entryId) {
+  showPeoplePrompt(people, entryId, existing = []) {
     // Returns a Promise that resolves only once the user has finished deciding
     // (added everyone, or tapped Not now). saveEntry awaits this before its
     // redirect-home timer, so the navigation can't interrupt the add flow.
@@ -1177,7 +1230,7 @@ export class EntryView {
         // Show a single modal per person, prefilled with AI's inferred relationship
         // so the user just confirms or tweaks (instead of silently creating as 'unknown')
         for (const p of people) {
-          await this.showAddPersonConfirm(p, entryId);
+          await this.showAddPersonConfirm(p, entryId, existing);
         }
         resolve();
       });
@@ -1187,7 +1240,7 @@ export class EntryView {
     });
   }
 
-  showAddPersonConfirm(person, entryId) {
+  showAddPersonConfirm(person, entryId, existing = []) {
     return new Promise(resolve => {
       const validRels = ['friend','family','crush','partner','colleague','pet','group','acquaintance','unknown'];
       const inferred = validRels.includes(person.inferred_relationship) ? person.inferred_relationship : 'unknown';
@@ -1195,6 +1248,11 @@ export class EntryView {
       // lead with the question and let the user dismiss it as "not a person".
       const uncertain = person.uncertain === true;
       const safeName = escHtml(person.name);
+      // Same first name as someone already tracked (e.g. two different
+      // "Emily"s) — require a quick distinguishing note so future confirm
+      // prompts (showExactMatchConfirm) have something to tell them apart by,
+      // instead of two identically-blank "Emily" entries.
+      const nameCollision = existing.some(p => p.name.toLowerCase() === person.name.toLowerCase());
       const modal = document.createElement('div');
       modal.className = 'modal-backdrop';
       modal.innerHTML = `
@@ -1203,6 +1261,7 @@ export class EntryView {
           <div class="modal-title">${uncertain ? `Is "${safeName}" a person?` : `Add ${safeName}?`}</div>
           ${uncertain ? `<p style="font-size:0.85rem;color:var(--color-text-muted);margin-bottom:12px">I wasn't sure if this is someone you know or just something you mentioned.</p>` : ''}
           ${person.context ? `<p style="font-size:0.85rem;color:var(--color-text-muted);margin-bottom:12px;font-style:italic">"${escHtml(person.context)}"</p>` : ''}
+          ${nameCollision ? `<p style="font-size:0.85rem;color:var(--color-primary);margin-bottom:12px">You already have a ${safeName} — add a quick note below so they don't get mixed up.</p>` : ''}
           <div class="form-group">
             <label class="form-label">Relationship ${inferred !== 'unknown' ? `<span style="font-size:0.7rem;color:var(--color-primary);font-weight:600">· AI guessed: ${inferred}</span>` : ''}</label>
             <select class="select input" id="confirm-rel">
@@ -1210,8 +1269,9 @@ export class EntryView {
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Notes (optional)</label>
-            <textarea class="textarea" id="confirm-notes" placeholder="${escHtml(person.facts_extracted?.join(', ') || 'Anything you want to remember...')}" style="min-height:60px"></textarea>
+            <label class="form-label">${nameCollision ? 'Note — how do you tell them apart?' : 'Notes (optional)'}</label>
+            <textarea class="textarea" id="confirm-notes" placeholder="${nameCollision ? 'e.g. met at the gym, Sarah\'s friend' : escHtml(person.facts_extracted?.join(', ') || 'Anything you want to remember...')}" style="min-height:60px"></textarea>
+            <p class="text-xs" id="confirm-notes-error" style="color:var(--color-danger);display:none;margin-top:4px">Add a quick note so this ${safeName} doesn't get confused with your other one.</p>
           </div>
           <div class="modal-actions">
             <button class="btn btn-ghost btn-sm" id="confirm-skip">${uncertain ? 'Not a person' : 'Skip'}</button>
@@ -1224,6 +1284,11 @@ export class EntryView {
       modal.querySelector('#confirm-skip').addEventListener('click', cleanup);
       modal.addEventListener('click', e => { if (e.target === modal) cleanup(); });
       modal.querySelector('#confirm-add').addEventListener('click', async () => {
+        if (nameCollision && !modal.querySelector('#confirm-notes').value.trim()) {
+          modal.querySelector('#confirm-notes-error').style.display = '';
+          modal.querySelector('#confirm-notes').focus();
+          return;
+        }
         const rel = modal.querySelector('#confirm-rel').value;
         const notes = modal.querySelector('#confirm-notes').value.trim();
         modal.remove();
