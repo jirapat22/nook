@@ -75,23 +75,30 @@ async function groqChat(apiKey, messages, { temperature = 0.3, max_tokens = 2048
   }
 }
 
-// Resilient analysis: try the primary model, a short backoff retry, then the
-// high-rate-limit fallback model. This survives Groq's free-tier tokens-per-
-// minute throttling (the main reason analyses were failing) so an entry still
-// gets analysed instead of being left blank. max_tokens 4000 is plenty now
-// that cleaned_content is no longer regenerated, and lowers token pressure.
-async function analyzeResilient(apiKey, messages) {
+// Resilient analysis: try the primary model, a short backoff retry, then a
+// leaner request against the fallback model. Confirmed via a real captured
+// error (413 from Groq): llama-3.1-8b-instant caps at 6000 tokens/minute on
+// this tier — a long voice entry plus the full enrichment context (known
+// people, person memory, existing tags, recent entries) plus a 4000-token
+// output reservation adds up past that easily. That's a hard per-request
+// ceiling, not a transient rate limit — retrying the SAME oversized payload
+// against the fallback model fails identically every time, no backoff helps.
+// So fallback steps get the lean message set (messagesLean — same core
+// instructions, enrichment context dropped, content capped) and a smaller
+// max_tokens, trading a bit of personalization/detail for actually completing
+// instead of guaranteed-failing.
+async function analyzeResilient(apiKey, messagesFull, messagesLean) {
   const plan = [
-    { model: PRIMARY_MODEL,  wait: 0 },
-    { model: PRIMARY_MODEL,  wait: 3500 },   // brief backoff for a transient/rate blip
-    { model: FALLBACK_MODEL, wait: 0 },      // high-limit fallback so it completes
-    { model: FALLBACK_MODEL, wait: 2500 },
+    { model: PRIMARY_MODEL,  wait: 0,    messages: messagesFull, max_tokens: 4000 },
+    { model: PRIMARY_MODEL,  wait: 3500, messages: messagesFull, max_tokens: 4000 },   // brief backoff for a transient/rate blip
+    { model: FALLBACK_MODEL, wait: 0,    messages: messagesLean, max_tokens: 2000 },
+    { model: FALLBACK_MODEL, wait: 2500, messages: messagesLean, max_tokens: 1500 },
   ];
   let lastErr;
   for (const step of plan) {
     if (step.wait) await sleep(step.wait);
     try {
-      return await groqChat(apiKey, messages, { max_tokens: 4000, model: step.model });
+      return await groqChat(apiKey, step.messages, { max_tokens: step.max_tokens, model: step.model });
     } catch (err) {
       lastErr = err;
       console.warn(`[analyze] ${step.model} failed (${err.status || '?'}): ${err.message}`);
@@ -376,15 +383,37 @@ For people_mentioned, each item: { "name": string, "context": string, "facts_ext
   - uncertain: set to true ONLY when you genuinely cannot tell whether a name refers to a PERSON or to something else (a place, brand, app, object, or a possibly mis-transcribed word that might be a name). Still include the item, set inferred_relationship to "unknown", and the app will ask the user "Is this a person?". For clear people/pets, set uncertain to false.
   - CRITICAL: If the user explicitly names their pets (e.g. "my cats Yuzu, Shogun, Mocha and Latte"), include EACH named pet as a separate entry in people_mentioned with inferred_relationship="pet". Never skip named pets — they matter just as much as named people.
 missing_fields should list important fields that couldn't be determined.
-followup_question should be ONE warm, natural follow-up question. Ask one whenever the entry leaves something unfinished, vague, or emotionally open — a person or event named without detail ("the thing with Luke"), a feeling mentioned but not explained, or a situation left hanging. Phrase it like a friend gently checking in. Only use null when the entry is genuinely complete and self-contained with nothing worth following up on.${knownPeopleContext}${personMemoryContext}${existingTagsContext}${recentContext}`;
+followup_question should be ONE warm, natural follow-up question. Ask one whenever the entry leaves something unfinished, vague, or emotionally open — a person or event named without detail ("the thing with Luke"), a feeling mentioned but not explained, or a situation left hanging. Phrase it like a friend gently checking in. Only use null when the entry is genuinely complete and self-contained with nothing worth following up on.`;
 
-    const messages = [
+    const enrichment = `${knownPeopleContext}${personMemoryContext}${existingTagsContext}${recentContext}`;
+    const systemPromptFull = systemPrompt + enrichment;
+
+    // Lean path for the fallback model — see analyzeResilient's comment.
+    // Enrichment (known people, memory, tags, recent entries) is dropped
+    // entirely rather than trimmed, since keeping it partial risks the AI
+    // treating it as complete (e.g. missing someone from a truncated known-
+    // people list). Content is hard-capped as a last resort for the rare
+    // very-long entry; ~4 chars/token is a safe-enough estimate here since
+    // going over costs a guaranteed 413, going under just costs a bit of
+    // unused budget.
+    const rawContent = content || context;
+    const FALLBACK_CONTENT_CHAR_CAP = 6000;
+    const leanContent = rawContent.length > FALLBACK_CONTENT_CHAR_CAP
+      ? rawContent.slice(0, FALLBACK_CONTENT_CHAR_CAP) + '\n\n[entry truncated for length in this fallback pass]'
+      : rawContent;
+
+    const messagesFull = [
+      { role: 'system', content: systemPromptFull },
+      ...conversation_history,
+      { role: 'user', content: rawContent },
+    ];
+    const messagesLean = [
       { role: 'system', content: systemPrompt },
       ...conversation_history,
-      { role: 'user', content: content || context },
+      { role: 'user', content: leanContent },
     ];
 
-    const analysis = await analyzeResilient(apiKey, messages);
+    const analysis = await analyzeResilient(apiKey, messagesFull, messagesLean);
 
     // Safeguard for SUB-dimensions only: Llama gravitates to 5 when uncertain, so
     // null out smells-like-default sub-dimension values and mark them uncertain.
