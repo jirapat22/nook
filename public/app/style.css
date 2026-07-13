@@ -2072,10 +2072,33 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
   font-size: 0.7rem;
   color: var(--color-text-faint);
 }
-/* "Nook also spotted" add buttons reuse the chip look but are <button>s */
-button.entry-person-chip { cursor: pointer; font-family: inherit; }
-.spotted-people-block .entry-person-chip { border-style: dashed; }
+/* "Nook also spotted" — pill contains two buttons: add, and dismiss (×) so a
+   wrong/stale spotted name (e.g. its person was deleted) can be cleared
+   without accidentally linking it to an unrelated same-named person. */
+.spotted-chip {
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 5px 6px 5px 10px;
+  background: var(--color-surface-offset);
+  border: 1px dashed var(--color-border-light);
+  border-radius: 999px;
+  font-size: 0.82rem;
+  transition: all 0.15s ease;
+}
+.spotted-chip:hover { border-color: var(--color-primary); }
+.spotted-add-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  cursor: pointer; font-family: inherit; color: var(--color-text);
+}
 .spotted-people-block .entry-person-rel { color: var(--color-primary); font-weight: 600; }
+.spotted-dismiss-btn {
+  cursor: pointer; font-family: inherit;
+  color: var(--color-text-faint);
+  font-size: 0.9rem; line-height: 1;
+  padding: 2px 5px;
+  margin-left: 2px;
+  border-radius: 50%;
+}
+.spotted-dismiss-btn:hover { color: var(--color-danger); background: var(--color-surface); }
 
 /* Subgroup chip on person cards (small pill next to name) */
 .person-subgroup-chip {

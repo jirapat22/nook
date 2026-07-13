@@ -1425,12 +1425,16 @@ export class EntryView {
           ${spottedPeople.length ? `
           <div class="mb-12 spotted-people-block">
             <div class="ai-section-label">Nook also spotted — not added yet</div>
+            <p class="text-xs text-faint mb-8">Not who you meant? Dismiss × instead of adding — tapping "+ add" links to an existing person with that exact name if one exists.</p>
             <div class="entry-people-list">
               ${spottedPeople.map((p, i) => `
-                <button class="entry-person-chip spotted-add-btn" data-idx="${i}" title="Add to your People">
-                  <span class="entry-person-name">${escHtml(p.name)}</span>
-                  <span class="entry-person-rel">+ add</span>
-                </button>`).join('')}
+                <span class="entry-person-chip spotted-chip">
+                  <button class="spotted-add-btn" data-idx="${i}" title="Add to your People">
+                    <span class="entry-person-name">${escHtml(p.name)}</span>
+                    <span class="entry-person-rel">+ add</span>
+                  </button>
+                  <button class="spotted-dismiss-btn" data-idx="${i}" title="Not a match — dismiss">×</button>
+                </span>`).join('')}
             </div>
           </div>` : ''}
 
@@ -1477,6 +1481,27 @@ export class EntryView {
           if (!person) return;
           await this.linkPeopleMentions(this.entryId, [person]);
           await this.mountDetailView(container);
+        });
+      });
+
+      // Dismiss a spotted name without adding it — e.g. it belongs to a
+      // person who's since been deleted, or it's a different person than
+      // whoever else shares that name elsewhere in your People. Removes it
+      // from this entry's detected_people so it stops resurfacing here;
+      // doesn't touch person records or other entries.
+      container.querySelectorAll('.spotted-dismiss-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const person = spottedPeople[parseInt(btn.dataset.idx, 10)];
+          if (!person) return;
+          const nameLC = String(person.name || '').trim().toLowerCase();
+          const updated = (Array.isArray(entry.detected_people) ? entry.detected_people : [])
+            .filter(p => String(p?.name || '').trim().toLowerCase() !== nameLC);
+          try {
+            await api.put(`/api/entries/${this.entryId}`, { detected_people: updated });
+            await this.mountDetailView(container);
+          } catch {
+            showToast('Could not dismiss — try again', 'error');
+          }
         });
       });
 

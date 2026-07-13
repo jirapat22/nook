@@ -213,19 +213,52 @@ router.put('/:id', async (req, res) => {
 
 // DELETE /api/people/:id
 router.delete('/:id', async (req, res) => {
+  const client = await db.getClient();
   try {
-    // Grab the name first so we can mark the Orbit node as archived
-    const before = await db.query('SELECT name FROM people WHERE id = $1', [req.params.id]);
-    const result = await db.query('DELETE FROM people WHERE id = $1 RETURNING id', [req.params.id]);
-    if (!result.rows.length) return res.status(404).json({ error: 'Person not found', code: 'NOT_FOUND' });
+    await client.query('BEGIN');
+    // Lock the row first — same reasoning as /dedup and /merge: without this,
+    // a concurrent POST /link-mention could insert a fresh mention against
+    // this id in the gap before the cascade delete, and it'd be silently
+    // lost along with everything else.
+    const before = await client.query('SELECT name, aliases FROM people WHERE id = $1 FOR UPDATE', [req.params.id]);
+    if (!before.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Person not found', code: 'NOT_FOUND' }); }
+
+    // Entries this person was actually linked to — grab them before the
+    // cascade delete removes the evidence. entries.detected_people is a
+    // denormalized JSONB snapshot from analysis time; deleting the person
+    // row never touched it, so "Emily" kept resurfacing under "Nook also
+    // spotted — not added yet" on every entry she'd been linked to, even
+    // after she was deleted, since that section only checks names linked
+    // *on that entry* (person_mentions), which the cascade had just wiped.
+    const affected = await client.query('SELECT DISTINCT entry_id FROM person_mentions WHERE person_id = $1', [req.params.id]);
+
+    const result = await client.query('DELETE FROM people WHERE id = $1 RETURNING id', [req.params.id]);
+
+    if (affected.rows.length) {
+      const names = new Set([before.rows[0].name, ...(Array.isArray(before.rows[0].aliases) ? before.rows[0].aliases : [])]
+        .map(n => String(n).toLowerCase()));
+      for (const { entry_id } of affected.rows) {
+        const entryRow = await client.query('SELECT detected_people FROM entries WHERE id = $1', [entry_id]);
+        const detected = Array.isArray(entryRow.rows[0]?.detected_people) ? entryRow.rows[0].detected_people : [];
+        const cleaned = detected.filter(p => !names.has(String(p?.name || '').toLowerCase()));
+        if (cleaned.length !== detected.length) {
+          await client.query('UPDATE entries SET detected_people = $1 WHERE id = $2', [JSON.stringify(cleaned), entry_id]);
+        }
+      }
+    }
+
+    await client.query('COMMIT');
 
     // Fire-and-forget archive in Orbit (status: DONE)
     markPersonDeleted(req.params.id, before.rows[0]?.name).catch(() => {});
 
     res.json({ deleted: result.rows[0].id });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('DELETE /api/people/:id error:', err);
     res.status(500).json({ error: 'Failed to delete person', code: 'DB_ERROR' });
+  } finally {
+    client.release();
   }
 });
 
