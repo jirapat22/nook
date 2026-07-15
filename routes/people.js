@@ -436,33 +436,37 @@ router.delete('/mention/:id', async (req, res) => {
   }
 });
 
-// Build a regex that matches any of the given names as whole words
-// (case-insensitive), for both Postgres (~*) and JS use. Postgres \m/\M
-// word-boundary markers only recognise ASCII word characters, so they never
-// anchor around non-Latin scripts (e.g. Thai names) — every neighbouring
-// character looks like a "non-word" character and the match silently finds
-// nothing. Apply \m\M / \b only to ASCII names; match non-ASCII names as
-// plain substrings. Kept as one function so the two engines can never drift
-// out of sync with each other (the candidate scan uses Postgres to filter,
-// then JS to confirm exactly which field/offset matched for the snippet).
+// Build a Postgres regex that matches any of the given names as whole words
+// (case-insensitive). \m/\M word-boundary markers only recognise ASCII word
+// characters, so they never anchor around non-Latin scripts (e.g. Thai
+// names) — every neighbouring character looks like a "non-word" character
+// and the match silently finds nothing. Apply \m\M only to ASCII names;
+// match non-ASCII names as plain substrings.
 function buildNamePattern(names) {
   const escaped = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   const isAscii = n => /^[\x00-\x7F]*$/.test(n);
-  const pgPattern = `(${names.map((n, i) => isAscii(n) ? `\\m${escaped[i]}\\M` : escaped[i]).join('|')})`;
-  const jsPattern = names.map((n, i) => isAscii(n) ? `\\b${escaped[i]}\\b` : escaped[i]).join('|');
-  return { pgPattern, jsRegex: new RegExp(jsPattern, 'i') };
+  return `(${names.map((n, i) => isAscii(n) ? `\\m${escaped[i]}\\M` : escaped[i]).join('|')})`;
 }
 
 // A snippet centered on the actual match, not just the first 200 characters
 // of some other field — the earlier bulk-insert version stored
 // LEFT(COALESCE(...)) regardless of which field matched, so a name that only
 // appeared in raw_transcript could show a completely unrelated
-// first_person_summary preview.
-function snippetAround(text, regex) {
-  const m = regex.exec(text);
-  if (!m) return text.slice(0, 160).trim();
-  const start = Math.max(0, m.index - 70);
-  const end = Math.min(text.length, m.index + m[0].length + 90);
+// first_person_summary preview. This does a plain case-insensitive substring
+// search purely to find *where* to center the snippet — it does not
+// re-decide whether the text counts as a match (Postgres already decided
+// that; see the route below for why re-deciding in a second regex engine is
+// exactly what broke this).
+function snippetAround(text, namesLC) {
+  const lower = text.toLowerCase();
+  let idx = -1, len = 0;
+  for (const n of namesLC) {
+    const i = lower.indexOf(n);
+    if (i !== -1 && (idx === -1 || i < idx)) { idx = i; len = n.length; }
+  }
+  if (idx === -1) return text.slice(0, 160).trim(); // shouldn't happen, but degrade gracefully
+  const start = Math.max(0, idx - 70);
+  const end = Math.min(text.length, idx + len + 90);
   return (start > 0 ? '…' : '') + text.slice(start, end).trim() + (end < text.length ? '…' : '');
 }
 
@@ -481,10 +485,23 @@ router.get('/:id/backfill-candidates', async (req, res) => {
     const names = [person.name, ...(Array.isArray(person.aliases) ? person.aliases : [])].filter(Boolean);
     if (!names.length) return res.json([]);
 
-    const { pgPattern, jsRegex } = buildNamePattern(names);
+    const pgPattern = buildNamePattern(names);
 
+    // Have Postgres itself report which field matched via CASE — it's the
+    // one engine actually deciding candidacy (the WHERE clause below), so
+    // it's the only one that should get a vote. An earlier version of this
+    // route re-checked each row with a separate JS regex "to confirm" and
+    // silently dropped any row where the JS engine's \b word-boundary
+    // didn't happen to agree with Postgres's \m\M — real candidates were
+    // getting thrown away for no reason a user could see (reported: 5
+    // candidates found, only 2 came back).
     const result = await db.query(`
-      SELECT e.id, e.date, e.first_person_summary, e.cleaned_content, e.raw_transcript
+      SELECT e.id, e.date,
+        CASE
+          WHEN e.first_person_summary ~* $1 THEN e.first_person_summary
+          WHEN e.cleaned_content ~* $1 THEN e.cleaned_content
+          WHEN e.raw_transcript ~* $1 THEN e.raw_transcript
+        END as matched_text
       FROM entries e
       WHERE e.created_at >= NOW() - INTERVAL '90 days'
         AND (e.first_person_summary ~* $1 OR e.cleaned_content ~* $1 OR e.raw_transcript ~* $1)
@@ -496,10 +513,10 @@ router.get('/:id/backfill-candidates', async (req, res) => {
       LIMIT 30
     `, [pgPattern, req.params.id]);
 
-    const candidates = result.rows.map(e => {
-      const field = [e.first_person_summary, e.cleaned_content, e.raw_transcript].find(f => f && jsRegex.test(f));
-      return field ? { entry_id: e.id, date: e.date, snippet: snippetAround(field, jsRegex) } : null;
-    }).filter(Boolean); // safety net: drop any row where JS couldn't confirm the match Postgres found
+    const namesLC = names.map(n => n.toLowerCase());
+    const candidates = result.rows
+      .filter(e => e.matched_text) // guards a NULL edge case; the WHERE clause already guarantees a match
+      .map(e => ({ entry_id: e.id, date: e.date, snippet: snippetAround(e.matched_text, namesLC) }));
 
     res.json(candidates);
   } catch (err) {
