@@ -388,16 +388,51 @@ router.put('/mention/:id', async (req, res) => {
 
 // DELETE /api/people/mention/:id — unlink a mention entirely
 router.delete('/mention/:id', async (req, res) => {
+  const client = await db.getClient();
   try {
-    const result = await db.query(
-      `DELETE FROM person_mentions WHERE id = $1 RETURNING id`,
-      [req.params.id]
+    await client.query('BEGIN');
+    const mentionRow = await client.query('SELECT person_id, entry_id FROM person_mentions WHERE id = $1', [req.params.id]);
+    if (!mentionRow.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Mention not found', code: 'NOT_FOUND' }); }
+    const { person_id, entry_id } = mentionRow.rows[0];
+
+    await client.query('DELETE FROM person_mentions WHERE id = $1', [req.params.id]);
+
+    // Same reasoning as DELETE /api/people/:id: entries.detected_people is a
+    // denormalized snapshot the mention delete alone never touches, so
+    // without this the name would resurface under "Nook also spotted" the
+    // next time this entry is opened — exactly the bug this route exists to
+    // let a user fix (unlinking a wrongly-attached mention), just via a
+    // different door. Skip the cleanup if another mention row still links
+    // this same person to this same entry (rare, but possible if they were
+    // mentioned twice) — only strip detected_people once truly unlinked.
+    const stillLinked = await client.query(
+      'SELECT 1 FROM person_mentions WHERE person_id = $1 AND entry_id = $2',
+      [person_id, entry_id]
     );
-    if (!result.rows.length) return res.status(404).json({ error: 'Mention not found', code: 'NOT_FOUND' });
-    res.json({ deleted: result.rows[0].id });
+    if (!stillLinked.rows.length) {
+      const personRow = await client.query('SELECT name, aliases FROM people WHERE id = $1', [person_id]);
+      if (personRow.rows.length) {
+        const names = new Set(
+          [personRow.rows[0].name, ...(Array.isArray(personRow.rows[0].aliases) ? personRow.rows[0].aliases : [])]
+            .map(n => String(n).toLowerCase())
+        );
+        const entryRow = await client.query('SELECT detected_people FROM entries WHERE id = $1', [entry_id]);
+        const detected = Array.isArray(entryRow.rows[0]?.detected_people) ? entryRow.rows[0].detected_people : [];
+        const cleaned = detected.filter(p => !names.has(String(p?.name || '').toLowerCase()));
+        if (cleaned.length !== detected.length) {
+          await client.query('UPDATE entries SET detected_people = $1 WHERE id = $2', [JSON.stringify(cleaned), entry_id]);
+        }
+      }
+    }
+
+    await client.query('COMMIT');
+    res.json({ deleted: req.params.id });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('DELETE /api/people/mention/:id error:', err);
     res.status(500).json({ error: 'Failed to delete mention', code: 'DB_ERROR' });
+  } finally {
+    client.release();
   }
 });
 
