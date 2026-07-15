@@ -305,7 +305,7 @@ export class PeopleView {
       const aliases = modal.querySelector('#person-aliases').value
         .split(',').map(s => s.trim()).filter(s => s.length > 0);
       try {
-        await api.post('/api/people', {
+        const created = await api.post('/api/people', {
           name,
           aliases,
           relationship_type: modal.querySelector('#person-type').value,
@@ -317,6 +317,7 @@ export class PeopleView {
         modal.remove();
         showToast('Person added!', 'success');
         await this.loadPeople();
+        await runBackfillReview(created);
       } catch {
         showToast('Could not add person', 'error');
       }
@@ -523,6 +524,72 @@ export function getNicknamesFor(name) {
   return group ? group.filter(n => n !== firstWord) : [];
 }
 
+// Scans past entries for a just-created person's name/aliases and, if it
+// finds any, shows a review prompt before linking anything. Call this right
+// after POST /api/people succeeds. Exported so both the People page's Add
+// modal and entry.js's showAddPersonConfirm (adding someone from a voice/text
+// entry) share one flow instead of two copies.
+export async function runBackfillReview(person) {
+  let candidates = [];
+  try { candidates = await api.get(`/api/people/${person.id}/backfill-candidates`); } catch { return; }
+  if (!candidates.length) return;
+  await showBackfillReviewPrompt(person, candidates);
+}
+
+function showBackfillReviewPrompt(person, candidates) {
+  return new Promise(resolve => {
+    document.querySelector('.modal-backdrop')?.remove();
+    const modal = document.createElement('div');
+    modal.className = 'modal-backdrop';
+    modal.innerHTML = `
+      <div class="modal-sheet" style="max-height:85vh;overflow-y:auto">
+        <div class="modal-handle"></div>
+        <div class="modal-title">Found ${candidates.length} past mention${candidates.length !== 1 ? 's' : ''} of ${escHtml(person.name)}</div>
+        <p style="font-size:0.85rem;color:var(--color-text-muted);margin-bottom:14px">
+          Only tick the ones that are really about this ${escHtml(person.name)} — a different person with the same name won't be filtered out automatically.
+        </p>
+        <div id="backfill-candidate-list">
+          ${candidates.map((c, i) => `
+            <label class="backfill-candidate-row">
+              <input type="checkbox" class="backfill-candidate-check" data-idx="${i}">
+              <div>
+                <div class="backfill-candidate-date">${formatDate(c.date)}</div>
+                <div class="backfill-candidate-snippet">${escHtml(c.snippet)}</div>
+              </div>
+            </label>`).join('')}
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost btn-sm" id="backfill-skip">Link none</button>
+          <button class="btn btn-primary" id="backfill-confirm-btn">Link selected (<span id="backfill-count">0</span>)</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+
+    const checks = modal.querySelectorAll('.backfill-candidate-check');
+    const countEl = modal.querySelector('#backfill-count');
+    checks.forEach(c => c.addEventListener('change', () => {
+      countEl.textContent = modal.querySelectorAll('.backfill-candidate-check:checked').length;
+    }));
+
+    const cleanup = () => { modal.remove(); resolve(); };
+    modal.querySelector('#backfill-skip').addEventListener('click', cleanup);
+    modal.addEventListener('click', e => { if (e.target === modal) cleanup(); });
+
+    modal.querySelector('#backfill-confirm-btn').addEventListener('click', async () => {
+      const entryIds = [...checks].filter(c => c.checked).map(c => candidates[parseInt(c.dataset.idx, 10)].entry_id);
+      modal.remove();
+      if (!entryIds.length) { resolve(); return; }
+      try {
+        await api.post(`/api/people/${person.id}/backfill-confirm`, { entry_ids: entryIds });
+        showToast(`Linked ${entryIds.length} mention${entryIds.length !== 1 ? 's' : ''} ✓`, 'success');
+      } catch {
+        showToast('Could not link mentions', 'error');
+      }
+      resolve();
+    });
+  });
+}
+
 export class PersonView {
   constructor(params = []) {
     this.personId = params[0];
@@ -615,7 +682,10 @@ export class PersonView {
                   ${i < person.mentions.length - 1 ? '<div class="mention-tail"></div>' : ''}
                 </div>
                 <div class="mention-content">
-                  <div class="mention-date">${formatDate(m.date)}</div>
+                  <div class="mention-date-row">
+                    <div class="mention-date">${formatDate(m.date)}</div>
+                    <button class="mention-unlink-btn" data-id="${m.id}" title="Not about ${escHtml(person.name)}? Unlink">×</button>
+                  </div>
                   <div class="mention-context">${escHtml(m.context || m.entry_preview || '')}</div>
                   ${m.emotion_toward ? `<span class="mention-emotion">${escHtml(m.emotion_toward)}</span>` : ''}
                 </div>
@@ -648,6 +718,21 @@ export class PersonView {
     });
     container.querySelector('#merge-person-btn').addEventListener('click', () => {
       this.showMergeModal(person);
+    });
+
+    // Unlink a single wrong mention (e.g. one that got attached to the wrong
+    // same-named person) without deleting the person or the journal entry.
+    container.querySelectorAll('.mention-unlink-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm(`Unlink this mention from ${person.name}? The journal entry itself is unaffected.`)) return;
+        try {
+          await api.delete(`/api/people/mention/${btn.dataset.id}`);
+          showToast('Mention unlinked', 'success');
+          await this.mount(container);
+        } catch {
+          showToast('Could not unlink', 'error');
+        }
+      });
     });
   }
 

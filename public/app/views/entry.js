@@ -5,7 +5,7 @@ import { LoveLifeSection } from '../components/loveLifeSection.js';
 import { renderMoodFaces, wireMoodFaces } from '../components/moodFaces.js';
 import { analysisToPayload } from '../analyze-helpers.js';
 import { renderMarkdown } from '../markdown.js';
-import { populateSubgroupAndIntroducedBy, readSubgroup, getNicknamesFor } from './people.js';
+import { populateSubgroupAndIntroducedBy, readSubgroup, getNicknamesFor, runBackfillReview } from './people.js';
 
 export class EntryView {
   constructor(params = []) {
@@ -1365,6 +1365,7 @@ export class EntryView {
             link_method: 'new_person',
           });
           showToast(`Added ${name} ✓`, 'success');
+          await runBackfillReview(created);
         } catch {
           showToast(`Couldn't add ${name}`, 'error');
         }

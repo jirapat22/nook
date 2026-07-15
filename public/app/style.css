@@ -1253,8 +1253,32 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
 }
 .mention-tail { flex: 1; width: 2px; background: var(--color-border-light); margin-top: 4px; }
 .mention-content { flex: 1; padding-bottom: 12px; }
-.mention-date { font-size: 0.8125rem; color: var(--color-text-muted); margin-bottom: 4px; }
+.mention-date-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.mention-date { font-size: 0.8125rem; color: var(--color-text-muted); }
+.mention-unlink-btn {
+  background: none; border: none; cursor: pointer;
+  color: var(--color-text-faint);
+  font-size: 0.95rem; line-height: 1;
+  padding: 2px 6px;
+  border-radius: 50%;
+  opacity: 0.6;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+.mention-unlink-btn:hover { opacity: 1; color: var(--color-danger); background: var(--color-surface-offset); }
 .mention-context { font-size: 0.9375rem; line-height: 1.6; }
+
+/* Backfill review — candidates found after adding a person, ticked before
+   anything is actually linked (see runBackfillReview in people.js) */
+.backfill-candidate-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--color-border-light);
+  cursor: pointer;
+}
+.backfill-candidate-row:last-child { border-bottom: none; }
+.backfill-candidate-row input[type="checkbox"] { margin-top: 3px; flex-shrink: 0; }
+.backfill-candidate-date { font-size: 0.75rem; color: var(--color-text-muted); margin-bottom: 2px; }
+.backfill-candidate-snippet { font-size: 0.875rem; line-height: 1.5; color: var(--color-text); }
 .mention-emotion {
   display: inline-block; margin-top: 6px;
   font-size: 0.75rem; padding: 2px 8px;

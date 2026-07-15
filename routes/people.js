@@ -32,14 +32,21 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Person not found', code: 'NOT_FOUND' });
     }
 
+    // COUNT(*) OVER() runs before LIMIT is applied, so every row carries the
+    // TRUE total (not just how many of the 20 came back) — the header count
+    // was previously just missing here (only GET /api/people, the list
+    // route, ever computed it), so it silently showed "0 mentions" while
+    // this same list rendered below it.
     const mentions = await db.query(`
-      SELECT pm.*, e.date, e.ai_summary, LEFT(e.cleaned_content, 200) as entry_preview
+      SELECT pm.*, e.date, e.ai_summary, LEFT(e.cleaned_content, 200) as entry_preview,
+        COUNT(*) OVER() as total_mention_count
       FROM person_mentions pm
       JOIN entries e ON e.id = pm.entry_id
       WHERE pm.person_id = $1
       ORDER BY pm.mentioned_at DESC
       LIMIT 20
     `, [req.params.id]);
+    const mentionCount = mentions.rows[0]?.total_mention_count ?? 0;
 
     // Emotion breakdown
     const emotions = await db.query(`
@@ -79,6 +86,7 @@ router.get('/:id', async (req, res) => {
 
     res.json({
       ...personResult.rows[0],
+      mention_count: mentionCount,
       mentions: mentions.rows,
       emotion_breakdown: emotions.rows,
       all_facts: allFacts,
@@ -106,9 +114,12 @@ router.post('/', async (req, res) => {
     // Fire-and-forget push to Orbit. Don't await — never block the user.
     syncPerson(result.rows[0]).catch(() => {});
 
-    // Backfill: scan the last 90 days of entries for this person's name (and aliases)
-    // so that entries saved before this person existed get linked retroactively.
-    backfillMentions(result.rows[0]).catch(() => {});
+    // Past entries mentioning this name are surfaced via GET
+    // /:id/backfill-candidates (called by the client right after this
+    // returns) and only linked once the user reviews and confirms — see
+    // that route for why. Auto-linking blind on a name match used to run
+    // right here; it silently attached unrelated entries whenever two
+    // different people shared a name.
 
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -390,43 +401,102 @@ router.delete('/mention/:id', async (req, res) => {
   }
 });
 
-// Scan the last 90 days of entries for a newly-added person's name/aliases
-// and create mention links so old entries aren't left unlinked.
-async function backfillMentions(person) {
+// Build a regex that matches any of the given names as whole words
+// (case-insensitive), for both Postgres (~*) and JS use. Postgres \m/\M
+// word-boundary markers only recognise ASCII word characters, so they never
+// anchor around non-Latin scripts (e.g. Thai names) — every neighbouring
+// character looks like a "non-word" character and the match silently finds
+// nothing. Apply \m\M / \b only to ASCII names; match non-ASCII names as
+// plain substrings. Kept as one function so the two engines can never drift
+// out of sync with each other (the candidate scan uses Postgres to filter,
+// then JS to confirm exactly which field/offset matched for the snippet).
+function buildNamePattern(names) {
+  const escaped = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const isAscii = n => /^[\x00-\x7F]*$/.test(n);
+  const pgPattern = `(${names.map((n, i) => isAscii(n) ? `\\m${escaped[i]}\\M` : escaped[i]).join('|')})`;
+  const jsPattern = names.map((n, i) => isAscii(n) ? `\\b${escaped[i]}\\b` : escaped[i]).join('|');
+  return { pgPattern, jsRegex: new RegExp(jsPattern, 'i') };
+}
+
+// A snippet centered on the actual match, not just the first 200 characters
+// of some other field — the earlier bulk-insert version stored
+// LEFT(COALESCE(...)) regardless of which field matched, so a name that only
+// appeared in raw_transcript could show a completely unrelated
+// first_person_summary preview.
+function snippetAround(text, regex) {
+  const m = regex.exec(text);
+  if (!m) return text.slice(0, 160).trim();
+  const start = Math.max(0, m.index - 70);
+  const end = Math.min(text.length, m.index + m[0].length + 90);
+  return (start > 0 ? '…' : '') + text.slice(start, end).trim() + (end < text.length ? '…' : '');
+}
+
+// GET /api/people/:id/backfill-candidates — scan the last 90 days of entries
+// for this person's name/aliases. Read-only, links nothing. Called by the
+// client right after creating a person; the candidates are shown to the user
+// to tick through before anything is actually linked (POST .../backfill-
+// confirm below) — auto-linking on a bare name match used to run
+// unconditionally here and silently attached entries that turned out to be
+// about a different, same-named person.
+router.get('/:id/backfill-candidates', async (req, res) => {
   try {
+    const personResult = await db.query('SELECT name, aliases FROM people WHERE id = $1', [req.params.id]);
+    if (!personResult.rows.length) return res.status(404).json({ error: 'Person not found', code: 'NOT_FOUND' });
+    const person = personResult.rows[0];
     const names = [person.name, ...(Array.isArray(person.aliases) ? person.aliases : [])].filter(Boolean);
-    if (!names.length) return;
+    if (!names.length) return res.json([]);
 
-    // Build a regex that matches any of the names as whole words (case-insensitive).
-    // Postgres \m/\M word-boundary markers only recognise ASCII word characters, so
-    // they never anchor around non-Latin scripts (e.g. Thai names) — every neighbouring
-    // character looks like a "non-word" character and the match silently finds nothing.
-    // Apply \m\M only to ASCII names; match non-ASCII names as plain substrings.
-    const escaped = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    const isAscii = n => /^[\x00-\x7F]*$/.test(n);
-    const pattern = `(${names.map((n, i) => isAscii(n) ? `\\m${escaped[i]}\\M` : escaped[i]).join('|')})`;
+    const { pgPattern, jsRegex } = buildNamePattern(names);
 
-    // Single bulk INSERT: find matching entries not yet linked, insert all at once.
+    const result = await db.query(`
+      SELECT e.id, e.date, e.first_person_summary, e.cleaned_content, e.raw_transcript
+      FROM entries e
+      WHERE e.created_at >= NOW() - INTERVAL '90 days'
+        AND (e.first_person_summary ~* $1 OR e.cleaned_content ~* $1 OR e.raw_transcript ~* $1)
+        AND NOT EXISTS (
+          SELECT 1 FROM person_mentions pm
+          WHERE pm.person_id = $2 AND pm.entry_id = e.id
+        )
+      ORDER BY e.date DESC
+      LIMIT 30
+    `, [pgPattern, req.params.id]);
+
+    const candidates = result.rows.map(e => {
+      const field = [e.first_person_summary, e.cleaned_content, e.raw_transcript].find(f => f && jsRegex.test(f));
+      return field ? { entry_id: e.id, date: e.date, snippet: snippetAround(field, jsRegex) } : null;
+    }).filter(Boolean); // safety net: drop any row where JS couldn't confirm the match Postgres found
+
+    res.json(candidates);
+  } catch (err) {
+    console.error('GET /api/people/:id/backfill-candidates error:', err);
+    res.status(500).json({ error: 'Failed to scan for mentions', code: 'DB_ERROR' });
+  }
+});
+
+// POST /api/people/:id/backfill-confirm — link only the entry_ids the user
+// actually ticked from the candidates list above.
+router.post('/:id/backfill-confirm', async (req, res) => {
+  try {
+    const { entry_ids } = req.body;
+    if (!Array.isArray(entry_ids) || !entry_ids.length) return res.json({ linked: 0 });
     // NULL sentiment_score so AVG() in GET /api/people ignores backfilled rows.
-    // ON CONFLICT guards against a race with an explicit link-mention call landing
-    // for the same person+entry while this backfill is in flight.
-    await db.query(`
+    // ON CONFLICT guards against a race with an explicit link-mention call
+    // landing for the same person+entry in the meantime.
+    const result = await db.query(`
       INSERT INTO person_mentions (person_id, entry_id, context, sentiment_score, facts_extracted, emotion_toward, link_method)
       SELECT $1, e.id,
         LEFT(COALESCE(e.first_person_summary, e.cleaned_content, e.raw_transcript, ''), 200),
         NULL, '[]', null, 'backfill'
       FROM entries e
-      WHERE e.created_at >= NOW() - INTERVAL '90 days'
-        AND (e.first_person_summary ~* $2 OR e.cleaned_content ~* $2 OR e.raw_transcript ~* $2)
-        AND NOT EXISTS (
-          SELECT 1 FROM person_mentions pm
-          WHERE pm.person_id = $1 AND pm.entry_id = e.id
-        )
+      WHERE e.id = ANY($2::uuid[])
       ON CONFLICT (person_id, entry_id) DO NOTHING
-    `, [person.id, pattern]);
+      RETURNING entry_id
+    `, [req.params.id, entry_ids]);
+    res.json({ linked: result.rowCount });
   } catch (err) {
-    console.error('backfillMentions error:', err);
+    console.error('POST /api/people/:id/backfill-confirm error:', err);
+    res.status(500).json({ error: 'Failed to link mentions', code: 'DB_ERROR' });
   }
-}
+});
 
 module.exports = router;
