@@ -3,6 +3,14 @@ const router = express.Router();
 const db = require('../db/db');
 const { syncPerson, markPersonDeleted } = require('../lib/orbit');
 
+// Same guard as routes/entries.js's asArray — aliases is a jsonb array
+// column; a non-array value (e.g. a client sending a bare string) would
+// still JSON.stringify successfully and store malformed JSON there. Every
+// current consumer already defensively checks Array.isArray(), so this was
+// degrading silently rather than crashing, but it's still the same class of
+// gap that route closed for entries.js's array fields.
+const asArray = v => Array.isArray(v) ? v : [];
+
 // GET /api/people
 router.get('/', async (req, res) => {
   try {
@@ -108,7 +116,7 @@ router.post('/', async (req, res) => {
     const result = await db.query(`
       INSERT INTO people (name, relationship_type, notes, profile_data, aliases, photo_url, subgroup, introduced_by_id)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *
-    `, [name, relationship_type, notes, JSON.stringify(profile_data), JSON.stringify(aliases), photo_url || null,
+    `, [name, relationship_type, notes, JSON.stringify(profile_data), JSON.stringify(asArray(aliases)), photo_url || null,
         subgroup || null, introduced_by_id || null]);
 
     // Fire-and-forget push to Orbit. Don't await — never block the user.
@@ -140,6 +148,7 @@ router.post('/dedup', async (req, res) => {
       HAVING COUNT(*) > 1
     `);
     const merged = [];
+    const archivedInOrbit = []; // { id, name } — see note below on when these actually get told to Orbit
     await client.query('BEGIN');
     for (const row of dupsResult.rows) {
       const group = await client.query(`
@@ -162,8 +171,12 @@ router.post('/dedup', async (req, res) => {
         // row. The lock forces any concurrent FK insert referencing this
         // row to wait until this transaction commits.
         await client.query('SELECT id FROM people WHERE id = $1 FOR UPDATE', [dupe.id]);
-        // Tell Orbit to archive this node BEFORE we lose the ID
-        markPersonDeleted(dupe.id, dupe.name).catch(() => {});
+        // Queue the Orbit archive call rather than firing it here — this
+        // whole loop can still ROLLBACK if a later group in the batch fails,
+        // and firing it mid-transaction (as this used to) would leave Orbit
+        // showing a person archived while Postgres rolled the delete back,
+        // silently disagreeing about who's still a real person.
+        archivedInOrbit.push({ id: dupe.id, name: dupe.name });
         // Move mentions, merge aliases, delete dupe
         await client.query('UPDATE person_mentions SET person_id = $1 WHERE person_id = $2', [keeper.id, dupe.id]);
         const mergedAliases = new Set([...accumulated, dupe.name, ...(Array.isArray(dupe.aliases) ? dupe.aliases : [])]);
@@ -175,6 +188,9 @@ router.post('/dedup', async (req, res) => {
       merged.push({ kept: keeper.name, removed: dupes.length });
     }
     await client.query('COMMIT');
+    // Only tell Orbit about archives once the transaction has actually
+    // committed — matches the ordering DELETE /:id already uses.
+    for (const { id, name } of archivedInOrbit) markPersonDeleted(id, name).catch(() => {});
     res.json({ ok: true, merged });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
@@ -197,7 +213,7 @@ router.put('/:id', async (req, res) => {
     if (relationship_type !== undefined) { updates.push(`relationship_type = $${idx++}`); params.push(relationship_type); }
     if (notes !== undefined) { updates.push(`notes = $${idx++}`); params.push(notes); }
     if (profile_data !== undefined) { updates.push(`profile_data = $${idx++}`); params.push(JSON.stringify(profile_data)); }
-    if (aliases !== undefined) { updates.push(`aliases = $${idx++}`); params.push(JSON.stringify(aliases)); }
+    if (aliases !== undefined) { updates.push(`aliases = $${idx++}`); params.push(JSON.stringify(asArray(aliases))); }
     if (photo_url !== undefined) { updates.push(`photo_url = $${idx++}`); params.push(photo_url); }
     if (subgroup !== undefined) { updates.push(`subgroup = $${idx++}`); params.push(subgroup || null); }
     if (introduced_by_id !== undefined) { updates.push(`introduced_by_id = $${idx++}`); params.push(introduced_by_id || null); }
@@ -370,19 +386,56 @@ router.post('/link-mention', async (req, res) => {
 // PUT /api/people/mention/:id — change the person a mention is linked to
 // Used by the "wrong person?" undo flow
 router.put('/mention/:id', async (req, res) => {
+  const client = await db.getClient();
   try {
     const { person_id, link_method } = req.body;
     if (!person_id) return res.status(400).json({ error: 'person_id required', code: 'VALIDATION_ERROR' });
 
-    const result = await db.query(
+    await client.query('BEGIN');
+    // Same class of bug as DELETE /:id and DELETE /mention/:id: repicking who
+    // a mention belongs to un-links the OLD person from this entry just as
+    // surely as those two routes do, and entries.detected_people needs the
+    // same cleanup or the old name resurfaces under "Nook also spotted" —
+    // this route (the "wrong person?" repick) had been missed both times.
+    const before = await client.query('SELECT person_id, entry_id FROM person_mentions WHERE id = $1', [req.params.id]);
+    if (!before.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Mention not found', code: 'NOT_FOUND' }); }
+    const { person_id: oldPersonId, entry_id: entryId } = before.rows[0];
+
+    const result = await client.query(
       `UPDATE person_mentions SET person_id = $1, link_method = COALESCE($2, link_method) WHERE id = $3 RETURNING *`,
       [person_id, link_method, req.params.id]
     );
-    if (!result.rows.length) return res.status(404).json({ error: 'Mention not found', code: 'NOT_FOUND' });
+
+    if (oldPersonId !== person_id) {
+      const stillLinked = await client.query(
+        'SELECT 1 FROM person_mentions WHERE person_id = $1 AND entry_id = $2',
+        [oldPersonId, entryId]
+      );
+      if (!stillLinked.rows.length) {
+        const oldPerson = await client.query('SELECT name, aliases FROM people WHERE id = $1', [oldPersonId]);
+        if (oldPerson.rows.length) {
+          const names = new Set(
+            [oldPerson.rows[0].name, ...(Array.isArray(oldPerson.rows[0].aliases) ? oldPerson.rows[0].aliases : [])]
+              .map(n => String(n).toLowerCase())
+          );
+          const entryRow = await client.query('SELECT detected_people FROM entries WHERE id = $1', [entryId]);
+          const detected = Array.isArray(entryRow.rows[0]?.detected_people) ? entryRow.rows[0].detected_people : [];
+          const cleaned = detected.filter(p => !names.has(String(p?.name || '').toLowerCase()));
+          if (cleaned.length !== detected.length) {
+            await client.query('UPDATE entries SET detected_people = $1 WHERE id = $2', [JSON.stringify(cleaned), entryId]);
+          }
+        }
+      }
+    }
+
+    await client.query('COMMIT');
     res.json(result.rows[0]);
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('PUT /api/people/mention/:id error:', err);
     res.status(500).json({ error: 'Failed to update mention', code: 'DB_ERROR' });
+  } finally {
+    client.release();
   }
 });
 
@@ -456,17 +509,33 @@ function buildNamePattern(names) {
 // search purely to find *where* to center the snippet — it does not
 // re-decide whether the text counts as a match (Postgres already decided
 // that; see the route below for why re-deciding in a second regex engine is
-// exactly what broke this).
+// exactly what broke this). It DOES need to be boundary-aware for ASCII
+// names though (same asymmetry buildNamePattern uses), otherwise a short
+// name like "Al" can anchor the snippet on an incidental substring inside a
+// longer word ("Alright") instead of the standalone occurrence Postgres's
+// \m\M actually matched — showing a confusing, unrelated preview.
 function snippetAround(text, namesLC) {
   const lower = text.toLowerCase();
-  let idx = -1, len = 0;
+  const isWordChar = c => !!c && /[a-z0-9_]/i.test(c);
+  const isAscii = n => /^[\x00-\x7F]*$/.test(n);
+  let bestIdx = -1, bestLen = 0;
   for (const n of namesLC) {
-    const i = lower.indexOf(n);
-    if (i !== -1 && (idx === -1 || i < idx)) { idx = i; len = n.length; }
+    if (!n) continue;
+    const ascii = isAscii(n);
+    let from = 0, found = -1;
+    while (from <= lower.length) {
+      const i = lower.indexOf(n, from);
+      if (i === -1) break;
+      const boundaryOk = !ascii
+        || ((i === 0 || !isWordChar(lower[i - 1])) && (i + n.length >= lower.length || !isWordChar(lower[i + n.length])));
+      if (boundaryOk) { found = i; break; }
+      from = i + 1;
+    }
+    if (found !== -1 && (bestIdx === -1 || found < bestIdx)) { bestIdx = found; bestLen = n.length; }
   }
-  if (idx === -1) return text.slice(0, 160).trim(); // shouldn't happen, but degrade gracefully
-  const start = Math.max(0, idx - 70);
-  const end = Math.min(text.length, idx + len + 90);
+  if (bestIdx === -1) return text.slice(0, 160).trim(); // shouldn't happen, but degrade gracefully
+  const start = Math.max(0, bestIdx - 70);
+  const end = Math.min(text.length, bestIdx + bestLen + 90);
   return (start > 0 ? '…' : '') + text.slice(start, end).trim() + (end < text.length ? '…' : '');
 }
 

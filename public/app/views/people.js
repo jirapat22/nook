@@ -290,19 +290,41 @@ export class PeopleView {
     // Edit modal does this separately to exclude self.
     populateSubgroupAndIntroducedBy(modal, this.people || [], null);
 
+    const nameInput      = modal.querySelector('#person-name');
+    const aliasesInput   = modal.querySelector('#person-aliases');
+    const suggestionsDiv = modal.querySelector('#nickname-suggestions');
+
+    // Warn when the name matches someone already tracked — two different
+    // people sharing a first name (e.g. two separate "Emily"s) is exactly
+    // how a future voice mention can get silently misattached to the wrong
+    // one. A quick note here is what showExactMatchConfirm (entry.js) shows
+    // later to help tell them apart. Single source of truth via nameCollides()
+    // — the save handler below calls this same function rather than
+    // reimplementing the check, so the two can't drift apart.
+    const collisionWarning = modal.querySelector('#name-collision-warning');
+    const notesLabel = modal.querySelector('#person-notes-label');
+    const notesError = modal.querySelector('#notes-required-error');
+    const checkCollision = () => {
+      const collides = nameCollides(this.people || [], nameInput.value);
+      collisionWarning.classList.toggle('hidden', !collides);
+      notesLabel.textContent = collides ? 'Note — how do you tell them apart?' : 'Notes (optional)';
+      return collides;
+    };
+    nameInput.addEventListener('input', checkCollision);
+    checkCollision();
+
     modal.querySelector('#modal-save').addEventListener('click', async () => {
-      const name = modal.querySelector('#person-name').value.trim();
+      const name = nameInput.value.trim();
       if (!name) { showToast('Name is required', ''); return; }
       const notesVal = modal.querySelector('#person-notes').value.trim();
-      const collides = (this.people || []).some(p => p.name.toLowerCase() === name.toLowerCase());
-      const notesErrorEl = modal.querySelector('#notes-required-error');
+      const collides = checkCollision();
       if (collides && !notesVal) {
-        notesErrorEl.classList.remove('hidden');
+        notesError.classList.remove('hidden');
         modal.querySelector('#person-notes').focus();
         return;
       }
-      notesErrorEl.classList.add('hidden');
-      const aliases = modal.querySelector('#person-aliases').value
+      notesError.classList.add('hidden');
+      const aliases = aliasesInput.value
         .split(',').map(s => s.trim()).filter(s => s.length > 0);
       try {
         const created = await api.post('/api/people', {
@@ -324,9 +346,6 @@ export class PeopleView {
     });
 
     // Auto-suggest common nicknames as the user types the name
-    const nameInput      = modal.querySelector('#person-name');
-    const aliasesInput   = modal.querySelector('#person-aliases');
-    const suggestionsDiv = modal.querySelector('#nickname-suggestions');
     const updateSuggestions = () => {
       const name = nameInput.value.trim().toLowerCase();
       const currentAliases = aliasesInput.value.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
@@ -349,24 +368,6 @@ export class PeopleView {
     nameInput.addEventListener('input', updateSuggestions);
     aliasesInput.addEventListener('input', updateSuggestions);
     updateSuggestions();
-
-    // Warn when the name matches someone already tracked — two different
-    // people sharing a first name (e.g. two separate "Emily"s) is exactly
-    // how a future voice mention can get silently misattached to the wrong
-    // one. A quick note here is what showExactMatchConfirm (entry.js) shows
-    // later to help tell them apart.
-    const collisionWarning = modal.querySelector('#name-collision-warning');
-    const notesLabel = modal.querySelector('#person-notes-label');
-    const notesError = modal.querySelector('#notes-required-error');
-    const checkCollision = () => {
-      const nameLC = nameInput.value.trim().toLowerCase();
-      const collides = !!nameLC && (this.people || []).some(p => p.name.toLowerCase() === nameLC);
-      collisionWarning.classList.toggle('hidden', !collides);
-      notesLabel.textContent = collides ? 'Note — how do you tell them apart?' : 'Notes (optional)';
-      return collides;
-    };
-    nameInput.addEventListener('input', checkCollision);
-    checkCollision();
 
     nameInput.focus();
   }
@@ -417,6 +418,18 @@ const NICKNAME_GROUPS = [
   ['gabriella', 'gabby', 'ella', 'gabi'],
   ['isabella', 'isa', 'bella', 'izzy'],
 ];
+
+// Does `name` match an existing person's name (case-insensitive)? Pass
+// excludeId when checking a rename (Edit) so a person doesn't collide with
+// themselves. Single source of truth for the "is this name already taken"
+// check — this used to be reimplemented separately in showAddModal's live
+// warning, showAddModal's save handler, and entry.js's showAddPersonConfirm,
+// and those copies had already started drifting from each other.
+export function nameCollides(existing, name, excludeId = null) {
+  const nameLC = (name || '').trim().toLowerCase();
+  if (!nameLC) return false;
+  return (existing || []).some(p => p.id !== excludeId && p.name.toLowerCase() === nameLC);
+}
 
 // Populate the subgroup datalist + introduced-by dropdown inside a person modal.
 // Pass excludeId to skip the current person (for Edit, can't introduce yourself).
@@ -530,8 +543,16 @@ export function getNicknamesFor(name) {
 // modal and entry.js's showAddPersonConfirm (adding someone from a voice/text
 // entry) share one flow instead of two copies.
 export async function runBackfillReview(person) {
-  let candidates = [];
-  try { candidates = await api.get(`/api/people/${person.id}/backfill-candidates`); } catch { return; }
+  let candidates;
+  try {
+    candidates = await api.get(`/api/people/${person.id}/backfill-candidates`);
+  } catch {
+    // Distinguish "scan failed" from "scan ran, found nothing" — silently
+    // treating a 500/network error as "no candidates" hid real failures
+    // (e.g. the regex-engine-mismatch bug) with no signal the user could act on.
+    showToast(`Added ${person.name}, but couldn't scan past entries for mentions`, 'error');
+    return;
+  }
   if (!candidates.length) return;
   await showBackfillReviewPrompt(person, candidates);
 }
@@ -835,6 +856,7 @@ export class PersonView {
         <div class="form-group">
           <label class="form-label">Full name</label>
           <input type="text" class="input" id="edit-name" value="${escHtml(person.name)}">
+          <p class="text-xs hidden" id="edit-name-collision-warning" style="color:var(--color-primary);margin-top:4px">You already have someone else with this name — add a note below so they don't get mixed up.</p>
         </div>
         <div class="form-group">
           <label class="form-label">Nicknames &amp; aliases</label>
@@ -865,8 +887,9 @@ export class PersonView {
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">Notes</label>
+          <label class="form-label" id="edit-notes-label">Notes</label>
           <textarea class="textarea" id="edit-notes" style="min-height:80px">${escHtml(person.notes || '')}</textarea>
+          <p class="text-xs hidden" id="edit-notes-required-error" style="color:var(--color-danger);margin-top:4px">Add a quick note so this person doesn't get confused with your other one of the same name.</p>
         </div>
         <div class="modal-actions">
           <button class="btn btn-secondary" id="edit-cancel">Cancel</button>
@@ -908,20 +931,42 @@ export class PersonView {
       renderPreview();
     });
 
-    // Load all people to populate the introduced-by dropdown + subgroup datalist.
-    // Fires async — modal opens immediately, dropdowns hydrate a moment later.
+    // Load all people to populate the introduced-by dropdown + subgroup datalist,
+    // and to power the name-collision check below (excluding this person, since
+    // renaming to your own current name isn't a collision).
+    let allPeopleForCollision = [];
+    const nameInput = modal.querySelector('#edit-name');
+    const collisionWarning = modal.querySelector('#edit-name-collision-warning');
+    const notesLabel = modal.querySelector('#edit-notes-label');
+    const notesError = modal.querySelector('#edit-notes-required-error');
+    const checkCollision = () => {
+      const collides = nameCollides(allPeopleForCollision, nameInput.value, person.id);
+      collisionWarning.classList.toggle('hidden', !collides);
+      notesLabel.textContent = collides ? 'Note — how do you tell them apart?' : 'Notes';
+      return collides;
+    };
+    nameInput.addEventListener('input', checkCollision);
     api.get('/api/people').then(all => {
+      allPeopleForCollision = all;
       populateSubgroupAndIntroducedBy(modal, all, person.id, person.subgroup, person.introduced_by_id);
+      checkCollision();
     }).catch(() => {});
 
     modal.querySelector('#edit-save').addEventListener('click', async () => {
+      const notesVal = modal.querySelector('#edit-notes').value.trim();
+      if (checkCollision() && !notesVal) {
+        notesError.classList.remove('hidden');
+        modal.querySelector('#edit-notes').focus();
+        return;
+      }
+      notesError.classList.add('hidden');
       const aliases = modal.querySelector('#edit-aliases').value
         .split(',').map(s => s.trim()).filter(s => s.length > 0);
       const payload = {
-        name: modal.querySelector('#edit-name').value.trim(),
+        name: nameInput.value.trim(),
         aliases,
         relationship_type: modal.querySelector('#edit-type').value,
-        notes: modal.querySelector('#edit-notes').value.trim(),
+        notes: notesVal,
         subgroup: readSubgroup(modal),
         introduced_by_id: modal.querySelector('#edit-introduced-by').value || null,
       };

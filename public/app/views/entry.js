@@ -5,7 +5,7 @@ import { LoveLifeSection } from '../components/loveLifeSection.js';
 import { renderMoodFaces, wireMoodFaces } from '../components/moodFaces.js';
 import { analysisToPayload } from '../analyze-helpers.js';
 import { renderMarkdown } from '../markdown.js';
-import { populateSubgroupAndIntroducedBy, readSubgroup, getNicknamesFor, runBackfillReview } from './people.js';
+import { populateSubgroupAndIntroducedBy, readSubgroup, getNicknamesFor, runBackfillReview, nameCollides } from './people.js';
 
 export class EntryView {
   constructor(params = []) {
@@ -1303,8 +1303,7 @@ export class EntryView {
       const collisionWarning = modal.querySelector('#confirm-name-collision');
       const notesLabel = modal.querySelector('#confirm-notes-label');
       const checkCollision = () => {
-        const nameLC = nameInput.value.trim().toLowerCase();
-        const collides = !!nameLC && existing.some(p => p.name.toLowerCase() === nameLC);
+        const collides = nameCollides(existing, nameInput.value);
         collisionWarning.classList.toggle('hidden', !collides);
         notesLabel.textContent = collides ? 'Note — how do you tell them apart?' : 'Notes (optional)';
         return collides;
@@ -1354,10 +1353,23 @@ export class EntryView {
         const aliases = aliasesInput.value.split(',').map(s => s.trim()).filter(Boolean);
         const subgroup = readSubgroup(modal);
         modal.remove();
+        let created;
         try {
-          const created = await api.post('/api/people', {
+          created = await api.post('/api/people', {
             name, aliases, relationship_type: rel, notes, subgroup,
           });
+          // Mutate the shared `existing` array in place — it's the same
+          // reference threaded through showPeoplePrompt's for-loop, so the
+          // next mention in this entry (e.g. two different new "Emily"s) sees
+          // this person and gets a collision warning instead of silently
+          // creating a second person with the same name.
+          existing.push(created);
+        } catch {
+          showToast(`Couldn't add ${name}`, 'error');
+          resolve();
+          return;
+        }
+        try {
           await api.post('/api/people/link-mention', {
             person_id: created.id, entry_id: entryId,
             context: person.context, sentiment_score: person.sentiment,
@@ -1365,10 +1377,10 @@ export class EntryView {
             link_method: 'new_person',
           });
           showToast(`Added ${name} ✓`, 'success');
-          await runBackfillReview(created);
         } catch {
-          showToast(`Couldn't add ${name}`, 'error');
+          showToast(`Added ${name}, but couldn't link this entry to them`, 'error');
         }
+        await runBackfillReview(created);
         resolve();
       });
     });
