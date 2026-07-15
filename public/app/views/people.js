@@ -700,6 +700,7 @@ export class PersonView {
 
         <div class="entry-detail-actions">
           <button class="btn btn-secondary btn-sm" id="edit-person-btn">Edit</button>
+          <button class="btn btn-secondary btn-sm" id="find-mentions-btn">Find past mentions</button>
           <button class="btn btn-secondary btn-sm" id="merge-person-btn">Merge into…</button>
           <button class="btn btn-danger btn-sm" id="delete-person-btn">Delete</button>
         </div>
@@ -718,6 +719,30 @@ export class PersonView {
     });
     container.querySelector('#merge-person-btn').addEventListener('click', () => {
       this.showMergeModal(person);
+    });
+
+    // Manual trigger for the same scan-then-review flow that runs
+    // automatically right after creating a new person — needed here because
+    // that automatic pass never re-runs for someone who already exists.
+    container.querySelector('#find-mentions-btn').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      btn.textContent = 'Scanning…';
+      try {
+        const candidates = await api.get(`/api/people/${person.id}/backfill-candidates`);
+        if (!candidates.length) {
+          showToast('No new mentions found in the last 90 days', '');
+          btn.disabled = false;
+          btn.textContent = 'Find past mentions';
+          return;
+        }
+        await showBackfillReviewPrompt(person, candidates);
+        await this.mount(container); // refresh mentions list/count with whatever got linked
+      } catch {
+        showToast('Could not scan for mentions', 'error');
+        btn.disabled = false;
+        btn.textContent = 'Find past mentions';
+      }
     });
 
     // Unlink a single wrong mention (e.g. one that got attached to the wrong
