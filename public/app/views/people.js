@@ -419,9 +419,13 @@ const NICKNAME_GROUPS = [
 
 // Populate the subgroup datalist + introduced-by dropdown inside a person modal.
 // Pass excludeId to skip the current person (for Edit, can't introduce yourself).
-function populateSubgroupAndIntroducedBy(modal, allPeople, excludeId, prefillSubgroup, prefillIntroducedById) {
-  const subgroupSelect = modal.querySelector('#person-subgroup-select') || modal.querySelector('#edit-subgroup-select');
-  const subgroupNewInput = modal.querySelector('#person-subgroup-new') || modal.querySelector('#edit-subgroup-new');
+// Recognizes three modal contexts by element id prefix: `person-` (People
+// page Add), `edit-` (People page Edit), `confirm-` (quick-add-from-entry in
+// entry.js). Exported so entry.js's showAddPersonConfirm can reuse this
+// instead of a third copy of the same subgroup-dropdown logic.
+export function populateSubgroupAndIntroducedBy(modal, allPeople, excludeId, prefillSubgroup, prefillIntroducedById) {
+  const subgroupSelect = modal.querySelector('#person-subgroup-select') || modal.querySelector('#edit-subgroup-select') || modal.querySelector('#confirm-subgroup-select');
+  const subgroupNewInput = modal.querySelector('#person-subgroup-new') || modal.querySelector('#edit-subgroup-new') || modal.querySelector('#confirm-subgroup-new');
   const introSelect = modal.querySelector('#person-introduced-by') || modal.querySelector('#edit-introduced-by');
 
   // Unique subgroups across all people, frequency-sorted
@@ -475,11 +479,11 @@ function populateSubgroupAndIntroducedBy(modal, allPeople, excludeId, prefillSub
 
 // Resolve the subgroup value from a modal — either the selected dropdown
 // option or the "new group" text input when __new__ is picked.
-function readSubgroup(modal) {
-  const select = modal.querySelector('#person-subgroup-select') || modal.querySelector('#edit-subgroup-select');
+export function readSubgroup(modal) {
+  const select = modal.querySelector('#person-subgroup-select') || modal.querySelector('#edit-subgroup-select') || modal.querySelector('#confirm-subgroup-select');
   if (!select) return null;
   if (select.value === '__new__') {
-    const input = modal.querySelector('#person-subgroup-new') || modal.querySelector('#edit-subgroup-new');
+    const input = modal.querySelector('#person-subgroup-new') || modal.querySelector('#edit-subgroup-new') || modal.querySelector('#confirm-subgroup-new');
     return (input?.value || '').trim() || null;
   }
   return select.value || null;
@@ -511,7 +515,7 @@ function resizeImageToDataUrl(file, maxSize = 240) {
   });
 }
 
-function getNicknamesFor(name) {
+export function getNicknamesFor(name) {
   if (!name || name.length < 3) return [];
   // Only suggest from the FIRST word (handles "Mike Smith" → still suggests Michael)
   const firstWord = name.split(/\s+/)[0].toLowerCase();

@@ -5,6 +5,7 @@ import { LoveLifeSection } from '../components/loveLifeSection.js';
 import { renderMoodFaces, wireMoodFaces } from '../components/moodFaces.js';
 import { analysisToPayload } from '../analyze-helpers.js';
 import { renderMarkdown } from '../markdown.js';
+import { populateSubgroupAndIntroducedBy, readSubgroup, getNicknamesFor } from './people.js';
 
 export class EntryView {
   constructor(params = []) {
@@ -1248,20 +1249,24 @@ export class EntryView {
       // lead with the question and let the user dismiss it as "not a person".
       const uncertain = person.uncertain === true;
       const safeName = escHtml(person.name);
-      // Same first name as someone already tracked (e.g. two different
-      // "Emily"s) — require a quick distinguishing note so future confirm
-      // prompts (showExactMatchConfirm) have something to tell them apart by,
-      // instead of two identically-blank "Emily" entries.
-      const nameCollision = existing.some(p => p.name.toLowerCase() === person.name.toLowerCase());
       const modal = document.createElement('div');
       modal.className = 'modal-backdrop';
       modal.innerHTML = `
         <div class="modal-sheet">
           <div class="modal-handle"></div>
-          <div class="modal-title">${uncertain ? `Is "${safeName}" a person?` : `Add ${safeName}?`}</div>
+          <div class="modal-title">${uncertain ? 'Is this a person?' : 'Add this person?'}</div>
           ${uncertain ? `<p style="font-size:0.85rem;color:var(--color-text-muted);margin-bottom:12px">I wasn't sure if this is someone you know or just something you mentioned.</p>` : ''}
           ${person.context ? `<p style="font-size:0.85rem;color:var(--color-text-muted);margin-bottom:12px;font-style:italic">"${escHtml(person.context)}"</p>` : ''}
-          ${nameCollision ? `<p style="font-size:0.85rem;color:var(--color-primary);margin-bottom:12px">You already have a ${safeName} — add a quick note below so they don't get mixed up.</p>` : ''}
+          <div class="form-group">
+            <label class="form-label">Name</label>
+            <input type="text" class="input" id="confirm-name" value="${safeName}" placeholder="Full name">
+            <p class="text-xs hidden" id="confirm-name-collision" style="color:var(--color-primary);margin-top:4px">You already have someone with this name — add a note below so they don't get mixed up.</p>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Nicknames &amp; aliases</label>
+            <input type="text" class="input" id="confirm-aliases" placeholder="e.g. Raf, Ella — separate with commas">
+            <div id="confirm-nickname-suggestions" style="margin-top:6px"></div>
+          </div>
           <div class="form-group">
             <label class="form-label">Relationship ${inferred !== 'unknown' ? `<span style="font-size:0.7rem;color:var(--color-primary);font-weight:600">· AI guessed: ${inferred}</span>` : ''}</label>
             <select class="select input" id="confirm-rel">
@@ -1269,34 +1274,89 @@ export class EntryView {
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">${nameCollision ? 'Note — how do you tell them apart?' : 'Notes (optional)'}</label>
-            <textarea class="textarea" id="confirm-notes" placeholder="${nameCollision ? 'e.g. met at the gym, Sarah\'s friend' : escHtml(person.facts_extracted?.join(', ') || 'Anything you want to remember...')}" style="min-height:60px"></textarea>
-            <p class="text-xs" id="confirm-notes-error" style="color:var(--color-danger);display:none;margin-top:4px">Add a quick note so this ${safeName} doesn't get confused with your other one.</p>
+            <label class="form-label">Friend group / circle (optional)</label>
+            <select class="select input" id="confirm-subgroup-select">
+              <option value="">— No group —</option>
+              <option value="__new__">+ Create new group…</option>
+            </select>
+            <input type="text" class="input hidden" id="confirm-subgroup-new"
+              placeholder="Name your new group (e.g. Uni gang)" style="margin-top:6px">
+          </div>
+          <div class="form-group">
+            <label class="form-label" id="confirm-notes-label">Notes (optional)</label>
+            <textarea class="textarea" id="confirm-notes" placeholder="${escHtml(person.facts_extracted?.join(', ') || 'Anything you want to remember...')}" style="min-height:60px"></textarea>
+            <p class="text-xs hidden" id="confirm-notes-error" style="color:var(--color-danger);margin-top:4px">Add a quick note so this person doesn't get confused with your other one of the same name.</p>
           </div>
           <div class="modal-actions">
             <button class="btn btn-ghost btn-sm" id="confirm-skip">${uncertain ? 'Not a person' : 'Skip'}</button>
-            <button class="btn btn-primary" id="confirm-add">${uncertain ? `Yes, add ${safeName}` : `Add ${safeName}`}</button>
+            <button class="btn btn-primary" id="confirm-add">${uncertain ? 'Yes, add' : 'Add'}</button>
           </div>
         </div>`;
       document.body.appendChild(modal);
+
+      populateSubgroupAndIntroducedBy(modal, existing, null);
+
+      // Live name-collision check — same reasoning as people.js's Add modal:
+      // catches it whether the name came from the AI as-is or was hand-edited
+      // just now, not just the value it started with.
+      const nameInput = modal.querySelector('#confirm-name');
+      const collisionWarning = modal.querySelector('#confirm-name-collision');
+      const notesLabel = modal.querySelector('#confirm-notes-label');
+      const checkCollision = () => {
+        const nameLC = nameInput.value.trim().toLowerCase();
+        const collides = !!nameLC && existing.some(p => p.name.toLowerCase() === nameLC);
+        collisionWarning.classList.toggle('hidden', !collides);
+        notesLabel.textContent = collides ? 'Note — how do you tell them apart?' : 'Notes (optional)';
+        return collides;
+      };
+      nameInput.addEventListener('input', checkCollision);
+      checkCollision();
+
+      // Auto-suggest common nicknames as the user types/edits the name
+      const aliasesInput = modal.querySelector('#confirm-aliases');
+      const suggestionsDiv = modal.querySelector('#confirm-nickname-suggestions');
+      const updateSuggestions = () => {
+        const name = nameInput.value.trim().toLowerCase();
+        const currentAliases = aliasesInput.value.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+        const suggestions = getNicknamesFor(name).filter(n => !currentAliases.includes(n));
+        if (!suggestions.length) { suggestionsDiv.innerHTML = ''; return; }
+        suggestionsDiv.innerHTML = `
+          <div style="font-size:0.7rem;color:var(--color-text-muted);margin-bottom:4px">Also known as:</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px">
+            ${suggestions.map(n => `<button type="button" class="nickname-suggest" data-name="${n}">+ ${n}</button>`).join('')}
+          </div>`;
+        suggestionsDiv.querySelectorAll('.nickname-suggest').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const current = aliasesInput.value.trim();
+            const prefix  = current && !current.endsWith(',') ? current + ', ' : current;
+            aliasesInput.value = prefix + btn.dataset.name;
+            updateSuggestions();
+          });
+        });
+      };
+      nameInput.addEventListener('input', updateSuggestions);
+      aliasesInput.addEventListener('input', updateSuggestions);
+      updateSuggestions();
 
       const cleanup = () => { modal.remove(); resolve(); };
       modal.querySelector('#confirm-skip').addEventListener('click', cleanup);
       modal.addEventListener('click', e => { if (e.target === modal) cleanup(); });
       modal.querySelector('#confirm-add').addEventListener('click', async () => {
-        if (nameCollision && !modal.querySelector('#confirm-notes').value.trim()) {
-          modal.querySelector('#confirm-notes-error').style.display = '';
+        const name = nameInput.value.trim();
+        if (!name) { nameInput.focus(); return; }
+        if (checkCollision() && !modal.querySelector('#confirm-notes').value.trim()) {
+          modal.querySelector('#confirm-notes-error').classList.remove('hidden');
           modal.querySelector('#confirm-notes').focus();
           return;
         }
         const rel = modal.querySelector('#confirm-rel').value;
         const notes = modal.querySelector('#confirm-notes').value.trim();
+        const aliases = aliasesInput.value.split(',').map(s => s.trim()).filter(Boolean);
+        const subgroup = readSubgroup(modal);
         modal.remove();
         try {
           const created = await api.post('/api/people', {
-            name: person.name,
-            relationship_type: rel,
-            notes,
+            name, aliases, relationship_type: rel, notes, subgroup,
           });
           await api.post('/api/people/link-mention', {
             person_id: created.id, entry_id: entryId,
@@ -1304,9 +1364,9 @@ export class EntryView {
             facts_extracted: person.facts_extracted || [], emotion_toward: person.emotion_toward,
             link_method: 'new_person',
           });
-          showToast(`Added ${person.name} ✓`, 'success');
+          showToast(`Added ${name} ✓`, 'success');
         } catch {
-          showToast(`Couldn't add ${person.name}`, 'error');
+          showToast(`Couldn't add ${name}`, 'error');
         }
         resolve();
       });
