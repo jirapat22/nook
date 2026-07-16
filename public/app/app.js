@@ -58,7 +58,13 @@ async function request(method, path, opts = {}) {
     // own code/message instead of just a bare status — this was previously
     // discarded even though the server always sends one.
     const e = await res.json().catch(() => ({}));
-    reportApiError({ method, path, status: res.status, code: e.code, serverError: e.error });
+    // The service worker synthesizes a 503 { offline: true } itself (see
+    // sw.js handleApi) when a request can't reach the network at all — no
+    // backend route ever sets this flag. That's an expected client-side
+    // fallback the view's catch-branch already handles, not a server error,
+    // so reporting it here was flooding the bug inbox with "API 503" noise
+    // every time a user's connection blipped or a deploy briefly dropped a request.
+    if (!e.offline) reportApiError({ method, path, status: res.status, code: e.code, serverError: e.error });
     throw Object.assign(new Error(e.error || `HTTP ${res.status}`), e);
   }
   return res.json();

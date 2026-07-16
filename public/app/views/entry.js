@@ -1771,8 +1771,14 @@ export class EntryView {
         });
       });
 
-    } catch {
-      container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">😕</div><h3>Entry not found</h3><a href="#home" class="btn btn-primary btn-sm mt-12">Go home</a></div>`;
+    } catch (err) {
+      // err.offline is set by the service worker's synthetic 503 (see sw.js
+      // handleApi) when a request never reached the network — the entry
+      // still exists, this was just a blip. "Entry not found" would be
+      // actively wrong in that case, so distinguish it from a genuine 404.
+      container.innerHTML = err?.offline
+        ? `<div class="empty-state"><div class="empty-state-icon">📡</div><h3>You're offline</h3><p class="text-muted">Couldn't load this entry — check your connection and try again.</p><a href="#home" class="btn btn-primary btn-sm mt-12">Go home</a></div>`
+        : `<div class="empty-state"><div class="empty-state-icon">😕</div><h3>Entry not found</h3><a href="#home" class="btn btn-primary btn-sm mt-12">Go home</a></div>`;
     }
   }
 
