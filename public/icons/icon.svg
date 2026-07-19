@@ -1,12 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
+  <defs>
+    <linearGradient id="nibInk" x1="30%" y1="0%" x2="70%" y2="100%">
+      <stop offset="0%" stop-color="#f0a86f"/>
+      <stop offset="55%" stop-color="#d97d3f"/>
+      <stop offset="100%" stop-color="#96501f"/>
+    </linearGradient>
+  </defs>
   <!-- Background -->
-  <rect width="200" height="200" rx="44" fill="#f7f4ee"/>
-  <!-- Nook corner: two lines forming a cosy right-angle corner -->
-  <path d="M 60 140 L 60 70 L 130 70" stroke="#c8843a" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
-  <!-- Warm light dot in the corner -->
-  <circle cx="60" cy="70" r="10" fill="#c8843a"/>
-  <!-- Outer glow -->
-  <circle cx="60" cy="70" r="18" fill="#c8843a" opacity="0.18"/>
-  <!-- Small cosy dot accent -->
-  <circle cx="95" cy="105" r="5" fill="#c8843a" opacity="0.35"/>
+  <rect width="200" height="200" rx="44" fill="#efe8df"/>
+  <!-- Pen nib -->
+  <path d="M 100,150 C 80,120 68,90 78,58 C 84,40 116,40 122,58 C 132,90 120,120 100,150 Z" fill="#4a3626"/>
+  <!-- Center slit -->
+  <line x1="100" y1="150" x2="100" y2="85" stroke="#efe8df" stroke-width="3"/>
+  <!-- Breather hole -->
+  <circle cx="100" cy="78" r="5" fill="#efe8df"/>
+  <!-- Ink drop, warm and glowing -->
+  <path d="M 100,150 C 96,158 96,168 100,172 C 104,168 104,158 100,150 Z" fill="url(#nibInk)"/>
 </svg>
