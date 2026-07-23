@@ -99,6 +99,12 @@ CREATE TABLE IF NOT EXISTS reports (
 CREATE INDEX IF NOT EXISTS idx_reports_unsent ON reports(created_at) WHERE orbit_sent = FALSE;
 CREATE INDEX IF NOT EXISTS idx_reports_dedupe ON reports(source, created_at DESC);
 
+-- Orbit's own id for this report, returned on successful POST /api/bug-reports.
+-- Required to later resolve/delete it there — Orbit matches by id only, no
+-- content fallback, so a report forwarded before this column existed can
+-- never be resolved remotely (only locally).
+ALTER TABLE reports ADD COLUMN IF NOT EXISTS orbit_id TEXT;
+
 -- Insert defaults (won't override existing)
 INSERT INTO settings (key, value) VALUES
   ('theme', '"warm-earthy"'),

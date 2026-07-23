@@ -10,7 +10,7 @@ const aiRouter = require('./routes/ai');
 const insightsRouter = require('./routes/insights');
 const peopleRouter = require('./routes/people');
 const tagsRouter = require('./routes/tags');
-const { syncAllPeople, markPersonDeleted } = require('./lib/orbit');
+const { syncAllPeople, markPersonDeleted, resolveBugReport } = require('./lib/orbit');
 const { saveReport, reportHandled, flushUnsent } = require('./lib/reports');
 
 const app = express();
@@ -115,6 +115,9 @@ app.get('/api/reports', async (req, res) => {
 // Clear captured reports — either all of them, or a single one via ?id=.
 // For "I've seen this, stop showing it" once you've diagnosed/fixed an
 // issue, not for hiding errors as they happen (auto-capture keeps running).
+// Deliberately local-only — does not touch Orbit. See POST /:id/resolve
+// below for the "this is actually done" path used by the Ideas & Bugs
+// checklist, which does propagate.
 app.delete('/api/reports', async (req, res) => {
   try {
     const { id } = req.query;
@@ -124,6 +127,23 @@ app.delete('/api/reports', async (req, res) => {
     res.json({ ok: true, deleted: result.rowCount });
   } catch (err) {
     res.status(500).json({ error: 'Failed to clear reports', code: 'DB_ERROR' });
+  }
+});
+
+// Resolve a report — used by the Ideas & Bugs checklist (settings.js) when a
+// bug/idea note is checked done or deleted. Best-effort tells Orbit to
+// resolve its copy (fire-and-forget: Orbit hard-deletes on this call, and a
+// slow/unreachable Orbit must never block the checklist), then always
+// removes the local row so it can't come back stale in the reports viewer.
+app.post('/api/reports/:id/resolve', async (req, res) => {
+  try {
+    const r = await db.query('SELECT orbit_id FROM reports WHERE id = $1', [req.params.id]);
+    const orbitId = r.rows[0]?.orbit_id;
+    if (orbitId) resolveBugReport(orbitId).catch(() => {});
+    await db.query('DELETE FROM reports WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to resolve report', code: 'DB_ERROR' });
   }
 });
 

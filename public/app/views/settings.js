@@ -491,18 +491,23 @@ export class SettingsView {
       const text = noteInput.value.trim();
       if (!text) return;
       const type = noteType.value === 'bug' ? 'bug' : 'idea';
-      this.notes.push({
-        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-        text,
-        type,
-        done: false,
-        created_at: new Date().toISOString(),
-      });
+      const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      this.notes.push({ id, text, type, report_id: null, created_at: new Date().toISOString() });
       noteInput.value = '';
       this.renderNotes();
       this.saveNotes();
       // Also forward as a manual report (always sent; queued offline if needed).
-      reportManual({ message: `[${type}] ${text}`, context: { type, kind: 'manual' } });
+      // Stash the report's local id on the note so checking it done or
+      // deleting it can later resolve the same report on Orbit's side — if
+      // this never resolves (offline, queued) the note just stays
+      // Nook-local-only when it's checked off, same as before this feature.
+      reportManual({ message: `[${type}] ${text}`, context: { type, kind: 'manual' } }).then(result => {
+        if (!result?.id) return;
+        const note = this.notes.find(n => n.id === id);
+        if (!note) return; // already deleted before the report round-trip finished
+        note.report_id = result.id;
+        this.saveNotes();
+      });
     };
     container.querySelector('#note-add').addEventListener('click', addNote);
     noteInput.addEventListener('keydown', e => { if (e.key === 'Enter') addNote(); });
@@ -556,14 +561,14 @@ export class SettingsView {
       this.notesListEl.innerHTML = '<p class="text-sm text-faint">Nothing yet — add an idea or a bug above.</p>';
       return;
     }
-    // Open items first, then done; newest first within each group.
+    // Checking a note off deletes it (see resolveAndRemoveNote), so every
+    // note left in the list is open by definition — newest first.
     const sorted = [...this.notes].sort((a, b) =>
-      (a.done ? 1 : 0) - (b.done ? 1 : 0) ||
       String(b.created_at || '').localeCompare(String(a.created_at || ''))
     );
     this.notesListEl.innerHTML = `<div class="note-list">${sorted.map(n => `
-      <div class="note-item ${n.done ? 'done' : ''}" data-id="${n.id}">
-        <button class="note-check" title="Toggle done">${n.done ? '✓' : ''}</button>
+      <div class="note-item" data-id="${n.id}">
+        <button class="note-check" title="Mark done"></button>
         <span class="note-type-badge">${n.type === 'bug' ? '🐛' : '💡'}</span>
         <span class="note-text">${escHtml(n.text)}</span>
         <button class="note-delete" title="Delete">×</button>
@@ -576,18 +581,26 @@ export class SettingsView {
     });
   }
 
-  toggleNote(id) {
+  // Checking a bug/idea off means "I'm done with this" — same as deleting
+  // it, just via the checkmark instead of the ×. Both remove the note
+  // immediately (no lingering struck-through "done" state to separately
+  // clean up) and both resolve the matching report on Orbit's side so it
+  // doesn't sit open there after Nook considers it handled.
+  toggleNote(id) { this.resolveAndRemoveNote(id); }
+  deleteNote(id) { this.resolveAndRemoveNote(id); }
+
+  resolveAndRemoveNote(id) {
     const n = this.notes.find(x => x.id === id);
     if (!n) return;
-    n.done = !n.done;
-    this.renderNotes();
-    this.saveNotes();
-  }
-
-  deleteNote(id) {
     this.notes = this.notes.filter(x => x.id !== id);
     this.renderNotes();
     this.saveNotes();
+    // Best-effort, fire-and-forget — a note with no report_id yet (Orbit
+    // round-trip still in flight, or it never went through) just stays
+    // deleted locally with nothing to resolve remotely.
+    if (n.report_id) {
+      api.post(`/api/reports/${n.report_id}/resolve`, {}).catch(() => {});
+    }
   }
 
   async saveNotes() {

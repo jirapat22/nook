@@ -4,7 +4,7 @@
 const ENDPOINT = '/api/reports';
 const OUTBOX_KEY = 'nook_report_outbox';
 const MAX_AUTO_PER_LOAD = 25;       // funnel cap; manual + outbox bypass it
-const APP_VERSION = 'nook-v80';     // keep in step with sw.js CACHE_NAME
+const APP_VERSION = 'nook-v81';     // keep in step with sw.js CACHE_NAME
 
 let autoCount = 0;
 let installed = false;
@@ -19,8 +19,9 @@ function baseContext(extra = {}) {
   };
 }
 
-// Low-level POST. Returns true on success. NEVER throws and NEVER console.errors
-// (that would recurse through the console wrapper).
+// Low-level POST. Returns the parsed response body (e.g. { ok, id }) on
+// success, or null on failure. NEVER throws and NEVER console.errors (that
+// would recurse through the console wrapper).
 async function postReport(body) {
   try {
     const res = await fetch(ENDPOINT, {
@@ -28,9 +29,10 @@ async function postReport(body) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    return res.ok;
+    if (!res.ok) return null;
+    return await res.json().catch(() => ({}));
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -68,13 +70,18 @@ export async function flushOutbox() {
 // ── Public API ──────────────────────────────────────────────
 
 // Manual submission: ALWAYS sent (bypasses the cap); queued to retry if offline.
+// Returns the created report's { id } (its Nook-local id, for callers that
+// need to resolve it later, e.g. the Ideas & Bugs checklist) or null if it
+// couldn't be sent and was queued instead.
 export async function reportManual({ message, context = {} } = {}) {
   const body = {
     source: 'manual',
     message: clamp(message, 4000) || 'feedback',
     context: baseContext({ kind: 'manual', ...context }),
   };
-  if (!(await postReport(body))) writeOutbox([...readOutbox(), body]);
+  const result = await postReport(body);
+  if (!result) writeOutbox([...readOutbox(), body]);
+  return result;
 }
 
 // A handled "shouldn't happen" error caught in a catch block.
