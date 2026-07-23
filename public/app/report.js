@@ -4,7 +4,7 @@
 const ENDPOINT = '/api/reports';
 const OUTBOX_KEY = 'nook_report_outbox';
 const MAX_AUTO_PER_LOAD = 25;       // funnel cap; manual + outbox bypass it
-const APP_VERSION = 'nook-v83';     // keep in step with sw.js CACHE_NAME
+const APP_VERSION = 'nook-v84';     // keep in step with sw.js CACHE_NAME
 
 let autoCount = 0;
 let installed = false;

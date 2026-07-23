@@ -597,16 +597,10 @@ export class SettingsView {
     this.saveNotes();
     // Best-effort — a note with no report_id yet (Orbit round-trip still in
     // flight, or it never went through) just stays deleted locally with
-    // nothing to resolve remotely. Logged rather than silently swallowed
-    // (temporary — for diagnosing the "still shows up in Orbit" report)
-    // so this is visible in the console without needing the Network tab.
-    if (!n.report_id) {
-      console.warn('[Nook] note had no report_id — nothing to resolve on Orbit', n);
-      return;
-    }
-    api.post(`/api/reports/${n.report_id}/resolve`, {})
-      .then(res => console.log('[Nook] resolved report on Orbit:', n.report_id, res))
-      .catch(err => console.error('[Nook] failed to resolve report on Orbit:', n.report_id, err));
+    // nothing to resolve remotely.
+    if (!n.report_id) return;
+    api.post(`/api/reports/${n.report_id}/resolve`, {}).catch(err =>
+      console.warn('[Nook] failed to resolve report on Orbit:', n.report_id, err));
   }
 
   async saveNotes() {
