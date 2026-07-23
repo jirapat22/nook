@@ -532,6 +532,19 @@ async function init() {
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (!reloading) { reloading = true; location.reload(); }
     });
+
+    // register() only checks for a new SW once, at registration time — it
+    // does NOT re-check when the user reopens an already-installed PWA from
+    // their home screen (no fresh navigation happens, so the browser's
+    // automatic ~24h background check is the only other trigger). That's
+    // why the update banner could take a very long time to show up, or not
+    // show up during a session at all. Force a check whenever the app
+    // becomes visible again — the common "left it backgrounded, came back"
+    // case — plus a periodic check as a backstop for long-lived sessions.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') _swReg?.update().catch(() => {});
+    });
+    setInterval(() => { _swReg?.update().catch(() => {}); }, 30 * 60 * 1000);
   }
 
   // Timeout settings fetch — without this, a slow API on first load blocks

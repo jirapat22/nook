@@ -131,25 +131,20 @@ app.delete('/api/reports', async (req, res) => {
 });
 
 // Resolve a report — used by the Ideas & Bugs checklist (settings.js) when a
-// bug/idea note is checked done or deleted. Best-effort tells Orbit to
-// resolve its copy (fire-and-forget: Orbit hard-deletes on this call, and a
-// slow/unreachable Orbit must never block the checklist), then always
-// removes the local row so it can't come back stale in the reports viewer.
+// bug/idea note is checked done or deleted. Awaits Orbit's actual result
+// (a single PATCH — worth the extra round-trip to know it really worked)
+// and includes it in the response so the caller isn't just told "ok" for a
+// call that only touched the local row. Always removes the local row
+// regardless of Orbit's outcome, same as before.
 app.post('/api/reports/:id/resolve', async (req, res) => {
   try {
     const r = await db.query('SELECT orbit_id FROM reports WHERE id = $1', [req.params.id]);
     const orbitId = r.rows[0]?.orbit_id;
-    // Logged rather than silent — temporary, for diagnosing the "still shows
-    // up in Orbit" report (visible in Railway logs without needing the
-    // reports table inspected directly).
-    if (orbitId) {
-      resolveBugReport(orbitId).then(res2 => console.log('[reports] resolve on Orbit', orbitId, res2))
-        .catch(err => console.warn('[reports] resolve on Orbit threw', orbitId, err.message));
-    } else {
-      console.warn('[reports] resolve requested but report has no orbit_id', req.params.id);
-    }
+    const orbitResult = orbitId
+      ? await resolveBugReport(orbitId).catch(err => ({ ok: false, error: err.message }))
+      : { skipped: true, reason: 'report has no orbit_id' };
     await db.query('DELETE FROM reports WHERE id = $1', [req.params.id]);
-    res.json({ ok: true });
+    res.json({ ok: true, orbit: orbitResult });
   } catch (err) {
     res.status(500).json({ error: 'Failed to resolve report', code: 'DB_ERROR' });
   }
