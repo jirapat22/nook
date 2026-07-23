@@ -139,7 +139,15 @@ app.post('/api/reports/:id/resolve', async (req, res) => {
   try {
     const r = await db.query('SELECT orbit_id FROM reports WHERE id = $1', [req.params.id]);
     const orbitId = r.rows[0]?.orbit_id;
-    if (orbitId) resolveBugReport(orbitId).catch(() => {});
+    // Logged rather than silent — temporary, for diagnosing the "still shows
+    // up in Orbit" report (visible in Railway logs without needing the
+    // reports table inspected directly).
+    if (orbitId) {
+      resolveBugReport(orbitId).then(res2 => console.log('[reports] resolve on Orbit', orbitId, res2))
+        .catch(err => console.warn('[reports] resolve on Orbit threw', orbitId, err.message));
+    } else {
+      console.warn('[reports] resolve requested but report has no orbit_id', req.params.id);
+    }
     await db.query('DELETE FROM reports WHERE id = $1', [req.params.id]);
     res.json({ ok: true });
   } catch (err) {
