@@ -64,8 +64,11 @@ const APP_PASSWORD = process.env.APP_PASSWORD || '';
 const EXPECTED_TOKEN = APP_PASSWORD
   ? crypto.createHash('sha256').update(APP_PASSWORD).digest('hex')
   : null;
-// orbit-summary stays public (Orbit's widget fetches it); login is how you get in.
-const AUTH_EXEMPT = new Set(['/api/login', '/api/orbit-summary']);
+// orbit-summary stays public (Orbit's widget fetches it); login is how you
+// get in; orbit/webhook is authenticated separately below via the shared
+// ORBIT_INGEST_SECRET (X-API-Key), not the app password — Orbit calling in
+// has no way to know a Nook user's x-app-token.
+const AUTH_EXEMPT = new Set(['/api/login', '/api/orbit-summary', '/api/orbit/webhook']);
 
 app.post('/api/login', (req, res) => {
   if (!EXPECTED_TOKEN) return res.json({ ok: true, token: null, authRequired: false });
@@ -147,6 +150,49 @@ app.post('/api/reports/:id/resolve', async (req, res) => {
     res.json({ ok: true, orbit: orbitResult });
   } catch (err) {
     res.status(500).json({ error: 'Failed to resolve report', code: 'DB_ERROR' });
+  }
+});
+
+// Orbit → Nook webhook: fired when a bug/idea report resolves on Orbit's
+// side. Fires for BOTH a resolve done directly in Orbit's UI and as an echo
+// of Nook's own PATCH resolve call above (same handler on Orbit's end
+// serves both paths) — so this must be idempotent: if the local row is
+// already gone (Nook resolved it first), this is a harmless no-op.
+// Auth is the shared ORBIT_INGEST_SECRET via X-API-Key, not the app
+// password — see AUTH_EXEMPT above.
+app.post('/api/orbit/webhook', async (req, res) => {
+  const secret = process.env.ORBIT_INGEST_SECRET;
+  if (!secret || req.headers['x-api-key'] !== secret) {
+    return res.status(401).json({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+  }
+  const { id, app: sourceApp } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'id required', code: 'VALIDATION_ERROR' });
+  // Defensive only — a correct sender should never call this for another
+  // app's report, but nothing stops treating a wrong-app id as "not ours."
+  if (sourceApp && sourceApp !== 'nook') return res.json({ ok: true, skipped: 'not a nook report' });
+
+  try {
+    const r = await db.query('SELECT id FROM reports WHERE orbit_id = $1', [id]);
+    const localReportId = r.rows[0]?.id;
+    if (localReportId) {
+      await db.query('DELETE FROM reports WHERE id = $1', [localReportId]);
+      // The Ideas & Bugs checklist note (settings.dev_notes) references this
+      // report by Nook's local id, not Orbit's — filter it out there too so
+      // a note resolved on Orbit's side doesn't keep sitting in the checklist.
+      const s = await db.query("SELECT value FROM settings WHERE key = 'dev_notes'");
+      const notes = Array.isArray(s.rows[0]?.value) ? s.rows[0].value : [];
+      const filtered = notes.filter(n => n.report_id !== localReportId);
+      if (filtered.length !== notes.length) {
+        await db.query(
+          "INSERT INTO settings (key, value) VALUES ('dev_notes', $1) ON CONFLICT (key) DO UPDATE SET value = $1",
+          [JSON.stringify(filtered)]
+        );
+      }
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('POST /api/orbit/webhook error:', err);
+    res.status(500).json({ error: 'Failed to process webhook', code: 'DB_ERROR' });
   }
 });
 
