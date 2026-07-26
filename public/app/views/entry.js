@@ -1457,7 +1457,8 @@ export class EntryView {
               </div>` : ''}
           </div>
           <div class="entry-detail-meta">
-            <span>${formatDate(entry.date)}</span>
+            <span id="entry-date-display">${formatDate(entry.date)}</span>
+            <button class="meta-edit-btn" id="edit-date-btn" title="Edit date">✏️</button>
             ${createdTime ? `<span>· ${createdTime}</span>` : entry.time_of_day ? `<span>· ${entry.time_of_day}</span>` : ''}
             ${entry.mood_overall != null ? `<span class="mood-dot ${moodClass}"></span><span>${entry.mood_overall}/10</span>` : ''}
             <button class="meta-edit-btn" id="edit-mood-btn" title="Edit mood">${entry.mood_overall != null ? '✏️' : '+ mood'}</button>
@@ -1595,6 +1596,48 @@ export class EntryView {
       // Edit mood — opens the faces + optional-detail modal
       container.querySelector('#edit-mood-btn')?.addEventListener('click', () => {
         this.showMoodEditModal(entry, container);
+      });
+
+      // Edit date — for "I logged this under the wrong day." Swaps the
+      // display span for a native date input in place; same max-is-today
+      // cap as picking a date for a brand-new entry, since Nook doesn't
+      // support logging into the future.
+      container.querySelector('#edit-date-btn')?.addEventListener('click', () => {
+        const meta = container.querySelector('.entry-detail-meta');
+        const display = container.querySelector('#entry-date-display');
+        const editBtn = container.querySelector('#edit-date-btn');
+        if (!meta || !display) return;
+        const input = document.createElement('input');
+        input.type = 'date';
+        input.className = 'input';
+        input.id = 'entry-date-edit';
+        input.value = dateStr;
+        input.max = todayStr();
+        input.style.cssText = 'width:auto;padding:2px 8px;font-size:inherit';
+        display.replaceWith(input);
+        editBtn.classList.add('hidden');
+        input.focus();
+        // Both 'change' (date actually picked) and 'blur' (opened the picker
+        // then clicked away without changing anything) need to resolve back
+        // to display mode — guard with a flag rather than relying on
+        // { once: true } on just one, since either event alone could fire
+        // first and both firing would double-PUT and double-toast.
+        let committed = false;
+        const commit = async () => {
+          if (committed) return;
+          committed = true;
+          const newDate = input.value;
+          if (!newDate || newDate === dateStr) { await this.mountDetailView(container); return; }
+          try {
+            await api.put(`/api/entries/${this.entryId}`, { date: newDate });
+            showToast('Date updated ✓', 'success');
+          } catch {
+            showToast('Could not update date', 'error');
+          }
+          await this.mountDetailView(container);
+        };
+        input.addEventListener('change', commit);
+        input.addEventListener('blur', commit);
       });
 
       // Inline one-tap mood for an entry that has none yet (log it after the fact)
