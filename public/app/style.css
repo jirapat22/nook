@@ -169,7 +169,11 @@ p  { line-height: 1.65; }
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding-bottom: calc(var(--nav-height) + 8px);
+  /* No bottom padding for the nav: .bottom-nav is a flex sibling in the
+     100dvh column, so it takes its own space and never overlays this. A
+     padding-bottom here would be dead scroll space AND would inset the
+     sticky containing block, stranding .home-quick-bar above the nav with
+     content scrolling visibly through the gap. */
   -webkit-overflow-scrolling: touch;
 }
 
@@ -412,8 +416,11 @@ p  { line-height: 1.65; }
   bottom: 0;
   display: flex;
   gap: 10px;
-  /* Bleed past home-view padding to go full width; auto top pushes to bottom when content is short */
-  margin: auto -16px 0;
+  /* Bleed past home-view padding on all sides: negative x to go full width,
+     negative bottom to cancel .home-view's 24px padding so the bar rests
+     flush on the nav instead of hovering above it. Auto top pushes it to
+     the bottom when content is short. */
+  margin: auto -16px -24px;
   padding: 10px 16px 14px;
   background: var(--color-bg);
   /* Soft shadow upward so it lifts off content */
@@ -667,7 +674,10 @@ p  { line-height: 1.65; }
 
 /* Action bar after analysis */
 .entry-action-bar {
-  position: sticky; bottom: calc(var(--nav-height));
+  /* bottom:0, not nav-height — .bottom-nav is a flex sibling of .app-content,
+     so it never overlays this scroller. Offsetting by the nav height floated
+     this bar 64px up with content scrolling through the gap underneath. */
+  position: sticky; bottom: 0;
   background: var(--color-surface);
   border-top: 1px solid var(--color-border-light);
   padding: 12px 16px;
@@ -2691,7 +2701,7 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
   .entry-cards-grid .entry-preview-card { margin-bottom: 0; }
 
   /* Quick bar bleeds past the wider desktop padding */
-  .home-quick-bar { margin: auto -28px 0; padding: 10px 28px 14px; }
+  .home-quick-bar { margin: auto -28px -24px; padding: 10px 28px 14px; }
   .home-quick-btn { height: 56px; }
 }
 
