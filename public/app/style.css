@@ -25,6 +25,12 @@
   --color-success:        #6f8f5f;
   --color-warning:        #c79a3d;
   --color-danger:         #c1573f;
+  /* Text/icons sitting ON a filled accent surface (primary button, mic
+     button, toasts, streak widget…). Must flip with the theme: the accents
+     are dark enough for white here, but in dark mode they're deliberately
+     *lighter* than the background, so white-on-them drops to ~2.4:1 and
+     glares. Never hardcode white against an accent fill — use this. */
+  --color-on-accent:      #ffffff;
   --shadow-sm:            0 1px 3px rgba(42,34,48,0.08);
   --shadow-md:            0 4px 12px rgba(42,34,48,0.10);
   --shadow-lg:            0 8px 24px rgba(42,34,48,0.14);
@@ -57,6 +63,10 @@
   --color-success:        #85a374;
   --color-warning:        #d9ac5c;
   --color-danger:         #d4735a;
+  /* Dark ink on the accent fills, not white — see the light-theme note.
+     White on the dark-mode ember was ~2.4:1 (unreadable + glary); this is
+     ~7.4:1 on primary and clears 5:1 on every other accent. */
+  --color-on-accent:      #1c1722;
   --shadow-sm:            0 1px 3px rgba(0,0,0,0.3);
   --shadow-md:            0 4px 12px rgba(0,0,0,0.4);
   --shadow-lg:            0 8px 24px rgba(0,0,0,0.5);
@@ -146,7 +156,7 @@ p  { line-height: 1.65; }
 /* ── Offline banner ── */
 .offline-banner {
   background: var(--color-warning);
-  color: white;
+  color: var(--color-on-accent);
   text-align: center;
   font-size: 0.8125rem;
   padding: 6px 16px;
@@ -193,7 +203,7 @@ p  { line-height: 1.65; }
   background: var(--color-primary);
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  color: white;
+  color: var(--color-on-accent);
   box-shadow: var(--shadow-md);
   transition: background var(--transition), transform var(--transition);
 }
@@ -246,7 +256,7 @@ p  { line-height: 1.65; }
 }
 .btn:active { transform: scale(0.97); }
 .btn-primary {
-  background: var(--color-primary); color: white;
+  background: var(--color-primary); color: var(--color-on-accent);
   box-shadow: var(--shadow-sm);
 }
 .btn-primary:hover { background: var(--color-primary-hover); box-shadow: var(--shadow-md); }
@@ -260,7 +270,7 @@ p  { line-height: 1.65; }
 }
 .btn-ghost:hover { background: var(--color-surface-offset); }
 .btn-danger {
-  background: var(--color-danger); color: white;
+  background: var(--color-danger); color: var(--color-on-accent);
 }
 .btn-sm { padding: 6px 14px; font-size: 0.8125rem; min-height: 34px; }
 .btn-lg { padding: 14px 28px; font-size: 1rem; min-height: 52px; border-radius: var(--radius-md); }
@@ -356,9 +366,9 @@ p  { line-height: 1.65; }
   white-space: nowrap;
   max-width: calc(100vw - 32px);
 }
-.toast-success { background: var(--color-success); color: white; }
-.toast-error { background: var(--color-danger); color: white; }
-.toast-love { background: var(--color-love); color: white; }
+.toast-success { background: var(--color-success); color: var(--color-on-accent); }
+.toast-error { background: var(--color-danger); color: var(--color-on-accent); }
+.toast-love { background: var(--color-love); color: var(--color-on-accent); }
 
 /* ── Divider ── */
 .divider {
@@ -436,16 +446,16 @@ p  { line-height: 1.65; }
 .home-quick-voice {
   background: var(--color-primary);
   border-color: var(--color-primary);
-  color: white;
+  color: var(--color-on-accent);
   box-shadow: var(--shadow-sm);
 }
-.home-quick-voice:hover { background: var(--color-primary-hover); border-color: var(--color-primary-hover); color: white; }
+.home-quick-voice:hover { background: var(--color-primary-hover); border-color: var(--color-primary-hover); color: var(--color-on-accent); }
 
 .streak-widget {
   background: linear-gradient(135deg, var(--color-primary), var(--color-primary-hover));
   border-radius: var(--radius-md);
   padding: 16px;
-  color: white;
+  color: var(--color-on-accent);
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 20px;
 }
@@ -536,7 +546,7 @@ p  { line-height: 1.65; }
 }
 .mode-tab.active {
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-accent);
   box-shadow: var(--shadow-sm);
   font-weight: 600;
 }
@@ -584,7 +594,7 @@ p  { line-height: 1.65; }
   display: flex; align-items: center; justify-content: center;
   box-shadow: var(--shadow-lg);
   transition: all var(--transition);
-  color: white;
+  color: var(--color-on-accent);
 }
 .mic-btn svg { width: 44px; height: 44px; }
 .mic-btn.recording {
@@ -653,7 +663,7 @@ p  { line-height: 1.65; }
   transition: background var(--transition), color var(--transition);
 }
 .followup-mic-btn:hover { background: var(--color-primary-light); color: var(--color-primary); }
-.followup-mic-btn.recording { background: var(--color-danger); color: white; }
+.followup-mic-btn.recording { background: var(--color-danger); color: var(--color-on-accent); }
 
 /* Action bar after analysis */
 .entry-action-bar {
@@ -880,7 +890,7 @@ p  { line-height: 1.65; }
 }
 .cooldown-banner {
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-accent);
   border-radius: var(--radius-sm);
   padding: 10px 14px;
   font-size: 0.875rem;
@@ -984,7 +994,7 @@ p  { line-height: 1.65; }
 }
 .cal-day:hover { background: var(--color-surface-offset); }
 .cal-day.today .cal-day-num {
-  background: var(--color-primary); color: white;
+  background: var(--color-primary); color: var(--color-on-accent);
   width: 26px; height: 26px;
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
@@ -1524,7 +1534,7 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
   width: 64px; height: 64px;
   border-radius: 50%;
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-accent);
   display: flex; align-items: center; justify-content: center;
   font-weight: 600; font-size: 1.2rem;
   overflow: hidden;
@@ -1570,7 +1580,7 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
   width: 36px; height: 36px;
   border-radius: 50%;
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-accent);
   display: inline-flex; align-items: center; justify-content: center;
   font-weight: 600; font-size: 0.85rem;
   flex-shrink: 0;
@@ -2194,7 +2204,7 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
   width: 22px; height: 22px;
   border-radius: 50%;
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-accent);
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 0.65rem; font-weight: 600;
 }

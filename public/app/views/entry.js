@@ -1508,16 +1508,16 @@ export class EntryView {
                since they were three identically-shaped chip lists with separate
                headers. Icon prefix distinguishes them instead. -->
           <div id="ai-fields-display">
-            ${themes.length || tags.length || lifeAreas.length ? `
             <div class="mb-12">
               <div class="ai-section-label">Details</div>
+              ${themes.length || tags.length || lifeAreas.length ? `
               <div class="meta-chip-row">
                 ${themes.map(t=>`<span class="chip chip-primary">🧵 ${escHtml(t)}</span>`).join('')}
                 ${tags.map(t=>`<span class="chip">🏷 ${escHtml(t)}</span>`).join('')}
                 ${lifeAreas.map(t=>`<span class="chip">🧭 ${escHtml(t)}</span>`).join('')}
-              </div>
-              <button class="btn btn-ghost btn-sm mt-8" id="edit-ai-fields">✏️ Edit themes / tags / areas</button>
-            </div>` : ''}
+              </div>` : `<p class="text-sm text-faint">No themes, tags or life areas yet.</p>`}
+              <button class="btn btn-ghost btn-sm mt-8" id="edit-ai-fields">${themes.length || tags.length || lifeAreas.length ? '✏️ Edit' : '+ Add'} themes / tags / areas</button>
+            </div>
           </div>
 
           <!-- Edit AI fields form (hidden) -->
