@@ -1445,6 +1445,14 @@ export class EntryView {
         ? new Date(entry.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
         : null;
 
+      // Only nudge to confirm when there's an AI-guessed mood the user hasn't
+      // signed off on yet; otherwise the row is just a plain mood control.
+      const moodUnconfirmed = entry.mood_overall != null
+        && !['user_confirmed', 'user_edited'].includes(entry.mood_source);
+      const moodLabel = moodUnconfirmed
+        ? "Nook's guess — tap to change"
+        : entry.mood_overall != null ? 'Mood' : 'How did this feel?';
+
       container.innerHTML = `
         <div class="entry-detail">
           <div class="entry-detail-nav">
@@ -1461,19 +1469,21 @@ export class EntryView {
             <button class="meta-edit-btn" id="edit-date-btn" title="Edit date">✏️</button>
             ${createdTime ? `<span>· ${createdTime}</span>` : entry.time_of_day ? `<span>· ${entry.time_of_day}</span>` : ''}
             ${entry.mood_overall != null ? `<span class="mood-dot ${moodClass}"></span><span>${entry.mood_overall}/10</span>` : ''}
-            <button class="meta-edit-btn" id="edit-mood-btn" title="Edit mood">${entry.mood_overall != null ? '✏️' : '+ mood'}</button>
             ${entry.is_backdated ? '<span class="backdated-label">Added after the fact</span>' : ''}
           </div>
 
           ${entry.ai_summary && !firstPerson && !userEdit ? `<div class="card mb-12"><p class="font-display text-muted" style="font-style:italic">${escHtml(entry.ai_summary)}</p></div>` : ''}
 
-          <!-- Mood: show Nook's read for you to confirm/correct until you've
-               confirmed it once. After that it's hidden (change it via ✏️). -->
-          ${!['user_confirmed', 'user_edited'].includes(entry.mood_source) ? `
-            <div class="card mb-12 mood-inline-card" id="mood-inline">
-              <div class="ai-section-label">${entry.mood_overall != null ? 'Nook read your mood as this — tap to confirm or change' : 'How did this feel?'}</div>
-              ${renderMoodFaces(entry.mood_overall)}
-            </div>` : ''}
+          <!-- Mood: always visible and always one tap to change. This used to
+               hide itself once you'd confirmed a mood, which meant changing it
+               later meant hunting for a tiny ✏️ that opened a modal. -->
+          <div class="card mb-12 mood-inline-card" id="mood-inline">
+            <div class="mood-inline-head">
+              <span class="ai-section-label">${moodLabel}</span>
+              <button class="btn btn-ghost btn-sm" id="edit-mood-btn">More detail</button>
+            </div>
+            ${renderMoodFaces(entry.mood_overall)}
+          </div>
 
           <!-- Main first-person diary block -->
           ${firstPerson || userEdit ? `<div class="ai-section-label">Today, in your words</div>` : ''}
@@ -1507,37 +1517,14 @@ export class EntryView {
           <!-- AI-analysis section (themes, tags, life areas) — merged into one row
                since they were three identically-shaped chip lists with separate
                headers. Icon prefix distinguishes them instead. -->
-          <div id="ai-fields-display">
-            <div class="mb-12">
-              <div class="ai-section-label">Details</div>
-              ${themes.length || tags.length || lifeAreas.length ? `
-              <div class="meta-chip-row">
-                ${themes.map(t=>`<span class="chip chip-primary">🧵 ${escHtml(t)}</span>`).join('')}
-                ${tags.map(t=>`<span class="chip">🏷 ${escHtml(t)}</span>`).join('')}
-                ${lifeAreas.map(t=>`<span class="chip">🧭 ${escHtml(t)}</span>`).join('')}
-              </div>` : `<p class="text-sm text-faint">No themes, tags or life areas yet.</p>`}
-              <button class="btn btn-ghost btn-sm mt-8" id="edit-ai-fields">${themes.length || tags.length || lifeAreas.length ? '✏️ Edit' : '+ Add'} themes / tags / areas</button>
-            </div>
-          </div>
-
-          <!-- Edit AI fields form (hidden) -->
-          <div id="ai-fields-edit" class="hidden">
-            <div class="form-group">
-              <label class="form-label">Themes (comma-separated)</label>
-              <input type="text" class="input" id="edit-themes" value="${themes.join(', ')}">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Tags (comma-separated)</label>
-              <input type="text" class="input" id="edit-tags" value="${tags.join(', ')}">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Life areas (comma-separated)</label>
-              <input type="text" class="input" id="edit-life-areas" value="${lifeAreas.join(', ')}">
-            </div>
-            <div style="display:flex;gap:8px">
-              <button class="btn btn-secondary btn-sm" id="cancel-ai-edit">Cancel</button>
-              <button class="btn btn-primary btn-sm" id="save-ai-edit">Save</button>
-            </div>
+          <!-- Details: edit in place. Each chip carries an × and each row a +,
+               so adding or removing a theme/tag/area is one tap from here
+               instead of opening a comma-separated-text form. -->
+          <div class="mb-12" id="entry-details-block">
+            <div class="ai-section-label">Details</div>
+            ${chipEditorHtml('key_themes', 'Themes', '🧵', 'chip-primary', themes, 'Add a theme…')}
+            ${chipEditorHtml('tags', 'Tags', '🏷', '', tags, 'Add a tag…')}
+            ${chipEditorHtml('life_areas', 'Life areas', '🧭', '', lifeAreas, 'Add a life area…')}
           </div>
 
           ${entry.action_items?.length ? `<div class="mb-12"><div class="ai-section-label">Action items</div><div class="action-items-list">${entry.action_items.map(i => {
@@ -1547,18 +1534,23 @@ export class EntryView {
             return `<label class="action-item${done ? ' done' : ''}"><input type="checkbox" data-text="${escHtml(text)}" ${done ? 'checked' : ''}><span>${escHtml(text)}</span></label>`;
           }).join('')}</div></div>` : ''}
 
-          <!-- People linked to this entry -->
-          ${entry.people_mentions?.length ? `
+          <!-- People linked to this entry. Always rendered (even when empty)
+               so the + is always there — adding someone used to mean finding
+               "Link person" down in the action row next to Delete. -->
           <div class="mb-12">
             <div class="ai-section-label">People in this entry</div>
             <div class="entry-people-list">
-              ${entry.people_mentions.map(m => `
-                <a href="#person/${m.person_id}" class="entry-person-chip">
-                  <span class="entry-person-name">${escHtml(m.name)}</span>
-                  ${m.relationship_type ? `<span class="entry-person-rel">${escHtml(m.relationship_type)}</span>` : ''}
-                </a>`).join('')}
+              ${(entry.people_mentions || []).map(m => `
+                <span class="entry-person-chip">
+                  <a href="#person/${m.person_id}" class="entry-person-link">
+                    <span class="entry-person-name">${escHtml(m.name)}</span>
+                    ${m.relationship_type ? `<span class="entry-person-rel">${escHtml(m.relationship_type)}</span>` : ''}
+                  </a>
+                  <button class="person-unlink-btn" data-mention-id="${m.id}" data-name="${escHtml(m.name)}" title="Remove from this entry">×</button>
+                </span>`).join('')}
+              <button class="chip-add-btn" id="add-person-chip" title="Add a person">+</button>
             </div>
-          </div>` : ''}
+          </div>
 
           <!-- People the AI spotted but that aren't linked yet -->
           ${spottedPeople.length ? `
@@ -1580,7 +1572,6 @@ export class EntryView {
           <div class="entry-detail-actions" id="entry-actions">
             <button class="btn btn-secondary btn-sm" id="edit-btn">Edit</button>
             <button class="btn btn-secondary btn-sm" id="reanalyse-btn">${firstPerson || entry.ai_summary ? '✨ Re-analyse' : '✨ Generate summary'}</button>
-            <button class="btn btn-secondary btn-sm" id="link-person-btn">👤 Link person</button>
             <button class="btn btn-danger btn-sm" id="delete-btn">Delete</button>
           </div>
         </div>`;
@@ -1688,32 +1679,70 @@ export class EntryView {
 
       // Retroactive "Link person" — for when AI missed someone or the prompt
       // was dismissed before the user could tap Add.
-      container.querySelector('#link-person-btn')?.addEventListener('click', () => {
+      container.querySelector('#add-person-chip')?.addEventListener('click', () => {
         this.showLinkPersonModal(this.entryId, container);
       });
 
-      // Edit AI fields (themes/tags/life areas)
-      container.querySelector('#edit-ai-fields')?.addEventListener('click', () => {
-        container.querySelector('#ai-fields-display').classList.add('hidden');
-        container.querySelector('#ai-fields-edit').classList.remove('hidden');
+      // Unlink a person from this entry. Uses the same endpoint as the person
+      // profile's unlink, which also strips the name from detected_people so
+      // it doesn't resurface here as "Nook also spotted".
+      container.querySelectorAll('.person-unlink-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const { mentionId, name } = btn.dataset;
+          if (!confirm(`Remove ${name} from this entry?`)) return;
+          try {
+            await api.delete(`/api/people/mention/${mentionId}`);
+            showToast(`Removed ${name}`, '');
+            await this.mountDetailView(container);
+          } catch {
+            showToast('Could not remove', 'error');
+          }
+        });
       });
-      container.querySelector('#cancel-ai-edit')?.addEventListener('click', () => {
-        container.querySelector('#ai-fields-display').classList.remove('hidden');
-        container.querySelector('#ai-fields-edit').classList.add('hidden');
-      });
-      container.querySelector('#save-ai-edit')?.addEventListener('click', async () => {
-        const parseList = id => container.querySelector(id).value.split(',').map(s => s.trim()).filter(Boolean);
+
+      // Details chip editors (themes / tags / life areas). Current values come
+      // straight from the render above, so each save is a whole-array PUT of
+      // that one field.
+      const chipValues = { key_themes: themes, tags: tags, life_areas: lifeAreas };
+      const saveChips = async (field, values) => {
         try {
-          await api.put(`/api/entries/${this.entryId}`, {
-            key_themes: parseList('#edit-themes'),
-            tags: parseList('#edit-tags'),
-            life_areas: parseList('#edit-life-areas'),
-          });
-          showToast('Updated ✓', 'success');
+          await api.put(`/api/entries/${this.entryId}`, { [field]: values });
           await this.mountDetailView(container);
         } catch {
           showToast('Could not save — try again', 'error');
         }
+      };
+      container.querySelectorAll('.chip-remove').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const { field, value } = btn.dataset;
+          saveChips(field, (chipValues[field] || []).filter(v => v !== value));
+        });
+      });
+      container.querySelectorAll('.chip-add-btn[data-field]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const input = container.querySelector(`.chip-add-input[data-field="${btn.dataset.field}"]`);
+          if (!input) return;
+          btn.classList.add('hidden');
+          input.classList.remove('hidden');
+          input.focus();
+        });
+      });
+      container.querySelectorAll('.chip-add-input').forEach(input => {
+        const field = input.dataset.field;
+        const commit = () => {
+          const value = input.value.trim();
+          // Re-render on cancel/duplicate too, so the + comes back and the
+          // input clears without a bespoke reset path.
+          if (!value || (chipValues[field] || []).includes(value)) {
+            return this.mountDetailView(container);
+          }
+          return saveChips(field, [...(chipValues[field] || []), value]);
+        };
+        input.addEventListener('keydown', e => {
+          if (e.key === 'Enter') { e.preventDefault(); commit(); }
+          if (e.key === 'Escape') this.mountDetailView(container);
+        });
+        input.addEventListener('blur', commit);
       });
 
       // Wire up action item checkboxes to persist their state
@@ -2133,6 +2162,22 @@ export class EntryView {
 
 function escHtml(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+// One editable chip row for an array field on the entry (themes, tags, life
+// areas). Every chip gets an × and the row gets a + that swaps itself for a
+// text input — written once and reused for all three rather than three
+// near-identical copies of the same markup.
+function chipEditorHtml(field, label, icon, chipClass, values, placeholder) {
+  return `
+    <div class="chip-edit-group">
+      <span class="chip-edit-label">${label}</span>
+      <div class="meta-chip-row">
+        ${values.map(v => `
+          <span class="chip ${chipClass}">${icon} ${escHtml(v)}<button class="chip-remove" data-field="${field}" data-value="${escHtml(v)}" title="Remove ${escHtml(v)}">×</button></span>`).join('')}
+        <button class="chip-add-btn" data-field="${field}" title="Add">+</button>
+        <input type="text" class="input chip-add-input hidden" data-field="${field}" placeholder="${placeholder}">
+      </div>
+    </div>`;
 }
 function getTimeOfDay() {
   const h = new Date().getHours();

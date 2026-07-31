@@ -2112,10 +2112,62 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
   background: var(--color-primary-light);
   border-color: var(--color-primary);
 }
+.entry-person-link {
+  display: inline-flex; align-items: center; gap: 5px;
+  text-decoration: none; color: inherit;
+}
 .entry-person-rel {
   font-size: 0.7rem;
   color: var(--color-text-faint);
 }
+.person-unlink-btn {
+  background: none; border: none; cursor: pointer;
+  color: var(--color-text-faint);
+  font-size: 1rem; line-height: 1;
+  padding: 0 0 0 2px;
+  border-radius: 999px;
+}
+.person-unlink-btn:hover { color: var(--color-danger); }
+
+/* ── Inline chip editors (entry Details: themes / tags / life areas) ── */
+.chip-edit-group { margin-top: 8px; }
+.chip-edit-label {
+  display: block;
+  font-size: 0.7rem; font-weight: 600;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--color-text-faint);
+  margin-bottom: 4px;
+}
+.chip-remove {
+  background: none; border: none; cursor: pointer;
+  color: inherit; opacity: 0.5;
+  font-size: 0.95rem; line-height: 1;
+  padding: 0 0 0 4px;
+}
+.chip-remove:hover { opacity: 1; color: var(--color-danger); }
+.chip-add-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px;
+  border-radius: 999px;
+  border: 1px dashed var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 1rem; line-height: 1; cursor: pointer;
+  transition: all var(--transition);
+}
+.chip-add-btn:hover {
+  border-color: var(--color-primary);
+  border-style: solid;
+  color: var(--color-primary);
+}
+.chip-add-input { width: auto; min-width: 150px; padding: 4px 10px; font-size: 0.82rem; }
+
+/* Mood card header: label on the left, "More detail" on the right */
+.mood-inline-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 4px;
+}
+.mood-inline-head .ai-section-label { margin-bottom: 0; }
 /* "Nook also spotted" — pill contains two buttons: add, and dismiss (×) so a
    wrong/stale spotted name (e.g. its person was deleted) can be cleared
    without accidentally linking it to an unrelated same-named person. */
