@@ -1872,16 +1872,18 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
   display: flex; align-items: center; gap: 6px;
   flex-shrink: 0;
 }
-.timeline-people {
-  display: flex; flex-wrap: wrap; gap: 4px;
+/* Inline editors under each day-view entry. Slightly tighter than on the
+   entry page — several of these can stack in one day. */
+.timeline-editors {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--color-border-light);
+  display: flex; flex-direction: column; gap: 10px;
 }
-.timeline-people-chip {
-  font-size: 0.72rem;
-  color: var(--color-text-muted);
-  background: var(--color-surface-offset);
-  border-radius: 10px;
-  padding: 1px 8px;
-}
+.timeline-editors .mood-face-label { display: none; }
+.timeline-editors .mood-face { padding: 4px 6px; }
+.timeline-editors .chip-edit-group { margin-top: 0; }
+.timeline-editors .entry-editor-mood .mood-faces { gap: 4px; }
 .timeline-edit-btn {
   background: none; border: none; cursor: pointer;
   font-size: 0.72rem; color: var(--color-text-muted);

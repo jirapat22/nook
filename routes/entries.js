@@ -92,7 +92,23 @@ router.get('/', async (req, res) => {
     params.push(parseInt(limit), parseInt(offset));
 
     const result = await db.query(query, params);
-    res.json(result.rows);
+
+    // Attach linked people to each row. detected_people (already selected
+    // above) is only the AI's raw guesses — it carries no person_id or
+    // mention id, so it can't back an unlink/edit affordance. One extra
+    // query for the whole page rather than one per row.
+    const ids = result.rows.map(r => r.id);
+    const byEntry = {};
+    if (ids.length) {
+      const mentions = await db.query(`
+        SELECT pm.id, pm.entry_id, pm.person_id, p.name, p.relationship_type
+        FROM person_mentions pm
+        JOIN people p ON p.id = pm.person_id
+        WHERE pm.entry_id = ANY($1::uuid[])
+      `, [ids]);
+      for (const m of mentions.rows) (byEntry[m.entry_id] ||= []).push(m);
+    }
+    res.json(result.rows.map(r => ({ ...r, people_mentions: byEntry[r.id] || [] })));
   } catch (err) {
     console.error('GET /api/entries error:', err);
     res.status(500).json({ error: 'Failed to fetch entries', code: 'DB_ERROR' });

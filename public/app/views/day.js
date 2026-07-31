@@ -2,6 +2,7 @@ import { api, showToast } from '../app.js';
 import { dayActivityKeys, renderActivityChips } from '../components/activities.js';
 import { assert } from '../report.js';
 import { renderMarkdown } from '../markdown.js';
+import { moodEditorHtml, detailsEditorHtml, peopleEditorHtml, wireEntryEditors } from '../components/entryEditors.js';
 
 export class DayView {
   constructor(params = []) {
@@ -97,6 +98,14 @@ export class DayView {
       });
     });
 
+    // Wire each entry's inline editors against its own block, so the shared
+    // component's selectors stay scoped per entry rather than colliding
+    // across a day with several entries.
+    container.querySelectorAll('.timeline-entry').forEach(block => {
+      const entry = entries.find(e => e.id === block.dataset.entryId);
+      if (entry) wireEntryEditors(block, entry, () => this.mount(container));
+    });
+
     container.querySelector('#day-sleep-chip')?.addEventListener('click', () => {
       // Target the entry that already holds the value (editing), or the most
       // recent entry of the day (setting it for the first time).
@@ -163,23 +172,29 @@ function timelineEntry(entry) {
   // Show full AI recap if available, otherwise fall back to content preview (no truncation)
   const bodyText = entry.first_person_summary || entry.ai_summary || entry.important_today || entry.content_preview || 'Entry recorded';
 
-  const people = Array.isArray(entry.detected_people) ? entry.detected_people.filter(p => p && p.name) : [];
-
   return `
-    <div class="timeline-entry">
+    <div class="timeline-entry" data-entry-id="${entry.id}">
       <div class="timeline-rail">
         <div class="timeline-time">${time}</div>
         <div class="timeline-dot ${mCls}"></div>
       </div>
       <div class="timeline-body">
         <div class="timeline-body-header">
-          ${people.length ? `<div class="timeline-people">${people.map(p => `<span class="timeline-people-chip">👤 ${escHtml(p.name)}</span>`).join('')}</div>` : '<span></span>'}
+          <span></span>
           <div class="timeline-body-header-right">
             ${entry.has_love_life_content ? '<span class="entry-card-love" style="font-size:0.8rem">💕</span>' : ''}
-            <button class="timeline-edit-btn" data-id="${entry.id}" title="Open entry">Edit ✏️</button>
+            <button class="timeline-edit-btn" data-id="${entry.id}" title="Open entry">Open ↗</button>
           </div>
         </div>
         <div class="timeline-summary md-content">${renderMarkdown(bodyText)}</div>
+        <!-- Mood / details / people, editable right here. This is where you
+             land when you tap an entry from Home, so needing to open the entry
+             page first just to fix a mood was a step too many. -->
+        <div class="timeline-editors">
+          ${moodEditorHtml(entry)}
+          ${detailsEditorHtml(entry)}
+          ${peopleEditorHtml(entry)}
+        </div>
       </div>
     </div>`;
 }
