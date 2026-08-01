@@ -64,6 +64,23 @@ const APP_PASSWORD = process.env.APP_PASSWORD || '';
 const EXPECTED_TOKEN = APP_PASSWORD
   ? crypto.createHash('sha256').update(APP_PASSWORD).digest('hex')
   : null;
+
+// Failing open is fine on localhost, but on a public host it means the whole
+// journal — entries, people, notes — is readable AND writable by anyone with
+// the URL, silently. So: warn locally, refuse to serve the API in production.
+// (`/health` is deliberately outside /api/* so Railway's healthcheck still
+// passes and this doesn't turn into a restart loop.)
+const IS_HOSTED = !!(process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production');
+if (!EXPECTED_TOKEN) {
+  console.warn('');
+  console.warn('  ⚠️  APP_PASSWORD is not set — the API is UNAUTHENTICATED.');
+  console.warn('     Every /api/* route would be open to anyone with this URL,');
+  console.warn('     including reading and deleting entries.');
+  console.warn(IS_HOSTED
+    ? '     Refusing to serve /api/* until APP_PASSWORD is set.'
+    : '     Allowed here because this looks like local development.');
+  console.warn('');
+}
 // orbit-summary stays public (Orbit's widget fetches it); login is how you
 // get in; orbit/webhook is authenticated separately below via the shared
 // ORBIT_INGEST_SECRET (X-API-Key), not the app password — Orbit calling in
@@ -80,8 +97,17 @@ app.post('/api/login', (req, res) => {
 });
 
 app.use((req, res, next) => {
-  if (!EXPECTED_TOKEN) return next();                  // auth disabled
   if (!req.path.startsWith('/api/')) return next();    // app shell + static stay open
+  // No password configured on a hosted deploy: serve nothing rather than
+  // serve everything. Static assets still load so the app can render and
+  // explain itself instead of just hanging.
+  if (!EXPECTED_TOKEN && IS_HOSTED) {
+    return res.status(503).json({
+      error: 'This Nook has no APP_PASSWORD set, so its API is disabled. Set APP_PASSWORD in the server environment to unlock it.',
+      code: 'AUTH_NOT_CONFIGURED',
+    });
+  }
+  if (!EXPECTED_TOKEN) return next();                  // local dev, auth disabled
   if (AUTH_EXEMPT.has(req.path)) return next();
   const tok = (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || req.headers['x-app-token'] || '';
   if (tok && tok === EXPECTED_TOKEN) return next();
@@ -308,10 +334,10 @@ app.get('/api/orbit-summary', async (req, res) => {
     const today = new Date();
     const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
 
-    // Last entry — for freshness + a short snippet
+    // Last entry — for freshness only. Entry text is deliberately not
+    // selected: this endpoint is public (see the stat line below).
     const lastEntry = await db.query(`
-      SELECT date, created_at,
-             COALESCE(important_today, ai_summary, '') AS snippet
+      SELECT date, created_at
       FROM entries
       ORDER BY date DESC, created_at DESC
       LIMIT 1
@@ -354,11 +380,13 @@ app.get('/api/orbit-summary', async (req, res) => {
     const status = daysSince <= 1 ? 'active' : daysSince <= 3 ? 'warning' : 'paused';
 
     const streakLabel = streak > 0 ? `🔥 ${streak}-day streak` : 'No streak';
-    const snippet = (last.snippet || '').trim().slice(0, 80);
     const freshness = daysSince === 0 ? 'today' : daysSince === 1 ? 'yesterday' : `${daysSince} days ago`;
-    const stat = snippet
-      ? `${streakLabel} · ${freshness}: "${snippet}${last.snippet && last.snippet.length > 80 ? '…' : ''}"`
-      : `${streakLabel} · last entry ${freshness}`;
+    // Deliberately no entry text here. This endpoint is exempt from the auth
+    // gate so Orbit's widget can poll it, which meant the snippet — a line of
+    // the latest entry, names and all — was world-readable to anyone who
+    // found the URL. Streak and freshness convey the same "am I keeping up?"
+    // signal without publishing any journal content.
+    const stat = `${streakLabel} · last entry ${freshness}`;
 
     res.json({
       label: 'Journal',

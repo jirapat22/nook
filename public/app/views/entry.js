@@ -907,8 +907,17 @@ export class EntryView {
       if (!this.analysis && rawContent.trim()) this.backgroundAnalyze(saved.id, rawContent);
       setTimeout(() => { location.hash = '#home'; }, 1200);
     } catch (err) {
-      showToast('Could not save — please try again', 'error');
       this._isSaving = false;
+      if (err?.queued) {
+        // The service worker stored this write and will replay it on
+        // reconnect. Telling the user it failed made them save again, which
+        // produced a duplicate entry once the queued copy went through.
+        this.clearDraft();
+        showToast("You're offline — this entry will save when you reconnect 🌿", 'success');
+        setTimeout(() => { location.hash = '#home'; }, 1600);
+        return;
+      }
+      showToast('Could not save — please try again', 'error');
       if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save entry'; }
       if (inlineBtn) { inlineBtn.disabled = false; inlineBtn.textContent = '💾 Save what I said'; }
     }

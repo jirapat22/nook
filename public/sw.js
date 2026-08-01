@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nook-v90';
+const CACHE_NAME = 'nook-v91';
 const API_CACHE  = 'nook-api-v1'; // separate cache for GET API responses
 const STATIC_ASSETS = [
   '/',
@@ -40,8 +40,12 @@ self.addEventListener('install', event => {
 });
 
 // Page-triggered activation — the only path that should ever fire this.
+// FLUSH_QUEUE is how queued offline mutations actually get retried: the
+// Background Sync event below never fires on Firefox or Safari, so without a
+// page-driven trigger a queued entry sat in IndexedDB forever.
 self.addEventListener('message', event => {
   if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+  if (event.data?.type === 'FLUSH_QUEUE') event.waitUntil(flushQueue());
 });
 
 // Activate: clean old caches (keep current static cache + API cache)
@@ -164,6 +168,9 @@ async function queueRequest(request) {
       timestamp: Date.now(),
     });
     db.close();
+    // Best-effort Background Sync registration for browsers that have it;
+    // the page's FLUSH_QUEUE message covers the ones that don't.
+    try { await self.registration.sync?.register('nook-sync-queue'); } catch {}
   } catch (e) {
     console.error('SW: failed to queue request', e);
   }
@@ -182,35 +189,63 @@ self.addEventListener('notificationclick', event => {
   );
 });
 
-// Sync queued requests when back online
+// Sync queued requests when back online. Background Sync only exists in
+// Chromium — Firefox and Safari never fire this — so it's a bonus trigger,
+// not the mechanism. The page-driven FLUSH_QUEUE message above is what
+// actually drains the queue everywhere.
 self.addEventListener('sync', event => {
   if (event.tag === 'nook-sync-queue') {
     event.waitUntil(flushQueue());
   }
 });
 
-async function flushQueue() {
-  try {
-    const db = await openQueueDB();
-    const tx = db.transaction('queue', 'readwrite');
-    const store = tx.objectStore('queue');
-    const all = await promisifyRequest(store.getAll());
+let flushing = false;
 
-    for (const item of all) {
+async function flushQueue() {
+  if (flushing) return;           // don't let load + online double-run it
+  flushing = true;
+  let db;
+  try {
+    db = await openQueueDB();
+    // Read the backlog in its own short transaction and let it commit before
+    // any network work starts.
+    const readTx = db.transaction('queue', 'readonly');
+    const items = await promisifyRequest(readTx.objectStore('queue').getAll());
+    if (!items.length) { db.close(); return; }
+
+    let synced = 0;
+    for (const item of items) {
+      let res;
       try {
-        await fetch(item.url, {
+        res = await fetch(item.url, {
           method: item.method,
           headers: item.headers,
           body: item.body || undefined,
         });
-        await promisifyRequest(store.delete(item.id));
-      } catch (e) {
-        console.warn('SW: retry failed for queued item', item.url);
+      } catch {
+        break;                    // still offline — keep the rest for later
       }
+      // Only drop an item once the server has actually accepted it. A 5xx or
+      // a 401 (expired token) must stay queued, or the entry is lost for good.
+      if (!res.ok) break;
+      // A fresh transaction per delete: an IndexedDB transaction goes inactive
+      // across an await, so the previous single-transaction version threw
+      // TransactionInactiveError on the first delete after a fetch.
+      const delTx = db.transaction('queue', 'readwrite');
+      await promisifyRequest(delTx.objectStore('queue').delete(item.id));
+      synced++;
     }
     db.close();
+
+    if (synced) {
+      const list = await self.clients.matchAll({ includeUncontrolled: true });
+      for (const c of list) c.postMessage({ type: 'QUEUE_SYNCED', count: synced });
+    }
   } catch (e) {
+    try { db?.close(); } catch {}
     console.error('SW: flushQueue error', e);
+  } finally {
+    flushing = false;
   }
 }
 

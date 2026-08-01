@@ -646,7 +646,7 @@ export class PersonView {
         <div class="back-btn" id="back-btn">← People</div>
 
         <div class="person-profile-header">
-          <div class="person-profile-avatar${person.photo_url ? ' has-photo' : ''}">${person.photo_url ? `<img src="${person.photo_url}" alt="">` : escHtml(initials)}</div>
+          <div class="person-profile-avatar${person.photo_url ? ' has-photo' : ''}">${person.photo_url ? `<img src="${escHtml(person.photo_url)}" alt="">` : escHtml(initials)}</div>
           <div class="person-profile-title">
             <h2>${escHtml(person.name)}</h2>
             <p>${person.relationship_type ? capitalize(person.relationship_type) : 'Person'}${person.subgroup ? ` · <span class="person-subgroup-chip">${escHtml(person.subgroup)}</span>` : ''} · ${person.mention_count || 0} mention${person.mention_count !== 1 ? 's' : ''}</p>
@@ -681,7 +681,7 @@ export class PersonView {
           <div class="introduced-list">
             ${person.introduced.map(p => `
               <a href="#person/${p.id}" class="introduced-chip">
-                ${p.photo_url ? `<img src="${p.photo_url}" alt="">` : `<span class="introduced-chip-initials">${escHtml((p.name[0] || '?').toUpperCase())}</span>`}
+                ${p.photo_url ? `<img src="${escHtml(p.photo_url)}" alt="">` : `<span class="introduced-chip-initials">${escHtml((p.name[0] || '?').toUpperCase())}</span>`}
                 <span>${escHtml(p.name)}</span>
               </a>`).join('')}
           </div>
@@ -859,7 +859,7 @@ export class PersonView {
         <div class="modal-title">Edit ${escHtml(person.name)}</div>
         <div class="form-group photo-upload-group">
           <div class="photo-upload-preview" id="edit-photo-preview">
-            ${person.photo_url ? `<img src="${person.photo_url}" alt="">` : `<span class="photo-upload-initials">${initials}</span>`}
+            ${person.photo_url ? `<img src="${escHtml(person.photo_url)}" alt="">` : `<span class="photo-upload-initials">${initials}</span>`}
           </div>
           <div class="photo-upload-actions">
             <label class="btn btn-secondary btn-sm" for="edit-photo-file">📷 ${person.photo_url ? 'Change' : 'Add'} photo</label>
@@ -1010,7 +1010,7 @@ function personCard(p) {
   const sentiment = parseFloat(p.avg_sentiment) || 0;
   const sentCls = sentiment > 1 ? 'sentiment-positive' : sentiment < -1 ? 'sentiment-negative' : 'sentiment-neutral';
   const sentIcon = sentiment > 1 ? '😊' : sentiment < -1 ? '😟' : '😐';
-  const avatarInner = p.photo_url ? `<img src="${p.photo_url}" alt="">` : escHtml(initials);
+  const avatarInner = p.photo_url ? `<img src="${escHtml(p.photo_url)}" alt="">` : escHtml(initials);
 
   return `
     <div class="person-card" data-id="${p.id}">

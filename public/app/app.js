@@ -545,6 +545,24 @@ async function init() {
       if (document.visibilityState === 'visible') _swReg?.update().catch(() => {});
     });
     setInterval(() => { _swReg?.update().catch(() => {}); }, 30 * 60 * 1000);
+
+    // Drain any mutations the service worker queued while offline. Nothing
+    // used to trigger this: the SW only listened for a Background Sync event
+    // that no code ever registered — and that Firefox/Safari never fire
+    // anyway — so an entry saved during a network blip was written to
+    // IndexedDB and never sent. Ask on startup and whenever we come back
+    // online; the SW no-ops when the queue is empty.
+    const flushQueued = () => navigator.serviceWorker.ready
+      .then(reg => reg.active?.postMessage({ type: 'FLUSH_QUEUE' }))
+      .catch(() => {});
+    flushQueued();
+    window.addEventListener('online', flushQueued);
+    navigator.serviceWorker.addEventListener('message', e => {
+      if (e.data?.type !== 'QUEUE_SYNCED') return;
+      const n = e.data.count;
+      showToast(`Synced ${n} change${n === 1 ? '' : 's'} saved while offline`, 'success');
+      handleRoute(); // re-render so the synced entry actually shows up
+    });
   }
 
   // Timeout settings fetch — without this, a slow API on first load blocks
