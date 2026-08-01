@@ -88,11 +88,15 @@ export function wireEntryEditors(root, entry, onChanged) {
   const save = async (patch, successMsg) => {
     try {
       await api.put(`/api/entries/${entryId}`, patch);
-      if (successMsg) showToast(successMsg, 'success');
-      await refresh();
     } catch {
       showToast('Could not save — try again', 'error');
+      return;
     }
+    // Refresh outside the try: the write already succeeded, so a failure to
+    // re-render (a network blip on the refetch) must not report itself as
+    // "could not save" on a change that did land.
+    if (successMsg) showToast(successMsg, 'success');
+    await refresh();
   };
 
   // ── Mood ──
@@ -149,11 +153,12 @@ export function wireEntryEditors(root, entry, onChanged) {
         // Same endpoint as the person profile's unlink — it also strips the
         // name from detected_people so it can't resurface as "Nook spotted".
         await api.delete(`/api/people/mention/${mentionId}`);
-        showToast(`Removed ${name}`, '');
-        await refresh();
       } catch {
         showToast('Could not remove', 'error');
+        return;
       }
+      showToast(`Removed ${name}`, '');
+      await refresh();
     });
   });
 

@@ -326,8 +326,9 @@ export class PeopleView {
       notesError.classList.add('hidden');
       const aliases = aliasesInput.value
         .split(',').map(s => s.trim()).filter(s => s.length > 0);
+      let created;
       try {
-        const created = await api.post('/api/people', {
+        created = await api.post('/api/people', {
           name,
           aliases,
           relationship_type: modal.querySelector('#person-type').value,
@@ -336,13 +337,17 @@ export class PeopleView {
           subgroup: readSubgroup(modal),
           introduced_by_id: modal.querySelector('#person-introduced-by').value || null,
         });
-        modal.remove();
-        showToast('Person added!', 'success');
-        await this.loadPeople();
-        await runBackfillReview(created);
       } catch {
         showToast('Could not add person', 'error');
+        return;
       }
+      // The person exists from here on — a failure refreshing the list or
+      // scanning for past mentions must not report itself as "could not add"
+      // with the modal already dismissed and the person actually created.
+      modal.remove();
+      showToast('Person added!', 'success');
+      await this.loadPeople();
+      await runBackfillReview(created);
     });
 
     // Auto-suggest common nicknames as the user types the name
@@ -749,6 +754,7 @@ export class PersonView {
       const btn = e.currentTarget;
       btn.disabled = true;
       btn.textContent = 'Scanning…';
+      let scanned = false;
       try {
         const candidates = await api.get(`/api/people/${person.id}/backfill-candidates`);
         if (!candidates.length) {
@@ -757,9 +763,14 @@ export class PersonView {
           btn.textContent = 'Find past mentions';
           return;
         }
+        scanned = true;
         await showBackfillReviewPrompt(person, candidates);
         await this.mount(container); // refresh mentions list/count with whatever got linked
       } catch {
+        // Only the scan itself failing is worth reporting as a scan failure —
+        // past that point the linking already happened and this is a
+        // re-render problem.
+        if (scanned) return;
         showToast('Could not scan for mentions', 'error');
         btn.disabled = false;
         btn.textContent = 'Find past mentions';
@@ -773,11 +784,14 @@ export class PersonView {
         if (!confirm(`Unlink this mention from ${person.name}? The journal entry itself is unaffected.`)) return;
         try {
           await api.delete(`/api/people/mention/${btn.dataset.id}`);
-          showToast('Mention unlinked', 'success');
-          await this.mount(container);
         } catch {
           showToast('Could not unlink', 'error');
+          return;
         }
+        // Refresh outside the try — the unlink already happened, so a failed
+        // re-render must not report it as a failed unlink.
+        showToast('Mention unlinked', 'success');
+        await this.mount(container);
       });
     });
   }

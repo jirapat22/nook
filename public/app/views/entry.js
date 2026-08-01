@@ -1634,10 +1634,11 @@ export class EntryView {
             .filter(p => String(p?.name || '').trim().toLowerCase() !== nameLC);
           try {
             await api.put(`/api/entries/${this.entryId}`, { detected_people: updated });
-            await this.mountDetailView(container);
           } catch {
             showToast('Could not dismiss — try again', 'error');
+            return;
           }
+          await this.mountDetailView(container);
         });
       });
 
@@ -1685,6 +1686,7 @@ export class EntryView {
         if (!content) { showToast('Nothing to analyse yet', ''); return; }
         reanalyseBtn.disabled = true;
         reanalyseBtn.textContent = '✨ Analysing…';
+        let reanalysed = false;
         try {
           const a = await api.post('/api/ai/analyze', { content });
           // Only fill mood when the entry has none — don't clobber a manual rating.
@@ -1694,8 +1696,13 @@ export class EntryView {
             await this.linkPeopleMentions(this.entryId, a.people_mentioned);
           }
           showToast('Re-analysed ✓', 'success');
+          reanalysed = true;
           await this.mountDetailView(container);
         } catch (err) {
+          // A failure after `reanalysed` is set came from the re-render, not
+          // the analysis — don't tell the user the analysis failed when it
+          // already saved.
+          if (reanalysed) return;
           showToast(err.message || 'AI analysis unavailable — try again', 'error');
           reanalyseBtn.disabled = false;
           reanalyseBtn.textContent = firstPerson || entry.ai_summary ? '✨ Re-analyse' : '✨ Generate summary';
@@ -1735,13 +1742,14 @@ export class EntryView {
           saveBtn.textContent = 'Saving…';
           try {
             await api.put(`/api/entries/${this.entryId}`, { user_edited_content: newContent });
-            showToast('Entry updated ✓', 'success');
-            await this.mountDetailView(container);
           } catch {
             showToast('Could not save — please try again', 'error');
             saveBtn.disabled = false;
             saveBtn.textContent = 'Save changes';
+            return;
           }
+          showToast('Entry updated ✓', 'success');
+          await this.mountDetailView(container);
         });
       });
 
@@ -1855,14 +1863,18 @@ export class EntryView {
       saveBtn.textContent = 'Saving…';
       try {
         await api.put(`/api/entries/${this.entryId}`, payload);
-        modal.remove();
-        showToast('Mood updated ✓', 'success');
-        await this.mountDetailView(parentContainer);
       } catch {
         showToast('Could not save mood', 'error');
         saveBtn.disabled = false;
         saveBtn.textContent = 'Save';
+        return;
       }
+      // Past this point the write landed — dismiss and refresh outside the
+      // try so a failed refetch can't claim the save failed with the modal
+      // already gone and the change actually persisted.
+      modal.remove();
+      showToast('Mood updated ✓', 'success');
+      await this.mountDetailView(parentContainer);
     });
   }
 
@@ -1898,14 +1910,15 @@ export class EntryView {
       saveBtn.textContent = 'Adding…';
       try {
         await api.post(`/api/entries/${this.entryId}/followup`, { text, question });
-        modal.remove();
-        showToast('Added ✓', 'success');
-        await this.mountDetailView(parentContainer);
       } catch {
         showToast('Could not add — try again', 'error');
         saveBtn.disabled = false;
         saveBtn.textContent = 'Add to this entry';
+        return;
       }
+      modal.remove();
+      showToast('Added ✓', 'success');
+      await this.mountDetailView(parentContainer);
     });
   }
 

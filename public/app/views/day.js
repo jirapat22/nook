@@ -10,14 +10,20 @@ export class DayView {
     this.container = null;
   }
 
-  async mount(container) {
+  // `quiet` re-renders in place after an inline edit: no spinner (blanking the
+  // container collapses its height and clamps the scroller to the top, which
+  // threw you back to the top of the day every time you tapped a mood on the
+  // third entry down) and the scroll position is restored afterwards.
+  async mount(container, { quiet = false } = {}) {
     this.container = container;
     if (!this.dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(this.dateStr)) {
       location.hash = '#home';
       return;
     }
 
-    container.innerHTML = '<div class="loading-spinner"></div>';
+    const scroller = document.getElementById('app-content');
+    const savedScroll = quiet ? scroller?.scrollTop ?? 0 : 0;
+    if (!quiet) container.innerHTML = '<div class="loading-spinner"></div>';
 
     let entries = [];
     try {
@@ -103,8 +109,10 @@ export class DayView {
     // across a day with several entries.
     container.querySelectorAll('.timeline-entry').forEach(block => {
       const entry = entries.find(e => e.id === block.dataset.entryId);
-      if (entry) wireEntryEditors(block, entry, () => this.mount(container));
+      if (entry) wireEntryEditors(block, entry, () => this.mount(container, { quiet: true }));
     });
+
+    if (quiet && scroller) scroller.scrollTop = savedScroll;
 
     container.querySelector('#day-sleep-chip')?.addEventListener('click', () => {
       // Target the entry that already holds the value (editing), or the most
@@ -142,13 +150,16 @@ export class DayView {
       saveBtn.disabled = true;
       try {
         await api.put(`/api/entries/${entryId}`, { sleep_hours: value });
-        modal.remove();
-        showToast(value == null ? 'Sleep cleared' : `Sleep saved — ${value}h`, 'success');
-        await this.mount(this.container);
       } catch {
         showToast('Could not save — try again', 'error');
         saveBtn.disabled = false;
+        return;
       }
+      // Re-render outside the try — the write landed, so a failed refetch
+      // must not re-enable the button and claim the save failed.
+      modal.remove();
+      showToast(value == null ? 'Sleep cleared' : `Sleep saved — ${value}h`, 'success');
+      await this.mount(this.container, { quiet: true });
     };
 
     modal.querySelector('#sleep-save').addEventListener('click', () => {
