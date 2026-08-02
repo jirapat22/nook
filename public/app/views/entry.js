@@ -4,6 +4,7 @@ import { AiPanel }         from '../components/aiPanel.js';
 import { LoveLifeSection } from '../components/loveLifeSection.js';
 import { renderMoodFaces, wireMoodFaces } from '../components/moodFaces.js';
 import { moodEditorHtml, detailsEditorHtml, peopleEditorHtml, wireEntryEditors } from '../components/entryEditors.js';
+import { savePendingAudio, loadPendingAudio, clearPendingAudio } from '../components/pendingAudio.js';
 import { analysisToPayload } from '../analyze-helpers.js';
 import { renderMarkdown } from '../markdown.js';
 import { populateSubgroupAndIntroducedBy, readSubgroup, getNicknamesFor, runBackfillReview, nameCollides } from './people.js';
@@ -262,6 +263,23 @@ export class EntryView {
     const recStatus = mc.querySelector('#rec-status');
     const transcript = mc.querySelector('#transcript-display');
 
+    // Offer back any recording that failed to transcribe in a previous
+    // session. Without this, reloading after a transcription error — the most
+    // natural reaction to one — silently destroyed the audio.
+    loadPendingAudio().then(rec => {
+      if (!rec || this._destroyed) return;
+      const when = new Date(rec.savedAt).toLocaleString('en-GB', {
+        weekday: 'short', hour: '2-digit', minute: '2-digit',
+      });
+      this._lastAudioBlob = rec.blob;
+      transcript.classList.remove('placeholder');
+      transcript.innerHTML = `
+        <div style="color:var(--color-text);margin-bottom:6px"><strong>You have a recording that never transcribed</strong></div>
+        <div style="font-size:0.8rem;color:var(--color-text-muted);margin-bottom:10px">Recorded ${escHtml(when)} · still saved on this device.</div>`;
+      hint.textContent = 'Retry it, or discard to record fresh';
+      this.injectRetryTranscribeButton(transcript, rec.blob, { micBtn, hint });
+    }).catch(() => {});
+
     // BUG FIX: use onclick (not addEventListener) — guarantees only one handler
     const doStop = () => {
       if (this.recorder && this.recorder.isRecording) {
@@ -420,6 +438,9 @@ export class EntryView {
         return;
       }
       this.rawContent = text;
+      // Transcribed successfully — the audio has done its job and the text is
+      // now the thing worth keeping.
+      clearPendingAudio();
       this.saveDraft(text);
       this.showActionBar();
       this.injectInlineSaveButton(transcript);
@@ -433,9 +454,12 @@ export class EntryView {
       const msg = aborted ? 'Transcription took too long.' : (err.message || 'Transcription failed.');
       showToast(msg, 'error');
       // Use textContent for the message itself (XSS-safe) and innerHTML only for structure
+      // Persist before rendering the error: a failure is exactly when the user
+      // is most likely to reload, and the blob otherwise only exists in memory.
+      savePendingAudio(audioBlob, { mode: this.mode });
       transcript.innerHTML = `
         <div style="color:var(--color-text);margin-bottom:6px"><strong class="js-err-msg"></strong></div>
-        <div style="font-size:0.8rem;color:var(--color-text-muted);margin-bottom:10px">Your audio is still here — you can try again.</div>`;
+        <div style="font-size:0.8rem;color:var(--color-text-muted);margin-bottom:10px">Your audio is saved — you can try again, even after a reload.</div>`;
       transcript.querySelector('.js-err-msg').textContent = msg;
       this.injectRetryTranscribeButton(transcript, audioBlob, { micBtn, hint });
     } finally {
@@ -465,6 +489,7 @@ export class EntryView {
     });
     wrap.querySelector('#discard-audio-btn').addEventListener('click', () => {
       this._lastAudioBlob = null;
+      clearPendingAudio(); // or it would be offered again on the next load
       transcript.textContent = 'Your words will appear here after recording...';
       transcript.classList.add('placeholder');
       hint.textContent = 'Tap to start recording';
@@ -512,6 +537,10 @@ export class EntryView {
 
         // Preserve the blob so transcription can be retried without re-recording
         this._lastAudioBlob = (audioBlob && audioBlob.size > 0) ? audioBlob : null;
+        // Persist immediately, before transcription is even attempted — a tab
+        // crash or a closed laptop mid-request would otherwise lose it just as
+        // surely as an error would. Cleared as soon as it transcribes.
+        if (this._lastAudioBlob) savePendingAudio(this._lastAudioBlob, { mode: this.mode });
 
         if (!audioBlob || audioBlob.size === 0) {
           hint.textContent = '⚠️ No audio captured';
