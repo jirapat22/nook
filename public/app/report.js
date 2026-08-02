@@ -4,7 +4,7 @@
 const ENDPOINT = '/api/reports';
 const OUTBOX_KEY = 'nook_report_outbox';
 const MAX_AUTO_PER_LOAD = 25;       // funnel cap; manual + outbox bypass it
-const APP_VERSION = 'nook-v92';     // keep in step with sw.js CACHE_NAME
+const APP_VERSION = 'nook-v93';     // keep in step with sw.js CACHE_NAME
 
 let autoCount = 0;
 let installed = false;
@@ -19,14 +19,24 @@ function baseContext(extra = {}) {
   };
 }
 
+// Read the unlock token straight from storage rather than importing it from
+// app.js: app.js imports this module, and keeping this file dependency-free
+// avoids an import cycle in the one module that must never fail to load.
+// /api/reports is NOT auth-exempt, so without this every report 401s the
+// moment APP_PASSWORD is set — silently, since failures here are swallowed.
+function authToken() { try { return localStorage.getItem('nook_auth_token') || ''; } catch { return ''; } }
+
 // Low-level POST. Returns the parsed response body (e.g. { ok, id }) on
 // success, or null on failure. NEVER throws and NEVER console.errors (that
 // would recurse through the console wrapper).
 async function postReport(body) {
   try {
+    const token = authToken();
     const res = await fetch(ENDPOINT, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: token
+        ? { 'Content-Type': 'application/json', 'x-app-token': token }
+        : { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     if (!res.ok) return null;
