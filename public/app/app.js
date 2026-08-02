@@ -596,6 +596,15 @@ async function init() {
 
   renderShell();
   updateStreakDisplay(AppState.streakCount);
+  // settings.streak_count is a stored counter that's only ever written when an
+  // entry is saved, so it never decays — after a missed day the badge kept
+  // showing the old number (68) while every recomputed view said the streak
+  // was broken. Correct it from the endpoint that derives it from real entry
+  // dates. Non-blocking: the cached value renders immediately and is replaced
+  // a moment later if it was stale.
+  api.get('/api/insights/streaks')
+    .then(s => { if (typeof s?.current === 'number') updateStreakDisplay(s.current); })
+    .catch(() => {});
   updateOnlineStatus();
 
   window.addEventListener('online',  updateOnlineStatus);

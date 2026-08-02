@@ -47,8 +47,19 @@ export class VoiceRecorder {
     try {
       this.mediaRecorder = new MediaRecorder(this.stream, options);
     } catch (e) {
-      // Fallback: try without options (let browser pick)
-      this.mediaRecorder = new MediaRecorder(this.stream);
+      // Fallback: try without options (let browser pick). This second attempt
+      // used to be unguarded — if it threw too, start() threw with the mic
+      // stream still open, leaving the recording indicator lit until the view
+      // was torn down. Release the mic and report it like any other failure.
+      try {
+        this.mediaRecorder = new MediaRecorder(this.stream);
+      } catch (e2) {
+        this.stream.getTracks().forEach(t => t.stop());
+        this.stream = null;
+        this._lastError = 'Recording is not supported in this browser: ' + (e2.message || e2);
+        this.onStop(new Blob([], { type: 'audio/mp4' }));
+        return;
+      }
     }
 
     this.mediaRecorder.ondataavailable = e => {

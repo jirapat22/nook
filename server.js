@@ -1,4 +1,11 @@
 require('dotenv').config();
+// Pin the server clock to UTC before anything constructs a Date. node-postgres
+// parses a DATE column into a JS Date at *local* midnight, and this file then
+// reads it back with getUTC* while deriving "today" from local getters — which
+// only agree when the host is UTC. Railway happens to be (entry dates come
+// back as ...T00:00:00.000Z), so this changes nothing today; it stops a host
+// timezone change from silently shifting every date by a day.
+process.env.TZ = process.env.TZ || 'UTC';
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
