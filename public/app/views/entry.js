@@ -1,4 +1,4 @@
-import { api, showToast, speak, AppState, todayStr } from '../app.js';
+import { api, showToast, speak, AppState, todayStr, authHeaders } from '../app.js';
 import { VoiceRecorder }   from '../components/voiceRecorder.js';
 import { AiPanel }         from '../components/aiPanel.js';
 import { LoveLifeSection } from '../components/loveLifeSection.js';
@@ -400,11 +400,12 @@ export class EntryView {
       const ext  = audioBlob.type.includes('mp4') ? 'mp4' : audioBlob.type.includes('ogg') ? 'ogg' : 'webm';
       const form = new FormData();
       form.append('audio', audioBlob, `recording.${ext}`);
-      const res = await fetch('/api/ai/transcribe', { method: 'POST', body: form, signal: ctl.signal });
+      const res = await fetch('/api/ai/transcribe', { method: 'POST', body: form, headers: authHeaders(), signal: ctl.signal });
       clearTimeout(timeoutId);
       if (this._destroyed) return; // view torn down while transcribing
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
+        if (res.status === 401) throw new Error('Session expired — reload and unlock, your audio is kept');
         throw new Error(e.error || `Transcription failed (HTTP ${res.status})`);
       }
       const result = await res.json();
@@ -639,7 +640,7 @@ export class EntryView {
     try {
       const res = await fetch('/api/ai/analyze', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ content, conversation_history: this.conversationHistory }),
         signal: ctl.signal,
       });
@@ -746,7 +747,7 @@ export class EntryView {
             const ext = blob.type.includes('mp4') ? 'mp4' : blob.type.includes('ogg') ? 'ogg' : 'webm';
             const form = new FormData();
             form.append('audio', blob, `answer.${ext}`);
-            const res = await fetch('/api/ai/transcribe', { method: 'POST', body: form });
+            const res = await fetch('/api/ai/transcribe', { method: 'POST', body: form, headers: authHeaders() });
             if (res.ok && !this._destroyed) {
               const result = await res.json();
               input.value = (result.transcript || '').trim();

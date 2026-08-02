@@ -38,6 +38,18 @@ export function todayStr(d = new Date()) {
 // server 5xx / write-request network failures (see report.js for the policy).
 function authToken() { try { return localStorage.getItem('nook_auth_token') || ''; } catch { return ''; } }
 
+// Auth headers for the handful of call sites that need a raw fetch (abort
+// signals, streaming, custom error handling) instead of the api wrapper.
+// Those sites used to send no token at all, which was invisible while
+// APP_PASSWORD was unset and turned into a hard 401 the moment it was set —
+// audio upload and AI analysis both broke. Pass extra headers through; for
+// FormData bodies call it with no arguments so the browser still sets its
+// own multipart Content-Type (with the boundary).
+export function authHeaders(extra = {}) {
+  const token = authToken();
+  return token ? { ...extra, 'x-app-token': token } : { ...extra };
+}
+
 async function request(method, path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   const token = authToken();
