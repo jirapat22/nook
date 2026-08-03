@@ -58,6 +58,10 @@ async function groqChat(apiKey, messages, { temperature = 0.3, max_tokens = 2048
     const body = await res.text();
     const err = new Error(`Groq API error ${res.status}: ${body.slice(0, 200)}`);
     err.status = res.status;
+    // Groq sends retry-after on a 429; it knows when the token bucket refills
+    // better than any backoff we'd guess at.
+    const ra = parseFloat(res.headers.get('retry-after'));
+    err.retryAfter = Number.isFinite(ra) ? ra : null;
     throw err;
   }
   const data = await res.json();
@@ -73,6 +77,32 @@ async function groqChat(apiKey, messages, { temperature = 0.3, max_tokens = 2048
   } catch {
     throw new Error('Groq returned malformed JSON');
   }
+}
+
+// Groq's token-per-minute budget is shared across every endpoint on the key,
+// so a burst — analysing an entry and then asking for reflection questions
+// moments later — can 429 with nothing actually wrong. Those are transient by
+// definition, so wait and retry instead of surfacing a failure. Anything that
+// isn't transient (bad key, malformed request) fails immediately rather than
+// burning retries on a request that can never succeed.
+const TRANSIENT_STATUSES = new Set([429, 500, 502, 503, 504]);
+
+async function groqChatRetrying(apiKey, messages, opts = {}, maxAttempts = 3) {
+  let lastErr;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await groqChat(apiKey, messages, opts);
+    } catch (err) {
+      lastErr = err;
+      if (!TRANSIENT_STATUSES.has(err.status) || attempt === maxAttempts - 1) throw err;
+      const waitMs = err.retryAfter != null
+        ? Math.min(err.retryAfter * 1000 + 250, 12000)
+        : 1500 * (attempt + 1);
+      console.warn(`[groq] ${err.status} — retrying in ${waitMs}ms (attempt ${attempt + 1}/${maxAttempts})`);
+      await sleep(waitMs);
+    }
+  }
+  throw lastErr;
 }
 
 // Resilient analysis: try the primary model, a short backoff retry, then a
@@ -175,6 +205,17 @@ router.post('/transcribe', upload.single('audio'), async (req, res) => {
     if (!groqRes.ok) {
       const body = await groqRes.text();
       console.error('Groq transcription error:', body);
+      // A rate limit here is load, not a fault. 502 would be funnelled into
+      // the bug inbox as a crash (the reporter files anything >= 500); the
+      // recording is kept locally either way, so retrying actually works.
+      if (groqRes.status === 429) {
+        const ra = parseFloat(groqRes.headers.get('retry-after'));
+        return res.status(429).json({
+          error: "Nook's AI is busy right now — your recording is saved, try again in a moment.",
+          code: 'AI_RATE_LIMIT',
+          retry_after: Math.ceil(Number.isFinite(ra) ? ra : 30),
+        });
+      }
       return res.status(502).json({
         error: 'Transcription failed. Your entry is saved without AI analysis.',
         code: 'TRANSCRIPTION_FAILED',
@@ -488,6 +529,16 @@ TENSE MATTERS: if the open thread is something PLANNED FOR THE FUTURE relative t
     // status/message (rate limit, invalid key, malformed JSON, etc.) instead
     // of letting the generic client-facing message become the report body.
     res.locals._reported = true;
+    // Same as /reflect: a 429 that outlived analyzeResilient's whole retry
+    // plan is load, not a defect. 429 (not 500) keeps it out of the crash
+    // funnel, and the entry itself is already saved either way.
+    if (err.status === 429) {
+      return res.status(429).json({
+        error: "Nook's AI is busy right now — your entry is saved, analysis will retry later.",
+        code: 'AI_RATE_LIMIT',
+        retry_after: Math.ceil(err.retryAfter || 30),
+      });
+    }
     reportHandled(err, { method: req.method, path: req.originalUrl, groqStatus: err.status });
     res.status(500).json({
       error: 'AI analysis unavailable — your entry is saved. We\'ll try again later.',
@@ -539,23 +590,28 @@ router.post('/reflect', async (req, res) => {
     if (!entryResult.rows.length) return res.status(404).json({ error: 'Entry not found' });
     const entry = entryResult.rows[0];
 
-    // Recent entries for pattern context
+    // Recent entries for pattern context. Deliberately small: this asks for
+    // two questions, and the key's token-per-minute budget is shared with
+    // /analyze — 15 full summaries plus a long entry was enough to 429 on its
+    // own. Six trimmed summaries still surface a recurring theme.
     const recentResult = await db.query(`
       SELECT date, ai_summary, key_themes, mood_overall
       FROM entries WHERE id != $1
-      ORDER BY date DESC LIMIT 15
+      ORDER BY date DESC LIMIT 6
     `, [entry_id]);
 
     const recentContext = recentResult.rows.length
       ? recentResult.rows.map(e =>
-          `${String(e.date).split('T')[0]}: ${e.ai_summary || '(no summary)'} [themes: ${(e.key_themes || []).join(', ')}]`
+          `${String(e.date).split('T')[0]}: ${(e.ai_summary || '(no summary)').slice(0, 200)} [themes: ${(e.key_themes || []).slice(0, 4).join(', ')}]`
         ).join('\n')
       : 'No other entries yet.';
 
     const entryDate = String(entry.date).split('T')[0];
-    const content = entry.cleaned_content || entry.raw_transcript || '';
+    // Cap the entry itself too — a long voice entry is the other half of the
+    // token bill, and the tail rarely changes which questions are worth asking.
+    const content = (entry.cleaned_content || entry.raw_transcript || '').slice(0, 4000);
 
-    const result = await groqChat(apiKey, [
+    const result = await groqChatRetrying(apiKey, [
       {
         role: 'system',
         content: `You are a warm, caring close friend who has been reading this person's journal for a while. You ask follow-up questions that feel natural and genuine — like a friend who actually listened and remembered.
@@ -581,6 +637,18 @@ Return JSON: { "questions": ["q1", "q2"] } — 2 questions max, 1-2 sentences ea
   } catch (err) {
     console.error('POST /api/ai/reflect error:', err);
     res.locals._reported = true;
+    // A rate limit that survived the retries isn't a bug — it's load, and it
+    // clears on its own. Returning 500 made the frontend's auto-reporter
+    // (which funnels status >= 500) file it as a crash, so the bug inbox
+    // filled with identical "Groq 429" reports. Answer 429 and say when to
+    // come back instead; don't report it.
+    if (err.status === 429) {
+      return res.status(429).json({
+        error: "Nook's AI is busy right now — try again in a moment.",
+        code: 'AI_RATE_LIMIT',
+        retry_after: Math.ceil(err.retryAfter || 30),
+      });
+    }
     reportHandled(err, { method: req.method, path: req.originalUrl, groqStatus: err.status });
     res.status(500).json({ error: 'Could not generate questions', code: 'AI_ERROR' });
   }
