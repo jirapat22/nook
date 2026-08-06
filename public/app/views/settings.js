@@ -1,4 +1,4 @@
-import { api, showToast, applyTheme, AppState, scheduleReminder } from '../app.js';
+import { api, showToast, applyTheme, AppState, scheduleReminder, todayStr } from '../app.js';
 import { reportManual } from '../report.js';
 import { healMissingEntries } from '../analyze-helpers.js';
 
@@ -472,12 +472,35 @@ export class SettingsView {
     container.querySelector('#tag-refresh').addEventListener('click', loadTags);
     loadTags();
 
-    // JSON export
-    container.querySelector('#export-json-btn').addEventListener('click', () => {
-      const a = document.createElement('a');
-      a.href = '/api/export/json';
-      a.download = `nook-export-${new Date().toISOString().split('T')[0]}.json`;
-      a.click();
+    // JSON export. Must go through the api wrapper, not a bare
+    // `a.href = '/api/export/json'` — a browser navigation can't carry the
+    // x-app-token header, so once APP_PASSWORD was set this downloaded a file
+    // containing {"error":"Unauthorized"} instead of the journal. It still
+    // *looked* like it worked (a .json file lands in Downloads), which is
+    // exactly why it went unnoticed: the backup was silently empty.
+    const exportBtn = container.querySelector('#export-json-btn');
+    exportBtn.addEventListener('click', async () => {
+      const label = exportBtn.textContent;
+      exportBtn.disabled = true;
+      exportBtn.textContent = 'Exporting…';
+      let url;
+      try {
+        const data = await api.get('/api/export/json');
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `nook-export-${todayStr()}.json`;
+        a.click();
+        showToast(`Exported ${data.entries?.length ?? 0} entries`, 'success');
+      } catch {
+        showToast('Export failed — try again', 'error');
+      }
+      // Revoke on a delay: revoking immediately after click() can cancel the
+      // download before the browser has read the blob.
+      if (url) setTimeout(() => URL.revokeObjectURL(url), 30000);
+      exportBtn.disabled = false;
+      exportBtn.textContent = label;
     });
 
     // Ideas & Bugs checklist — stored as a single JSONB array under the

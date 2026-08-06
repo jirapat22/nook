@@ -179,6 +179,17 @@ router.post('/dedup', async (req, res) => {
         archivedInOrbit.push({ id: dupe.id, name: dupe.name });
         // Move mentions, merge aliases, delete dupe
         await client.query('UPDATE person_mentions SET person_id = $1 WHERE person_id = $2', [keeper.id, dupe.id]);
+        // Carry "met through" edges over to the keeper — same reasoning as
+        // /:id/merge: introduced_by_id is ON DELETE SET NULL, so without this
+        // the delete below quietly erases who introduced whom.
+        await client.query(
+          'UPDATE people SET introduced_by_id = $1, updated_at = NOW() WHERE introduced_by_id = $2 AND id <> $1',
+          [keeper.id, dupe.id]
+        );
+        await client.query(
+          'UPDATE people SET introduced_by_id = NULL WHERE id = $1 AND introduced_by_id = $2',
+          [keeper.id, dupe.id]
+        );
         const mergedAliases = new Set([...accumulated, dupe.name, ...(Array.isArray(dupe.aliases) ? dupe.aliases : [])]);
         mergedAliases.delete(keeper.name);
         accumulated = [...mergedAliases]; // carry forward for next iteration
@@ -344,6 +355,22 @@ router.post('/:id/merge', async (req, res) => {
     // Move all mentions from source to target
     await client.query('UPDATE person_mentions SET person_id = $1 WHERE person_id = $2', [target_id, sourceId]);
 
+    // Re-point anyone the source introduced. introduced_by_id is ON DELETE SET
+    // NULL, so the DELETE below would otherwise silently drop every "met
+    // through <source>" edge instead of merging it — the same people are still
+    // the introducer, they just go by the target's row now. Skip the target
+    // itself so it can't end up introduced by itself.
+    await client.query(
+      'UPDATE people SET introduced_by_id = $1, updated_at = NOW() WHERE introduced_by_id = $2 AND id <> $1',
+      [target_id, sourceId]
+    );
+    // If the target was itself "introduced by" the source, that edge collapses
+    // to a self-reference on merge and is meaningless — clear it.
+    await client.query(
+      'UPDATE people SET introduced_by_id = NULL WHERE id = $1 AND introduced_by_id = $2',
+      [target_id, sourceId]
+    );
+
     // Update target aliases
     await client.query('UPDATE people SET aliases = $1, updated_at = NOW() WHERE id = $2', [JSON.stringify(newAliases), target_id]);
 
@@ -352,6 +379,15 @@ router.post('/:id/merge', async (req, res) => {
 
     const updated = await client.query('SELECT * FROM people WHERE id = $1', [target_id]);
     await client.query('COMMIT');
+
+    // Tell Orbit, once the transaction has actually committed — same ordering
+    // as DELETE /:id and /dedup. This route deletes a person exactly like they
+    // do but was the only one of the three that never notified Orbit, so a
+    // merged-away person stayed on the graph forever as a live node while
+    // Postgres had no such row.
+    markPersonDeleted(sourceId, sourceName).catch(() => {});
+    if (updated.rows[0]) syncPerson(updated.rows[0]).catch(() => {});
+
     res.json({ merged: true, person: updated.rows[0] });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});

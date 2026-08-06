@@ -250,14 +250,19 @@ export async function showLinkPersonModal(entryId, onLinked) {
         emotion_toward: null,
         link_method: 'manual',
       });
-      modal.remove();
-      showToast(`Linked ${personName} to this entry ✓`, 'success');
-      await onLinked?.();
     } catch {
       showToast('Could not link — try again', 'error');
       saveBtn.disabled = false;
       saveBtn.textContent = 'Link';
+      return;
     }
+    // Everything past here is outside the try, same as save() above: the link
+    // already landed, so a failing re-render must not report itself as "could
+    // not link" — and it can't, since the catch used to run against a modal
+    // that had just been removed.
+    modal.remove();
+    showToast(`Linked ${personName} to this entry ✓`, 'success');
+    await onLinked?.();
   });
 }
 

@@ -365,7 +365,7 @@ async function handleRoute() {
   container.scrollTop = 0;
 
   // Watchdog: if mount stalls (hung fetch, infinite await), show a recoverable
-  // error after 12s instead of leaving the user staring at the spinner / blank.
+  // error after 6s instead of leaving the user staring at the spinner / blank.
   let watchdogFired = false;
   const watchdog = setTimeout(() => {
     watchdogFired = true;

@@ -5,23 +5,12 @@ const FormData = require('form-data');
 const fetch = require('node-fetch');
 const db = require('../db/db');
 const { reportHandled } = require('../lib/reports');
+const {
+  PRIMARY_MODEL, FALLBACK_MODEL, sleep,
+  getGroqKey, groqChat, groqChatRetrying, sendIfRateLimited,
+} = require('../lib/groq');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
-
-// Helper: get Groq API key from settings or environment
-async function getGroqKey() {
-  // Prefer env var (Railway secret)
-  if (process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== 'your_groq_api_key_here') {
-    return process.env.GROQ_API_KEY;
-  }
-  // Fall back to DB setting
-  const row = await db.query("SELECT value FROM settings WHERE key = 'groq_api_key'");
-  const val = row.rows[0]?.value;
-  if (val && val !== 'null' && val !== '"null"') {
-    return val.replace(/^"|"$/g, '');
-  }
-  return null;
-}
 
 // Escape a string so it can be used safely inside a RegExp pattern
 function escapeRegex(s) {
@@ -31,79 +20,6 @@ function escapeRegex(s) {
 // Fixed activity vocabulary — used both in the analyze prompt and to validate
 // what comes back. Keep in sync with the client's components/activities.js.
 const ACTIVITY_KEYS = ['work','gym','social','family','food','shopping','chores','travel','hobby','rest','health','study','date','outdoors'];
-
-// Primary model is higher quality; fallback is far cheaper with much higher
-// rate limits, so analysis still completes when the primary is throttled.
-const PRIMARY_MODEL = 'llama-3.3-70b-versatile';
-const FALLBACK_MODEL = 'llama-3.1-8b-instant';
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-
-// Helper: call Groq chat completion
-async function groqChat(apiKey, messages, { temperature = 0.3, max_tokens = 2048, model = PRIMARY_MODEL } = {}) {
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature,
-      max_tokens,
-      response_format: { type: 'json_object' },
-    }),
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    const err = new Error(`Groq API error ${res.status}: ${body.slice(0, 200)}`);
-    err.status = res.status;
-    // Groq sends retry-after on a 429; it knows when the token bucket refills
-    // better than any backoff we'd guess at.
-    const ra = parseFloat(res.headers.get('retry-after'));
-    err.retryAfter = Number.isFinite(ra) ? ra : null;
-    throw err;
-  }
-  const data = await res.json();
-  const choice = data.choices?.[0];
-  if (!choice) throw new Error('Groq returned no choices');
-  // finish_reason 'length' means the JSON was cut off mid-stream — parsing it
-  // would throw anyway, but flag it explicitly so the caller/logs are clear.
-  if (choice.finish_reason === 'length') {
-    throw new Error('Groq response truncated (hit max_tokens) — raise the limit');
-  }
-  try {
-    return JSON.parse(choice.message.content);
-  } catch {
-    throw new Error('Groq returned malformed JSON');
-  }
-}
-
-// Groq's token-per-minute budget is shared across every endpoint on the key,
-// so a burst — analysing an entry and then asking for reflection questions
-// moments later — can 429 with nothing actually wrong. Those are transient by
-// definition, so wait and retry instead of surfacing a failure. Anything that
-// isn't transient (bad key, malformed request) fails immediately rather than
-// burning retries on a request that can never succeed.
-const TRANSIENT_STATUSES = new Set([429, 500, 502, 503, 504]);
-
-async function groqChatRetrying(apiKey, messages, opts = {}, maxAttempts = 3) {
-  let lastErr;
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    try {
-      return await groqChat(apiKey, messages, opts);
-    } catch (err) {
-      lastErr = err;
-      if (!TRANSIENT_STATUSES.has(err.status) || attempt === maxAttempts - 1) throw err;
-      const waitMs = err.retryAfter != null
-        ? Math.min(err.retryAfter * 1000 + 250, 12000)
-        : 1500 * (attempt + 1);
-      console.warn(`[groq] ${err.status} — retrying in ${waitMs}ms (attempt ${attempt + 1}/${maxAttempts})`);
-      await sleep(waitMs);
-    }
-  }
-  throw lastErr;
-}
 
 // Resilient analysis: try the primary model, a short backoff retry, then a
 // leaner request against the fallback model. Confirmed via a real captured
@@ -532,13 +448,7 @@ TENSE MATTERS: if the open thread is something PLANNED FOR THE FUTURE relative t
     // Same as /reflect: a 429 that outlived analyzeResilient's whole retry
     // plan is load, not a defect. 429 (not 500) keeps it out of the crash
     // funnel, and the entry itself is already saved either way.
-    if (err.status === 429) {
-      return res.status(429).json({
-        error: "Nook's AI is busy right now — your entry is saved, analysis will retry later.",
-        code: 'AI_RATE_LIMIT',
-        retry_after: Math.ceil(err.retryAfter || 30),
-      });
-    }
+    if (sendIfRateLimited(res, err, "Nook's AI is busy right now — your entry is saved, analysis will retry later.")) return;
     reportHandled(err, { method: req.method, path: req.originalUrl, groqStatus: err.status });
     res.status(500).json({
       error: 'AI analysis unavailable — your entry is saved. We\'ll try again later.',
@@ -642,13 +552,7 @@ Return JSON: { "questions": ["q1", "q2"] } — 2 questions max, 1-2 sentences ea
     // (which funnels status >= 500) file it as a crash, so the bug inbox
     // filled with identical "Groq 429" reports. Answer 429 and say when to
     // come back instead; don't report it.
-    if (err.status === 429) {
-      return res.status(429).json({
-        error: "Nook's AI is busy right now — try again in a moment.",
-        code: 'AI_RATE_LIMIT',
-        retry_after: Math.ceil(err.retryAfter || 30),
-      });
-    }
+    if (sendIfRateLimited(res, err, "Nook's AI is busy right now — try again in a moment.")) return;
     reportHandled(err, { method: req.method, path: req.originalUrl, groqStatus: err.status });
     res.status(500).json({ error: 'Could not generate questions', code: 'AI_ERROR' });
   }

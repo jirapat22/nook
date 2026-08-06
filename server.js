@@ -53,8 +53,13 @@ app.use((req, res, next) => {
   const origJson = res.json.bind(res);
   res.json = (body) => { res.locals._body = body; return origJson(body); };
   res.on('finish', () => {
-    if (res.statusCode >= 500 && !res.locals._reported && req.path !== '/api/reports') {
-      const b = res.locals._body || {};
+    const b = res.locals._body || {};
+    // AUTH_NOT_CONFIGURED is a deployment state, not a crash: it's returned
+    // before any handler runs, on *every* API call, for as long as
+    // APP_PASSWORD is unset. Reporting it filed one bug per request and
+    // buried the real reports under a flood of identical ones.
+    if (res.statusCode >= 500 && !res.locals._reported
+        && req.path !== '/api/reports' && b.code !== 'AUTH_NOT_CONFIGURED') {
       reportHandled(new Error(b.error || `HTTP ${res.statusCode}`),
         { method: req.method, path: req.originalUrl, code: b.code, statusCode: res.statusCode });
     }
@@ -104,7 +109,15 @@ app.post('/api/login', (req, res) => {
 });
 
 app.use((req, res, next) => {
-  if (!req.path.startsWith('/api/')) return next();    // app shell + static stay open
+  // Match on a lowercased path. Express's own routing is case-INSENSITIVE by
+  // default, so `app.use('/api/entries', ...)` happily serves `GET
+  // /API/entries` — but a case-sensitive `req.path.startsWith('/api/')` here
+  // said "not an API request" and waved it straight through to the handler.
+  // That was a full auth bypass (read *and* write: `DELETE /API/entries/:id`
+  // ran too) for anyone who just changed the case of the prefix. This gate
+  // must never be narrower than the router it guards.
+  const apiPath = req.path.toLowerCase();
+  if (!apiPath.startsWith('/api/')) return next();     // app shell + static stay open
   // No password configured on a hosted deploy: serve nothing rather than
   // serve everything. Static assets still load so the app can render and
   // explain itself instead of just hanging.
@@ -115,7 +128,7 @@ app.use((req, res, next) => {
     });
   }
   if (!EXPECTED_TOKEN) return next();                  // local dev, auth disabled
-  if (AUTH_EXEMPT.has(req.path)) return next();
+  if (AUTH_EXEMPT.has(apiPath)) return next();
   const tok = (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || req.headers['x-app-token'] || '';
   if (tok && tok === EXPECTED_TOKEN) return next();
   return res.status(401).json({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
@@ -289,7 +302,11 @@ app.put('/api/settings', async (req, res) => {
     await client.query('COMMIT');
     res.json({ updated: Object.keys(updates).length });
   } catch (err) {
-    await client.query('ROLLBACK');
+    // .catch on the ROLLBACK, matching every other transaction in the app. On
+    // Express 4 an async handler that rejects never reaches the error handler,
+    // so a ROLLBACK that itself throws (dead connection) left the request
+    // hanging forever instead of returning a 500.
+    await client.query('ROLLBACK').catch(() => {});
     console.error('PUT /api/settings bulk error:', err);
     res.status(500).json({ error: 'Failed to save settings', code: 'DB_ERROR' });
   } finally {

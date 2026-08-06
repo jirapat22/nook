@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const fetch = require('node-fetch');
 const db = require('../db/db');
+const { getGroqKey, groqChatRetrying, sendIfRateLimited } = require('../lib/groq');
+const { reportHandled } = require('../lib/reports');
 
 // Helper: parse range param to interval
 function rangeToInterval(range) {
@@ -304,10 +305,7 @@ router.get('/weekly-compare', async (req, res) => {
 // GET /api/insights/weekly-summary
 router.get('/weekly-summary', async (req, res) => {
   try {
-    const apiKeyRow = await db.query("SELECT value FROM settings WHERE key = 'groq_api_key'");
-    const dbKey = apiKeyRow.rows[0]?.value?.replace(/^"|"$/g, '');
-    const apiKey = (process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== 'your_groq_api_key_here')
-      ? process.env.GROQ_API_KEY : dbKey;
+    const apiKey = await getGroqKey();
 
     const entries = await db.query(`
       SELECT date, ai_summary, key_themes, mood_overall, life_areas, important_today
@@ -320,38 +318,37 @@ router.get('/weekly-summary', async (req, res) => {
       return res.json({ summary: 'No entries this week yet — start journaling and check back!' });
     }
 
-    if (!apiKey || apiKey === 'null') {
+    if (!apiKey) {
       const days = entries.rows.map(e => `${e.date}: ${e.ai_summary || e.important_today || 'Entry recorded'}`).join('\n');
       return res.json({ summary: `This week you journaled ${entries.rows.length} time${entries.rows.length !== 1 ? 's' : ''}.\n\n${days}` });
     }
 
+    // Cap each line: this asks for 2-3 paragraphs, and the key's
+    // tokens-per-minute budget is shared with /ai/analyze and /ai/reflect —
+    // a week of long summaries was enough to 429 on its own.
     const entryData = entries.rows.map(e =>
-      `${e.date}: ${e.ai_summary || e.important_today || 'Entry recorded'} [mood: ${e.mood_overall ?? '?'}/10]`
+      `${String(e.date).split('T')[0]}: ${(e.ai_summary || e.important_today || 'Entry recorded').slice(0, 250)} [mood: ${e.mood_overall ?? '?'}/10]`
     ).join('\n');
 
-    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are Nook, a warm personal journal companion. Write a friendly weekly summary in 2-3 short paragraphs. Highlight patterns, growth moments, recurring themes, and one gentle observation. Keep it personal and warm, not clinical. Return JSON: { "summary": "..." }',
-          },
-          { role: 'user', content: `My entries this week:\n${entryData}` },
-        ],
-        response_format: { type: 'json_object' },
-        max_tokens: 512,
-      }),
-    });
+    const result = await groqChatRetrying(apiKey, [
+      {
+        role: 'system',
+        content: 'You are Nook, a warm personal journal companion. Write a friendly weekly summary in 2-3 short paragraphs. Highlight patterns, growth moments, recurring themes, and one gentle observation. Keep it personal and warm, not clinical. Return JSON: { "summary": "..." }',
+      },
+      { role: 'user', content: `My entries this week:\n${entryData}` },
+    ], { max_tokens: 512 });
 
-    if (!groqRes.ok) throw new Error('Groq error');
-    const data = await groqRes.json();
-    const result = JSON.parse(data.choices[0].message.content);
-    res.json(result);
+    res.json({ summary: typeof result.summary === 'string' ? result.summary : '' });
   } catch (err) {
     console.error('weekly-summary error:', err);
+    // This route used to raise a bare `new Error('Groq error')` and answer 500
+    // for every failure — including a plain rate limit. That put it in the
+    // frontend's crash funnel (report.js funnels >= 500), so each 429 filed a
+    // bug report, and the finish-hook in server.js filed a second one with the
+    // real cause already thrown away. Answer 429 for load and don't report it.
+    if (sendIfRateLimited(res, err, "Nook's AI is busy right now — try again in a moment.")) return;
+    res.locals._reported = true;
+    reportHandled(err, { method: req.method, path: req.originalUrl, groqStatus: err.status });
     res.status(500).json({ error: 'Could not generate summary', code: 'AI_ERROR' });
   }
 });
