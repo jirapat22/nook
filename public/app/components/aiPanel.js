@@ -2,6 +2,7 @@
 
 import { renderMoodFaces, wireMoodFaces } from './moodFaces.js';
 import { renderMarkdown } from '../markdown.js';
+import { escHtml } from '../html.js';
 
 export class AiPanel {
   constructor(analysis = {}, moodOverrides = {}, onMoodChange = () => {}, tagOverrides = null, onTagsChange = () => {}) {
@@ -266,6 +267,3 @@ export class AiPanel {
   }
 }
 
-function escHtml(s) {
-  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}

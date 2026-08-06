@@ -1,4 +1,5 @@
 import { api, showToast, todayStr } from '../app.js';
+import { escHtml } from '../html.js';
 
 // Chart.js is loaded globally via CDN
 const Chart = window.Chart;
@@ -52,7 +53,10 @@ export class InsightsView {
       const [moodTrends, correlations, streaks, topicFreq, dayPatterns, loveLife, topPeople] = await Promise.all([
         api.get(`/api/insights/mood-trends?range=${this.range}`).catch(() => []),
         api.get('/api/insights/correlations').catch(() => []),
-        api.get('/api/insights/streaks').catch(() => ({ current: 0, longest: 0, total_days: 0 })),
+        // Pass the local day, like home.js and the shell badge do — without it
+        // this one view judged the streak against the server's UTC date and
+        // could disagree with the badge sitting right above it.
+        api.get(`/api/insights/streaks?today=${todayStr()}`).catch(() => ({ current: 0, longest: 0, total_days: 0 })),
         api.get(`/api/insights/topic-frequency?range=${this.range}`).catch(() => []),
         api.get('/api/insights/day-patterns').catch(() => []),
         api.get(`/api/insights/love-life-trends?range=${this.range}`).catch(() => []),
@@ -451,6 +455,3 @@ function formatShortDate(dateStr) {
   return new Date(y, m - 1, d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
-function escHtml(s) {
-  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}

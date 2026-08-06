@@ -1,6 +1,7 @@
 import { api, showToast, applyTheme, AppState, scheduleReminder, todayStr } from '../app.js';
 import { reportManual } from '../report.js';
 import { healMissingEntries } from '../analyze-helpers.js';
+import { escHtml } from '../html.js';
 
 export class SettingsView {
   constructor() {}
@@ -635,10 +636,6 @@ export class SettingsView {
   }
 
   destroy() {}
-}
-
-function escHtml(s) {
-  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function timeAgo(ts) {

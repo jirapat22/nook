@@ -588,21 +588,18 @@ async function init() {
     if (settings.theme) applyTheme(settings.theme);
     AppState.ttsEnabled = settings.tts_enabled !== false;
     AppState.ttsSpeed = parseFloat(settings.tts_speed) || 1;
-    if (settings.streak_count) AppState.streakCount = parseInt(settings.streak_count) || 0;
   } catch (err) {
     console.warn('Could not load settings:', err.message);
     // settings stays {} — app still runs with defaults
   }
 
   renderShell();
-  updateStreakDisplay(AppState.streakCount);
-  // settings.streak_count is a stored counter that's only ever written when an
-  // entry is saved, so it never decays — after a missed day the badge kept
-  // showing the old number (68) while every recomputed view said the streak
-  // was broken. Correct it from the endpoint that derives it from real entry
-  // dates. Non-blocking: the cached value renders immediately and is replaced
-  // a moment later if it was stale.
-  api.get('/api/insights/streaks')
+  // The streak is derived from real entry dates, server-side, on every read —
+  // there is no cached counter to seed from any more. That counter only ever
+  // grew, so after a missed day the badge kept showing the old number (68)
+  // while every other view said the streak was broken. Renders 0 for the one
+  // round-trip it takes to arrive, which beats rendering a wrong number.
+  api.get(`/api/insights/streaks?today=${todayStr()}`)
     .then(s => { if (typeof s?.current === 'number') updateStreakDisplay(s.current); })
     .catch(() => {});
   updateOnlineStatus();

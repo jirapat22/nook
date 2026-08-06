@@ -6,7 +6,7 @@ const fetch = require('node-fetch');
 const db = require('../db/db');
 const { reportHandled } = require('../lib/reports');
 const {
-  PRIMARY_MODEL, FALLBACK_MODEL, sleep,
+  PRIMARY_MODEL, FALLBACK_MODEL, FATAL_STATUSES, sleep,
   getGroqKey, groqChat, groqChatRetrying, sendIfRateLimited,
 } = require('../lib/groq');
 
@@ -48,6 +48,11 @@ async function analyzeResilient(apiKey, messagesFull, messagesLean) {
     } catch (err) {
       lastErr = err;
       console.warn(`[analyze] ${step.model} failed (${err.status || '?'}): ${err.message}`);
+      // A rejected key fails identically on every model, so working through
+      // the rest of the plan just spends 6s of sleeps to arrive at the same
+      // error — and delays telling the user their key is wrong. Bail out, the
+      // same way groqChatRetrying does.
+      if (FATAL_STATUSES.has(err.status)) break;
     }
   }
   throw lastErr;

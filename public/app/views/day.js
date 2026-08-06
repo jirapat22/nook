@@ -3,6 +3,7 @@ import { dayActivityKeys, renderActivityChips } from '../components/activities.j
 import { assert } from '../report.js';
 import { renderMarkdown } from '../markdown.js';
 import { moodEditorHtml, detailsEditorHtml, peopleEditorHtml, wireEntryEditors } from '../components/entryEditors.js';
+import { escHtml } from '../html.js';
 
 export class DayView {
   constructor(params = []) {
@@ -211,10 +212,6 @@ function timelineEntry(entry) {
 }
 
 function moodClass(m) { return m >= 7 ? 'high' : m >= 4 ? 'mid' : 'low'; }
-
-function escHtml(s) {
-  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
 
 function todayLocal() {
   const d = new Date();

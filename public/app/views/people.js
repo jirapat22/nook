@@ -1,4 +1,5 @@
 import { api, showToast } from '../app.js';
+import { escHtml } from '../html.js';
 
 export class PeopleView {
   constructor() {
@@ -1056,10 +1057,6 @@ function renderFriendSubgroups(friends) {
         <div class="people-list">${list.map(p => personCard(p)).join('')}</div>
       </div>`;
   }).join('');
-}
-
-function escHtml(s) {
-  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function formatDate(dateStr) {

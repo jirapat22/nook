@@ -1,4 +1,5 @@
 import { api } from '../app.js';
+import { escHtml } from '../html.js';
 
 export class SearchView {
   constructor() { this._debounce = null; }
@@ -113,6 +114,3 @@ function highlight(text, query) {
   return safe.replace(new RegExp(`(${esc})`, 'gi'), '<mark class="search-hl">$1</mark>');
 }
 
-function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}

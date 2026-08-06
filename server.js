@@ -19,6 +19,7 @@ const peopleRouter = require('./routes/people');
 const tagsRouter = require('./routes/tags');
 const { syncAllPeople, markPersonDeleted, resolveBugReport } = require('./lib/orbit');
 const { saveReport, reportHandled, flushUnsent } = require('./lib/reports');
+const { computeStreak, toDateStr, serverToday } = require('./lib/streak');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -355,8 +356,7 @@ app.use('/api/tags', tagsRouter);
 // Registered BEFORE the SPA catch-all so it returns JSON, not index.html.
 app.get('/api/orbit-summary', async (req, res) => {
   try {
-    const today = new Date();
-    const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+    const todayStr = serverToday();
 
     // Last entry — for freshness only. Entry text is deliberately not
     // selected: this endpoint is public (see the stat line below).
@@ -366,25 +366,11 @@ app.get('/api/orbit-summary', async (req, res) => {
       ORDER BY date DESC, created_at DESC
       LIMIT 1
     `);
-    // Distinct journaled days, for streak calculation
-    const distinctDates = await db.query(`
-      SELECT DISTINCT date FROM entries ORDER BY date DESC
-    `);
-    const dateSet = new Set(distinctDates.rows.map(r => {
-      const d = r.date instanceof Date ? r.date : new Date(r.date);
-      return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
-    }));
-    // Walk backwards from today (or yesterday) counting consecutive days
-    let streak = 0;
-    const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
-    const yStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth()+1).padStart(2,'0')}-${String(yesterday.getDate()).padStart(2,'0')}`;
-    let cursor = dateSet.has(todayStr) ? new Date(today)
-               : dateSet.has(yStr)     ? new Date(yesterday)
-               : null;
-    while (cursor) {
-      const cs = `${cursor.getFullYear()}-${String(cursor.getMonth()+1).padStart(2,'0')}-${String(cursor.getDate()).padStart(2,'0')}`;
-      if (dateSet.has(cs)) { streak++; cursor.setDate(cursor.getDate() - 1); } else break;
-    }
+    // Distinct journaled days, for streak calculation. Shares the one
+    // implementation with /api/insights/streaks — this used to be a third
+    // hand-rolled copy that mixed local and UTC date getters.
+    const distinctDates = await db.query('SELECT DISTINCT date FROM entries');
+    const { current: streak } = computeStreak(distinctDates.rows.map(r => r.date), todayStr);
 
     if (!lastEntry.rows.length) {
       return res.json({
@@ -396,8 +382,7 @@ app.get('/api/orbit-summary', async (req, res) => {
     }
 
     const last = lastEntry.rows[0];
-    const lastDate = last.date instanceof Date ? last.date : new Date(last.date);
-    const lastStr = `${lastDate.getUTCFullYear()}-${String(lastDate.getUTCMonth()+1).padStart(2,'0')}-${String(lastDate.getUTCDate()).padStart(2,'0')}`;
+    const lastStr = toDateStr(last.date);
     const daysSince = Math.floor((new Date(todayStr) - new Date(lastStr)) / 86400000);
 
     // Status: today/yesterday = active, 2-3 days = warning, older = paused

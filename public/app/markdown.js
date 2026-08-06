@@ -1,11 +1,8 @@
+import { escHtml } from './html.js';
 // Minimal, safe markdown renderer for journal entry text. Escapes first,
 // then layers markdown transforms on top of the escaped string — so the
 // output is always safe HTML regardless of what's in the source text.
 // Supports: **bold**, *italic*, "- " / "* " bullet lists, paragraph breaks.
-
-export function escHtml(s) {
-  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
 
 function inlineMd(escapedText) {
   return escapedText

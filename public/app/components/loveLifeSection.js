@@ -1,8 +1,5 @@
+import { escHtml } from '../html.js';
 // LoveLifeSection — displays love life content with guided prompts
-
-function escHtml(s) {
-  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
 
 const REFLECTION_PROMPTS = [
   'What actually happened vs. what did you interpret?',

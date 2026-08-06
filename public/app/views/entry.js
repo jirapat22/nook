@@ -8,6 +8,7 @@ import { savePendingAudio, loadPendingAudio, clearPendingAudio } from '../compon
 import { analysisToPayload } from '../analyze-helpers.js';
 import { renderMarkdown } from '../markdown.js';
 import { populateSubgroupAndIntroducedBy, readSubgroup, getNicknamesFor, runBackfillReview, nameCollides } from './people.js';
+import { escHtml } from '../html.js';
 
 export class EntryView {
   constructor(params = []) {
@@ -1803,7 +1804,6 @@ export class EntryView {
     }
   }
 
-
   // Modal to edit mood values on a saved entry. Marks mood_source as
   // 'user_edited' so insights know these are confirmed, not AI guesses.
   showMoodEditModal(entry, parentContainer) {
@@ -2019,9 +2019,6 @@ export class EntryView {
   }
 }
 
-function escHtml(s) {
-  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
 function getTimeOfDay() {
   const h = new Date().getHours();
   if (h < 12) return 'morning';

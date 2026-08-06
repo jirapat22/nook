@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../db/db');
 const { getGroqKey, groqChatRetrying, sendIfRateLimited } = require('../lib/groq');
 const { reportHandled } = require('../lib/reports');
+const { computeStreak } = require('../lib/streak');
 
 // Helper: parse range param to interval
 function rangeToInterval(range) {
@@ -89,69 +90,16 @@ router.get('/correlations', async (req, res) => {
   }
 });
 
-// GET /api/insights/streaks
+// GET /api/insights/streaks — always derived from the entry dates themselves,
+// never from a stored counter. Prefer the client's local calendar day
+// (?today=YYYY-MM-DD): the server runs in UTC, which is a different day from
+// the user's clock (e.g. Auckland +12), so a UTC "today" would mis-judge
+// whether today/yesterday were journaled.
 router.get('/streaks', async (req, res) => {
   try {
-    const datesResult = await db.query(`
-      SELECT DISTINCT date FROM entries ORDER BY date DESC
-    `);
-    const dates = datesResult.rows.map(r => r.date);
-
-    if (!dates.length) {
-      return res.json({ current: 0, longest: 0, total_days: 0 });
-    }
-
-    // Calculate current streak
-    let current = 0;
-    let longest = 0;
-    let streak = 0;
-
-    const dateSet = new Set(dates.map(d => new Date(d).toISOString().split('T')[0]));
-    // Prefer the client's local calendar day (?today=YYYY-MM-DD). The server runs
-    // in UTC, which is a different day from the user's clock (e.g. Auckland +12),
-    // so a UTC "today" would mis-judge whether today/yesterday were journaled.
-    const today = /^\d{4}-\d{2}-\d{2}$/.test(req.query.today || '')
-      ? req.query.today
-      : new Date().toISOString().split('T')[0];
-    // Day arithmetic in UTC math (Date.UTC + toISOString) so it never drifts with
-    // the server's own timezone — we're only ever manipulating date strings.
-    const shiftDay = (ds, delta) => {
-      const [y, m, d] = ds.split('-').map(Number);
-      return new Date(Date.UTC(y, m - 1, d + delta)).toISOString().split('T')[0];
-    };
-    const yesterday = shiftDay(today, -1);
-
-    // Current streak starting from today or yesterday
-    let cursor = dateSet.has(today) ? today : dateSet.has(yesterday) ? yesterday : null;
-    while (cursor && dateSet.has(cursor)) {
-      current++;
-      cursor = shiftDay(cursor, -1);
-    }
-
-    // Longest streak
-    const sortedDates = [...dateSet].sort();
-    streak = 1;
-    longest = 1;
-    for (let i = 1; i < sortedDates.length; i++) {
-      const prev = new Date(sortedDates[i - 1]);
-      const curr = new Date(sortedDates[i]);
-      const diff = (curr - prev) / 86400000;
-      if (diff === 1) {
-        streak++;
-        longest = Math.max(longest, streak);
-      } else {
-        streak = 1;
-      }
-    }
-
-    // `current` is recomputed from the actual entry dates, so it's the source of
-    // truth — return it directly. (Previously this took Math.max with a stored
-    // streak_count, which kept showing the old number after a day was missed.)
-    res.json({
-      current,
-      longest,
-      total_days: dateSet.size,
-    });
+    const datesResult = await db.query('SELECT DISTINCT date FROM entries');
+    const today = /^\d{4}-\d{2}-\d{2}$/.test(req.query.today || '') ? req.query.today : undefined;
+    res.json(computeStreak(datesResult.rows.map(r => r.date), today));
   } catch (err) {
     console.error('streaks error:', err);
     res.status(500).json({ error: 'Failed to load streaks', code: 'DB_ERROR' });

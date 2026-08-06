@@ -105,13 +105,15 @@ CREATE INDEX IF NOT EXISTS idx_reports_dedupe ON reports(source, created_at DESC
 -- never be resolved remotely (only locally).
 ALTER TABLE reports ADD COLUMN IF NOT EXISTS orbit_id TEXT;
 
--- Insert defaults (won't override existing)
+-- Insert defaults (won't override existing).
+-- streak_count / last_journal_date used to be seeded here and incremented on
+-- every save. The streak is now derived from the entry dates on read
+-- (lib/streak.js), so nothing reads or writes them; any rows left over on an
+-- existing database are simply ignored.
 INSERT INTO settings (key, value) VALUES
   ('theme', '"warm-earthy"'),
   ('tts_enabled', 'true'),
   ('tts_speed', '1'),
-  ('streak_count', '0'),
-  ('last_journal_date', 'null'),
   ('groq_api_key', 'null'),
   ('user_name', '"there"')
 ON CONFLICT (key) DO NOTHING;

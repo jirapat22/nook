@@ -25,6 +25,18 @@ function clampField(field, value) {
   return Math.min(range[1], Math.max(range[0], value));
 }
 
+// Pagination params come straight off the query string, so they must survive
+// anything. `parseInt('abc')` is NaN, and node-postgres serialises NaN into
+// `LIMIT NaN`, which Postgres rejects — so ?limit=abc turned a listing into a
+// 500 (and, via the finish-hook, a bug report). The upper bound matters too:
+// there was none, so ?limit=999999 would pull the whole journal plus a
+// mentions join in one request.
+function intParam(value, fallback, max) {
+  const n = parseInt(value, 10);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return Math.min(n, max);
+}
+
 // GET /api/entries — list entries with optional filters
 router.get('/', async (req, res) => {
   try {
@@ -33,7 +45,11 @@ router.get('/', async (req, res) => {
     let params = [];
     let idx = 1;
 
-    if (date) {
+    // Same reasoning as intParam: an unparseable date reached Postgres as-is
+    // and raised "invalid input syntax for type date" — a 500, and a bug
+    // report, for what is really a bad request. Ignore a malformed filter
+    // rather than 500 on it.
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
       conditions.push(`date = $${idx++}`);
       params.push(date);
     }
@@ -89,7 +105,7 @@ router.get('/', async (req, res) => {
       ORDER BY ${orderBy}
       LIMIT $${idx++} OFFSET $${idx++}
     `;
-    params.push(parseInt(limit), parseInt(offset));
+    params.push(intParam(limit, 50, 200), intParam(offset, 0, 100000));
 
     const result = await db.query(query, params);
 
@@ -118,7 +134,11 @@ router.get('/', async (req, res) => {
 // GET /api/entries/calendar/:year/:month
 router.get('/calendar/:year/:month', async (req, res) => {
   try {
-    const { year, month } = req.params;
+    const year = intParam(req.params.year, 0, 9999);
+    const month = intParam(req.params.month, 0, 12);
+    if (!year || !month) {
+      return res.status(400).json({ error: 'year and month must be numbers', code: 'VALIDATION_ERROR' });
+    }
     const result = await db.query(`
       SELECT
         date,
@@ -280,12 +300,11 @@ router.post('/', async (req, res) => {
       clampField('sleep_hours', sleep_hours) ?? null,
     ]);
 
-    const newEntry = result.rows[0];
-
-    // Update streak
-    await updateStreak(date);
-
-    res.status(201).json(newEntry);
+    // No streak bookkeeping here any more: the streak is derived from the
+    // entry dates on read (lib/streak.js), so saving an entry is all it takes
+    // for it to be reflected. The counter this used to increment could only
+    // ever go up, which is why the badge kept showing a broken streak.
+    res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('POST /api/entries error:', err);
     res.status(500).json({ error: 'Failed to create entry', code: 'DB_ERROR' });
@@ -562,55 +581,5 @@ router.delete('/:id', async (req, res) => {
     res.status(500).json({ error: 'Failed to delete entry', code: 'DB_ERROR' });
   }
 });
-
-// Pure string arithmetic on YYYY-MM-DD — no Date object, no timezone interference
-function previousDay(yyyymmdd) {
-  const [y, m, d] = yyyymmdd.split('-').map(Number);
-  // Date.UTC handles month/year rollover correctly. We never read back local
-  // fields, only the UTC parts we just set — so server timezone is irrelevant.
-  const t = Date.UTC(y, m - 1, d - 1);
-  const dt = new Date(t);
-  const yy = dt.getUTCFullYear();
-  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(dt.getUTCDate()).padStart(2, '0');
-  return `${yy}-${mm}-${dd}`;
-}
-
-// Helper: update streak count in settings
-async function updateStreak(newDate) {
-  try {
-    const lastRow = await db.query("SELECT value FROM settings WHERE key = 'last_journal_date'");
-    const streakRow = await db.query("SELECT value FROM settings WHERE key = 'streak_count'");
-
-    const lastDate = lastRow.rows[0]?.value;
-    const currentStreak = parseInt(streakRow.rows[0]?.value) || 0;
-
-    const yesterdayStr = previousDay(newDate);
-
-    let newStreak = currentStreak;
-    if (!lastDate || lastDate === 'null') {
-      newStreak = 1;
-    } else if (lastDate === `"${yesterdayStr}"` || lastDate === yesterdayStr) {
-      newStreak = currentStreak + 1;
-    } else if (lastDate === `"${newDate}"` || lastDate === newDate) {
-      // Same day — don't change streak (multiple entries one day still counts as 1 day)
-      newStreak = currentStreak;
-    } else {
-      // Gap — streak broken
-      newStreak = 1;
-    }
-
-    await db.query(
-      "INSERT INTO settings (key, value) VALUES ('streak_count', $1) ON CONFLICT (key) DO UPDATE SET value = $1",
-      [JSON.stringify(newStreak)]
-    );
-    await db.query(
-      "INSERT INTO settings (key, value) VALUES ('last_journal_date', $1) ON CONFLICT (key) DO UPDATE SET value = $1",
-      [JSON.stringify(newDate)]
-    );
-  } catch (err) {
-    console.error('updateStreak error:', err);
-  }
-}
 
 module.exports = router;

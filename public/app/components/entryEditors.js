@@ -13,6 +13,7 @@
 
 import { api, showToast } from '../app.js';
 import { renderMoodFaces, wireMoodFaces } from './moodFaces.js';
+import { escHtml } from '../html.js';
 
 const CHIP_FIELDS = [
   { field: 'key_themes', label: 'Themes',     icon: '🧵', chipClass: 'chip-primary', placeholder: 'Add a theme…' },
@@ -266,6 +267,3 @@ export async function showLinkPersonModal(entryId, onLinked) {
   });
 }
 
-function escHtml(s) {
-  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}

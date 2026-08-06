@@ -1,6 +1,7 @@
 import { api, showToast, updateStreakDisplay, todayStr } from '../app.js';
 import { dayActivityKeys, renderActivityChips } from '../components/activities.js';
 import { assert } from '../report.js';
+import { escHtml } from '../html.js';
 
 export class HomeView {
   constructor() {}
@@ -289,10 +290,6 @@ function onThisDayCard(entry) {
 function getDateLabel() {
   const d = new Date();
   return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
-}
-
-function escHtml(s) {
-  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function formatEntryDate(dateStr, timeOfDay) {
