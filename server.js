@@ -180,6 +180,49 @@ app.delete('/api/reports', async (req, res) => {
   }
 });
 
+// Resolve EVERY captured report: mark each one resolved on Orbit, then drop
+// the local row.
+//
+// This is the path that was missing. The reports viewer's only bulk action was
+// DELETE /api/reports, which is deliberately local-only — and the single
+// Orbit-propagating resolve below was wired exclusively to the Ideas & Bugs
+// checklist, which only ever contains notes the user typed by hand. So an
+// auto-captured error (which is nearly all of them) had NO route out of
+// Orbit's inbox from inside Nook, and worse, "Clear all" hid it locally while
+// leaving it in Orbit forever — so it kept coming back in every digest with
+// nothing left on this side to explain why.
+//
+// Unlike the single-report resolve, a row whose Orbit call FAILED is kept
+// locally so it can be retried; losing the backlog to a transient Orbit outage
+// would put us right back in the same hole.
+app.post('/api/reports/resolve-all', async (req, res) => {
+  try {
+    const r = await db.query('SELECT id, orbit_id FROM reports ORDER BY created_at ASC');
+    let resolved = 0, orphaned = 0, failed = 0;
+    for (const row of r.rows) {
+      if (!row.orbit_id) {
+        // Forwarded before the orbit_id column existed (or never forwarded).
+        // Orbit matches by id only, with no content fallback, so this one can
+        // never be resolved remotely — drop it here and report the count.
+        orphaned++;
+        await db.query('DELETE FROM reports WHERE id = $1', [row.id]);
+        continue;
+      }
+      const out = await resolveBugReport(row.orbit_id).catch(err => ({ ok: false, error: err.message }));
+      if (out.ok || out.skipped) {
+        resolved++;
+        await db.query('DELETE FROM reports WHERE id = $1', [row.id]);
+      } else {
+        failed++;
+      }
+    }
+    res.json({ ok: true, resolved, orphaned, failed, total: r.rows.length });
+  } catch (err) {
+    console.error('POST /api/reports/resolve-all error:', err);
+    res.status(500).json({ error: 'Failed to resolve reports', code: 'DB_ERROR' });
+  }
+});
+
 // Resolve a report — used by the Ideas & Bugs checklist (settings.js) when a
 // bug/idea note is checked done or deleted. Awaits Orbit's actual result
 // (a single PATCH — worth the extra round-trip to know it really worked)

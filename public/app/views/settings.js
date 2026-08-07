@@ -212,9 +212,9 @@ export class SettingsView {
         <div class="settings-section-title">🐞 Captured reports</div>
         <div class="card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px">
-            <p class="text-sm text-muted" style="margin:0">Errors and feedback captured by the app. ✓ = forwarded to Orbit.</p>
+            <p class="text-sm text-muted" style="margin:0">Errors and feedback captured by the app. ✓ = forwarded to Orbit. Resolving clears it here <em>and</em> on Orbit.</p>
             <div style="display:flex;gap:6px;flex-shrink:0">
-              <button class="btn btn-ghost btn-sm" id="reports-clear">Clear all</button>
+              <button class="btn btn-ghost btn-sm" id="reports-resolve-all">Resolve all</button>
               <button class="btn btn-secondary btn-sm" id="reports-refresh">Refresh</button>
             </div>
           </div>
@@ -556,25 +556,65 @@ export class SettingsView {
                 <span class="report-badge report-${escHtml(r.source)}">${escHtml(r.source || '?')}</span>
                 <span class="report-sent">${r.orbit_sent ? '✓ sent' : '⏳ pending'}</span>
                 <span class="report-time">${timeAgo(r.created_at)}</span>
+                <button class="btn btn-ghost btn-sm report-resolve" data-id="${escHtml(r.id)}"
+                  style="margin-left:auto;flex-shrink:0" title="Mark done here and on Orbit">Resolve</button>
               </div>
               <div class="report-msg">${escHtml(r.message || '')}</div>
               ${sub ? `<div class="report-ctx">${sub}</div>` : ''}
             </div>`;
         }).join('');
+
+        // Per-report resolve. Uses the endpoint that PATCHes Orbit and only
+        // then drops the local row, so a report can't linger in Orbit's inbox
+        // after being dealt with here.
+        reportsList.querySelectorAll('.report-resolve').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            btn.textContent = 'Resolving…';
+            try {
+              await api.post(`/api/reports/${btn.dataset.id}/resolve`, {});
+            } catch {
+              showToast('Could not resolve — try again', 'error');
+              btn.disabled = false;
+              btn.textContent = 'Resolve';
+              return;
+            }
+            // Re-list outside the try: the resolve landed, so a failed refetch
+            // must not claim it didn't.
+            showToast('Resolved — cleared here and on Orbit', 'success');
+            loadReports();
+          });
+        });
       } catch {
         reportsList.innerHTML = '<p class="text-sm text-faint">Could not load reports.</p>';
       }
     };
     container.querySelector('#reports-refresh').addEventListener('click', loadReports);
-    container.querySelector('#reports-clear').addEventListener('click', async () => {
-      if (!confirm('Clear all captured reports? This just dismisses them from the list — auto-capture keeps running for new issues.')) return;
+
+    const resolveAllBtn = container.querySelector('#reports-resolve-all');
+    resolveAllBtn.addEventListener('click', async () => {
+      if (!confirm('Resolve every captured report? They\'ll be marked done on Orbit and removed from this list. Auto-capture keeps running for new issues.')) return;
+      resolveAllBtn.disabled = true;
+      resolveAllBtn.textContent = 'Resolving…';
+      let out;
       try {
-        await api.delete('/api/reports');
-        showToast('Reports cleared ✓', 'success');
-        loadReports();
+        out = await api.post('/api/reports/resolve-all', {});
       } catch {
-        showToast('Could not clear reports', 'error');
+        showToast('Could not resolve reports', 'error');
+        resolveAllBtn.disabled = false;
+        resolveAllBtn.textContent = 'Resolve all';
+        return;
       }
+      // Say what actually happened rather than a blanket ✓ — some reports
+      // predate Orbit's id being stored and can only be cleared locally, and
+      // any that Orbit rejected are deliberately kept so they can be retried.
+      const bits = [`Resolved ${out.resolved}`];
+      if (out.orphaned) bits.push(`${out.orphaned} cleared locally only (no Orbit id)`);
+      if (out.failed) bits.push(`${out.failed} failed — kept to retry`);
+      showToast(bits.join(' · '), out.failed ? 'error' : 'success');
+      resolveAllBtn.disabled = false;
+      resolveAllBtn.textContent = 'Resolve all';
+      loadReports();
     });
     loadReports();
   }
