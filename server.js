@@ -473,11 +473,29 @@ app.post('/api/sync-orbit', async (req, res) => {
 // Mark an array of Orbit external IDs as DONE (archived). Used to clean up
 // stale nodes that were deleted from the DB before Orbit was notified.
 // Body: { ids: ["uuid1", "uuid2", ...], name: "Latte" }
+// Every id must be a real UUID. This validated nothing before, so pasting the
+// snippet without substituting the placeholder pushed a node with externalId
+// "nook-person-<uuid-from-externalId>" to Orbit — creating a junk node instead
+// of archiving the intended one, and still answering ok:true. An id that isn't
+// a person UUID cannot match any node Nook ever created, so it can only ever
+// do damage; reject it rather than forward it.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 app.post('/api/orbit/mark-deleted', async (req, res) => {
-  const { ids = [], name = '(deleted)' } = req.body;
-  if (!ids.length) return res.status(400).json({ error: 'ids array is required' });
+  const { ids, name = '(deleted)' } = req.body || {};
+  if (!Array.isArray(ids) || !ids.length) {
+    return res.status(400).json({ error: 'ids must be a non-empty array', code: 'VALIDATION_ERROR' });
+  }
+  const bad = ids.filter(id => !UUID_RE.test(String(id)));
+  if (bad.length) {
+    return res.status(400).json({
+      error: `Not a person UUID: ${bad.map(b => JSON.stringify(b)).join(', ')}. Use the uuid from the node's externalId (nook-person-<uuid>).`,
+      code: 'VALIDATION_ERROR',
+    });
+  }
   const results = await Promise.all(ids.map(id => markPersonDeleted(id, name).catch(e => ({ ok: false, error: e.message }))));
-  res.json({ ok: true, results });
+  // ok reflects what actually happened. Reporting ok:true for a batch where
+  // every push failed is how a no-op reads as a success.
+  res.json({ ok: results.every(r => r.ok), results });
 });
 
 // SPA fallback — serve index.html for any unknown route
