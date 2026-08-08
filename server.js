@@ -17,7 +17,10 @@ const aiRouter = require('./routes/ai');
 const insightsRouter = require('./routes/insights');
 const peopleRouter = require('./routes/people');
 const tagsRouter = require('./routes/tags');
-const { syncAllPeople, markPersonDeleted, resolveBugReport, flushUnsyncedPeople } = require('./lib/orbit');
+const {
+  syncAllPeople, markPersonDeleted, resolveBugReport,
+  flushUnsyncedPeople, reconcileOrbitNodes,
+} = require('./lib/orbit');
 const { saveReport, reportHandled, flushUnsent } = require('./lib/reports');
 const { computeStreak, toDateStr, serverToday } = require('./lib/streak');
 
@@ -473,6 +476,28 @@ app.post('/api/sync-orbit', async (req, res) => {
 // Mark an array of Orbit external IDs as DONE (archived). Used to clean up
 // stale nodes that were deleted from the DB before Orbit was notified.
 // Body: { ids: ["uuid1", "uuid2", ...], name: "Latte" }
+// Diff Orbit's node list against Nook's people. Read-only — it reports what
+// disagrees, it never archives anything, because the match is by name (Orbit's
+// list returns its own node ids, not the externalId Nook sent) and a name
+// collision is not enough evidence to remove someone's contact automatically.
+app.get('/api/orbit/reconcile', async (req, res) => {
+  try {
+    const result = await reconcileOrbitNodes();
+    if (result.skipped) return res.json(result);
+    if (!result.ok) {
+      return res.status(502).json({
+        error: `Could not read Orbit's node list${result.status ? ` (HTTP ${result.status})` : ''}`,
+        code: 'ORBIT_ERROR',
+        detail: result.error || result.body,
+      });
+    }
+    res.json(result);
+  } catch (err) {
+    console.error('GET /api/orbit/reconcile error:', err);
+    res.status(500).json({ error: 'Reconcile failed', code: 'ORBIT_ERROR' });
+  }
+});
+
 // Every id must be a real UUID. This validated nothing before, so pasting the
 // snippet without substituting the placeholder pushed a node with externalId
 // "nook-person-<uuid-from-externalId>" to Orbit — creating a junk node instead

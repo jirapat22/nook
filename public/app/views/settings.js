@@ -185,8 +185,12 @@ export class SettingsView {
             Push all your people into <strong>Orbit</strong> as nodes. New/edited people
             sync automatically — this button does a full backfill.
           </p>
-          <button class="btn btn-secondary btn-sm" id="orbit-sync-btn">Sync all people to Orbit</button>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-secondary btn-sm" id="orbit-sync-btn">Sync all people to Orbit</button>
+            <button class="btn btn-ghost btn-sm" id="orbit-reconcile-btn">Check for stale nodes</button>
+          </div>
           <div id="orbit-sync-result" style="font-size:0.8rem;color:var(--color-text-muted);margin-top:6px"></div>
+          <div id="orbit-reconcile-result" style="font-size:0.8rem;color:var(--color-text-muted);margin-top:6px"></div>
         </div>
 
         <!-- Export -->
@@ -342,6 +346,45 @@ export class SettingsView {
       } catch {
         showToast('Could not save name', 'error');
       }
+    });
+
+    // Reconcile — reads Orbit's node list back and reports what disagrees.
+    // Deliberately does not archive anything: the match is by name (Orbit
+    // returns its own node ids, not Nook's externalIds), so it points you at
+    // suspects rather than acting on a guess.
+    const reconcileBtn = container.querySelector('#orbit-reconcile-btn');
+    const reconcileOut = container.querySelector('#orbit-reconcile-result');
+    reconcileBtn?.addEventListener('click', async () => {
+      reconcileBtn.disabled = true;
+      reconcileBtn.textContent = 'Checking…';
+      reconcileOut.textContent = '';
+      let r;
+      try {
+        r = await api.get('/api/orbit/reconcile');
+      } catch (err) {
+        reconcileOut.textContent = `❌ ${err.message || 'Could not reach Orbit'}`;
+        reconcileBtn.disabled = false;
+        reconcileBtn.textContent = 'Check for stale nodes';
+        return;
+      }
+      if (r.skipped) {
+        reconcileOut.textContent = '⚠️ Orbit not configured (ORBIT_URL / ORBIT_INGEST_SECRET missing on the server)';
+      } else if (!r.stale?.length && !r.missing?.length) {
+        reconcileOut.textContent = `✓ In sync — ${r.counts.nook} people, ${r.counts.orbit} Orbit nodes, nothing stale`;
+      } else {
+        const parts = [];
+        if (r.stale?.length) {
+          parts.push(`<strong>${r.stale.length} stale on Orbit</strong> — no matching person in Nook. Delete these in Orbit:<br>` +
+            r.stale.map(n => `· ${escHtml(n.name)}`).join('<br>'));
+        }
+        if (r.missing?.length) {
+          parts.push(`<strong>${r.missing.length} missing from Orbit</strong> — never pushed. Try "Sync all people":<br>` +
+            r.missing.map(n => `· ${escHtml(n.name)}`).join('<br>'));
+        }
+        reconcileOut.innerHTML = parts.join('<br><br>');
+      }
+      reconcileBtn.disabled = false;
+      reconcileBtn.textContent = 'Check for stale nodes';
     });
 
     // Orbit one-shot sync — POSTs every Nook person as a node to Orbit's ingest
