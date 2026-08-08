@@ -140,6 +140,20 @@ ALTER TABLE people ADD COLUMN IF NOT EXISTS subgroup TEXT;
 ALTER TABLE people ADD COLUMN IF NOT EXISTS introduced_by_id UUID REFERENCES people(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_people_introduced_by ON people(introduced_by_id);
 
+-- When this person's node was last successfully pushed to Orbit, stamped with
+-- the row's own updated_at at push time (not NOW()) so an edit landing mid-push
+-- leaves the row dirty. A row is out of sync when orbit_synced_at IS NULL or is
+-- older than updated_at; lib/orbit.js flushUnsyncedPeople() retries those.
+--
+-- Before this, the push was a single fire-and-forget HTTP call whose result was
+-- discarded — so one transient failure diverged Nook and Orbit permanently, and
+-- invisibly (a rename that never reached Orbit looks identical on both sides to
+-- one that did). Existing rows start NULL, i.e. dirty, so the first boot after
+-- this ships re-pushes everyone and heals any divergence already out there.
+ALTER TABLE people ADD COLUMN IF NOT EXISTS orbit_synced_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_people_orbit_dirty ON people(updated_at)
+  WHERE orbit_synced_at IS NULL OR orbit_synced_at < updated_at;
+
 -- Track HOW a mention got linked, so we know which to offer "wrong person?" undo for
 -- Values: 'exact', 'alias', 'fuzzy_confirmed', 'auto_scored', 'manual', 'new_person'
 ALTER TABLE person_mentions ADD COLUMN IF NOT EXISTS link_method VARCHAR(20);

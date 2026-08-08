@@ -988,13 +988,20 @@ export class PersonView {
       if (photoChanged) payload.photo_url = photoDataUrl;
       try {
         await api.put(`/api/people/${this.personId}`, payload);
-        modal.remove();
-        const updated = await api.get(`/api/people/${this.personId}`);
-        this.renderProfile(this.container, updated);
-        showToast('Updated!', 'success');
       } catch {
         showToast('Could not update', 'error');
+        return;
       }
+      // Re-read and re-render outside the try: the edit already saved, so a
+      // failed refetch must not report itself as "Could not update" on a
+      // rename that did land — especially here, where believing that would
+      // send you looking for a Nook-side bug that isn't there.
+      modal.remove();
+      showToast('Updated!', 'success');
+      try {
+        const updated = await api.get(`/api/people/${this.personId}`);
+        this.renderProfile(this.container, updated);
+      } catch { /* the save stuck; the profile just re-renders on next visit */ }
     });
   }
 

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db/db');
-const { syncPerson, markPersonDeleted } = require('../lib/orbit');
+const { syncPersonTracked, markPersonDeleted } = require('../lib/orbit');
 
 // Same guard as routes/entries.js's asArray — aliases is a jsonb array
 // column; a non-array value (e.g. a client sending a bare string) would
@@ -120,7 +120,7 @@ router.post('/', async (req, res) => {
         subgroup || null, introduced_by_id || null]);
 
     // Fire-and-forget push to Orbit. Don't await — never block the user.
-    syncPerson(result.rows[0]).catch(() => {});
+    syncPersonTracked(result.rows[0]).catch(() => {});
 
     // Past entries mentioning this name are surfaced via GET
     // /:id/backfill-candidates (called by the client right after this
@@ -149,6 +149,7 @@ router.post('/dedup', async (req, res) => {
     `);
     const merged = [];
     const archivedInOrbit = []; // { id, name } — see note below on when these actually get told to Orbit
+    const keepersToResync = []; // keeper ids whose aliases changed — see below
     await client.query('BEGIN');
     for (const row of dupsResult.rows) {
       const group = await client.query(`
@@ -196,12 +197,22 @@ router.post('/dedup', async (req, res) => {
         await client.query('UPDATE people SET aliases = $1, updated_at = NOW() WHERE id = $2', [JSON.stringify(accumulated), keeper.id]);
         await client.query('DELETE FROM people WHERE id = $1', [dupe.id]);
       }
+      if (dupes.length) keepersToResync.push(keeper.id);
       merged.push({ kept: keeper.name, removed: dupes.length });
     }
     await client.query('COMMIT');
     // Only tell Orbit about archives once the transaction has actually
     // committed — matches the ordering DELETE /:id already uses.
     for (const { id, name } of archivedInOrbit) markPersonDeleted(id, name).catch(() => {});
+    // The keeper's own node changed too — it absorbed the dupes' names as
+    // aliases — and this route never re-pushed it, so Orbit kept the pre-merge
+    // version. Re-read the committed row so the push carries the real
+    // updated_at (what marks it synced).
+    for (const id of keepersToResync) {
+      db.query('SELECT * FROM people WHERE id = $1', [id])
+        .then(r => r.rows[0] && syncPersonTracked(r.rows[0]))
+        .catch(() => {});
+    }
     res.json({ ok: true, merged });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
@@ -240,7 +251,7 @@ router.put('/:id', async (req, res) => {
     if (!result.rows.length) return res.status(404).json({ error: 'Person not found', code: 'NOT_FOUND' });
 
     // Fire-and-forget push to Orbit so the node reflects the latest fields.
-    syncPerson(result.rows[0]).catch(() => {});
+    syncPersonTracked(result.rows[0]).catch(() => {});
 
     res.json(result.rows[0]);
   } catch (err) {
@@ -386,7 +397,7 @@ router.post('/:id/merge', async (req, res) => {
     // merged-away person stayed on the graph forever as a live node while
     // Postgres had no such row.
     markPersonDeleted(sourceId, sourceName).catch(() => {});
-    if (updated.rows[0]) syncPerson(updated.rows[0]).catch(() => {});
+    if (updated.rows[0]) syncPersonTracked(updated.rows[0]).catch(() => {});
 
     res.json({ merged: true, person: updated.rows[0] });
   } catch (err) {

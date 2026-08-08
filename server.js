@@ -17,7 +17,7 @@ const aiRouter = require('./routes/ai');
 const insightsRouter = require('./routes/insights');
 const peopleRouter = require('./routes/people');
 const tagsRouter = require('./routes/tags');
-const { syncAllPeople, markPersonDeleted, resolveBugReport } = require('./lib/orbit');
+const { syncAllPeople, markPersonDeleted, resolveBugReport, flushUnsyncedPeople } = require('./lib/orbit');
 const { saveReport, reportHandled, flushUnsent } = require('./lib/reports');
 const { computeStreak, toDateStr, serverToday } = require('./lib/streak');
 
@@ -499,9 +499,16 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error', code: 'SERVER_ERROR' });
 });
 
-// Start server — init DB first, then re-forward any unsent reports, then listen
+// Start server — init DB first, then re-forward any unsent reports and re-push
+// any people whose Orbit node is behind their row, then listen.
 initDB().then(() => {
   flushUnsent().catch(() => {});
+  // People sync is fire-and-forget at the point of the edit, so a push that
+  // failed (Orbit down, mid-deploy, a blip) used to be lost silently and Nook
+  // and Orbit would disagree forever. Retry the stale ones at boot and on an
+  // interval; both no-op cheaply when nothing is stale.
+  flushUnsyncedPeople().catch(() => {});
+  setInterval(() => { flushUnsyncedPeople().catch(() => {}); }, 10 * 60 * 1000).unref();
   app.listen(PORT, () => {
     console.log(`🌿 Nook is running at http://localhost:${PORT}`);
   });
