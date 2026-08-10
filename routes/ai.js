@@ -73,6 +73,21 @@ router.post('/transcribe', upload.single('audio'), async (req, res) => {
       return res.status(400).json({ error: 'No audio file provided', code: 'MISSING_FILE' });
     }
 
+    // A blob too small to hold any audio frames is a bare container header and
+    // nothing else — a stray tap on the mic, or a recorder that started and
+    // produced no data. The client only rejects size === 0, so these got
+    // uploaded; Groq answers with a generic 400, which surfaced as a 502
+    // "Transcription failed" and filed a bug report with no cause in it.
+    // 1 KB is well under a second of Opus (~3 KB) but above any header alone,
+    // so this can't reject real speech.
+    const MIN_AUDIO_BYTES = 1024;
+    if (req.file.size < MIN_AUDIO_BYTES) {
+      return res.status(400).json({
+        error: 'That recording was too short to transcribe — try holding the mic a moment longer.',
+        code: 'AUDIO_TOO_SHORT',
+      });
+    }
+
     // Pick the right extension so Whisper knows the format
     const mime = req.file.mimetype || '';
     let fileExt = 'webm';
