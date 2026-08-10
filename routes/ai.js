@@ -95,11 +95,6 @@ router.post('/transcribe', upload.single('audio'), async (req, res) => {
       if (unique.length) namePrompt = `People who may be mentioned: ${unique.join(', ')}.`;
     } catch { /* non-fatal — transcription still works without the hint */ }
 
-    const form = new FormData();
-    form.append('file', req.file.buffer, {
-      filename: `audio.${fileExt}`,
-      contentType: mime || 'audio/webm',
-    });
     // Transcription language. 'auto' lets Whisper detect (better for Thai or
     // mixed speech); a specific code forces that language. Default 'en'.
     let lang = 'en';
@@ -109,27 +104,50 @@ router.post('/transcribe', upload.single('audio'), async (req, res) => {
       if (typeof v === 'string') lang = v.replace(/^"|"$/g, '') || 'en';
     } catch { /* non-fatal — default to English */ }
 
-    form.append('model', 'whisper-large-v3');
-    if (lang && lang !== 'auto') form.append('language', lang);
-    form.append('response_format', 'json');
-    if (namePrompt) form.append('prompt', namePrompt);
+    // Rebuilt per attempt: a form-data stream is single-use, so a retry can't
+    // reuse the one that was already consumed by the failed request.
+    const buildForm = () => {
+      const f = new FormData();
+      f.append('file', req.file.buffer, {
+        filename: `audio.${fileExt}`,
+        contentType: mime || 'audio/webm',
+      });
+      f.append('model', 'whisper-large-v3');
+      if (lang && lang !== 'auto') f.append('language', lang);
+      f.append('response_format', 'json');
+      if (namePrompt) f.append('prompt', namePrompt);
+      return f;
+    };
 
-    const groqRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        ...form.getHeaders(),
-      },
-      body: form,
-    });
+    let groqRes;
+    let errorBody = '';
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt) await sleep(1500);
+      const form = buildForm();
+      groqRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          ...form.getHeaders(),
+        },
+        body: form,
+      });
+      if (groqRes.ok) break;
+      errorBody = await groqRes.text();
+      // Only a 5xx is worth re-uploading the audio for. A rejected key, an
+      // oversized file or a rate limit fail identically on a second attempt.
+      if (groqRes.status < 500) break;
+      if (attempt === 0) console.warn(`[transcribe] Groq ${groqRes.status} — retrying once`);
+    }
 
     if (!groqRes.ok) {
-      const body = await groqRes.text();
-      console.error('Groq transcription error:', body);
+      const status = groqRes.status;
+      console.error(`Groq transcription error ${status}:`, errorBody);
+
       // A rate limit here is load, not a fault. 502 would be funnelled into
       // the bug inbox as a crash (the reporter files anything >= 500); the
       // recording is kept locally either way, so retrying actually works.
-      if (groqRes.status === 429) {
+      if (status === 429) {
         const ra = parseFloat(groqRes.headers.get('retry-after'));
         return res.status(429).json({
           error: "Nook's AI is busy right now — your recording is saved, try again in a moment.",
@@ -137,6 +155,35 @@ router.post('/transcribe', upload.single('audio'), async (req, res) => {
           retry_after: Math.ceil(Number.isFinite(ra) ? ra : 30),
         });
       }
+      // A rejected key and an oversized recording are both things only the
+      // user can fix, and neither is a crash. Answer 4xx so they stay out of
+      // the >= 500 report funnel, and say what to actually do about it
+      // instead of the catch-all "Transcription failed".
+      if (status === 401 || status === 403) {
+        return res.status(400).json({
+          error: 'Groq rejected the API key. Check it in Settings.',
+          code: 'AI_KEY_REJECTED',
+        });
+      }
+      if (status === 413) {
+        return res.status(413).json({
+          error: 'That recording is too long to transcribe. Try splitting it into shorter entries.',
+          code: 'AUDIO_TOO_LARGE',
+        });
+      }
+
+      // Anything else is a genuine upstream failure worth knowing about — so
+      // report the ACTUAL status and Groq's own message, not the generic line
+      // the user sees. Without this the finish-hook in server.js files
+      // "Transcription failed. Your entry is saved without AI analysis." as
+      // the entire report, which is exactly why the last one of these could
+      // not be diagnosed: the cause was read into a local, logged, and
+      // dropped. Same treatment the catch block below already applies.
+      res.locals._reported = true;
+      reportHandled(
+        new Error(`Groq transcription ${status}: ${String(errorBody).slice(0, 300)}`),
+        { method: req.method, path: req.originalUrl, groqStatus: status }
+      );
       return res.status(502).json({
         error: 'Transcription failed. Your entry is saved without AI analysis.',
         code: 'TRANSCRIPTION_FAILED',
@@ -144,7 +191,7 @@ router.post('/transcribe', upload.single('audio'), async (req, res) => {
     }
 
     const data = await groqRes.json();
-    res.json({ transcript: data.text });
+    res.json({ transcript: data.text || '' });
   } catch (err) {
     console.error('POST /api/ai/transcribe error:', err);
     // Capture the REAL error (Groq status/message) here — the generic
