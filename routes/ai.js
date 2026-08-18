@@ -41,13 +41,21 @@ async function analyzeResilient(apiKey, messagesFull, messagesLean) {
     { model: FALLBACK_MODEL, wait: 2500, messages: messagesLean, max_tokens: 1500 },
   ];
   let lastErr;
+  const failures = [];
+  const deadModels = new Set();
   for (const step of plan) {
+    // A model Groq has retired answers model_not_found every time, so skip its
+    // remaining steps — but keep going, because the fallback is a DIFFERENT
+    // model and may well be fine. (Aborting entirely would be wrong here.)
+    if (deadModels.has(step.model)) continue;
     if (step.wait) await sleep(step.wait);
     try {
       return await groqChat(apiKey, step.messages, { max_tokens: step.max_tokens, model: step.model });
     } catch (err) {
       lastErr = err;
+      failures.push(`${step.model} → ${err.status || '?'} ${err.groqCode || err.message}`);
       console.warn(`[analyze] ${step.model} failed (${err.status || '?'}): ${err.message}`);
+      if (err.groqCode === 'model_not_found' || err.status === 404) deadModels.add(step.model);
       // A rejected key fails identically on every model, so working through
       // the rest of the plan just spends 6s of sleeps to arrive at the same
       // error — and delays telling the user their key is wrong. Bail out, the
@@ -55,7 +63,15 @@ async function analyzeResilient(apiKey, messagesFull, messagesLean) {
       if (FATAL_STATUSES.has(err.status)) break;
     }
   }
-  throw lastErr;
+  // Report what EVERY step did, not just the last one. Throwing only lastErr
+  // is what made the model shutdown so hard to read: both models were retired,
+  // but the report showed the fallback's 404 and said nothing at all about the
+  // primary — which had failed first, for the same reason, invisibly.
+  const agg = new Error(`analyze failed — ${[...new Set(failures)].join(' | ')}`);
+  agg.status = lastErr?.status;
+  agg.retryAfter = lastErr?.retryAfter;
+  agg.groqCode = lastErr?.groqCode;
+  throw agg;
 }
 
 // POST /api/ai/transcribe — audio blob → text
@@ -546,7 +562,11 @@ router.post('/followup', async (req, res) => {
       { role: 'user', content: `Entry so far: ${JSON.stringify(entry_so_far)}\nRound: ${round}` },
     ];
 
-    const result = await groqChat(apiKey, messages, { max_tokens: 256 });
+    // 256 was sized for a non-reasoning model. gpt-oss generates hidden
+    // reasoning out of the same budget, and groqChat treats a truncated
+    // response (finish_reason 'length') as an error — so too tight a ceiling
+    // turns into a hard failure rather than a shorter answer.
+    const result = await groqChat(apiKey, messages, { max_tokens: 500 });
     res.json(result);
   } catch (err) {
     console.error('POST /api/ai/followup error:', err);
@@ -608,7 +628,9 @@ Return JSON: { "questions": ["q1", "q2"] } — 2 questions max, 1-2 sentences ea
         role: 'user',
         content: `Entry from ${entryDate}${entry.time_of_day ? ' (' + entry.time_of_day + ')' : ''}:\n\n${content}\n\n---\nRecent context (for spotting patterns):\n${recentContext}`,
       },
-    ], { temperature: 0.8, max_tokens: 300 });
+      // Same reasoning-token headroom as /followup above: two questions is a
+      // small answer, but hidden reasoning is drawn from the same budget.
+    ], { temperature: 0.8, max_tokens: 700 });
 
     res.json({ questions: Array.isArray(result.questions) ? result.questions : [] });
   } catch (err) {
