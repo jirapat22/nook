@@ -4,6 +4,7 @@ import { assert } from '../report.js';
 import { renderMarkdown } from '../markdown.js';
 import { moodEditorHtml, detailsEditorHtml, peopleEditorHtml, wireEntryEditors } from '../components/entryEditors.js';
 import { escHtml } from '../html.js';
+import { backlogBadge } from '../backlog.js';
 
 export class DayView {
   constructor(params = []) {
@@ -194,6 +195,7 @@ function timelineEntry(entry) {
         <div class="timeline-body-header">
           <span></span>
           <div class="timeline-body-header-right">
+            ${backlogBadge(entry, 'compact')}
             ${entry.has_love_life_content ? '<span class="entry-card-love" style="font-size:0.8rem">💕</span>' : ''}
             <button class="timeline-edit-btn" data-id="${entry.id}" title="Open entry">Open ↗</button>
           </div>

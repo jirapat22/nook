@@ -9,6 +9,7 @@ import { analysisToPayload } from '../analyze-helpers.js';
 import { renderMarkdown } from '../markdown.js';
 import { populateSubgroupAndIntroducedBy, readSubgroup, getNicknamesFor, runBackfillReview, nameCollides } from './people.js';
 import { escHtml } from '../html.js';
+import { backlogBadge } from '../backlog.js';
 
 export class EntryView {
   constructor(params = []) {
@@ -1499,7 +1500,7 @@ export class EntryView {
             <button class="meta-edit-btn" id="edit-date-btn" title="Edit date">✏️</button>
             ${createdTime ? `<span>· ${createdTime}</span>` : entry.time_of_day ? `<span>· ${entry.time_of_day}</span>` : ''}
             ${entry.mood_overall != null ? `<span class="mood-dot ${moodClass}"></span><span>${entry.mood_overall}/10</span>` : ''}
-            ${entry.is_backdated ? '<span class="backdated-label">Added after the fact</span>' : ''}
+            ${backlogBadge(entry)}
           </div>
 
           ${entry.ai_summary && !firstPerson && !userEdit ? `<div class="card mb-12"><p class="font-display text-muted" style="font-style:italic">${escHtml(entry.ai_summary)}</p></div>` : ''}

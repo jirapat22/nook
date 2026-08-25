@@ -2669,8 +2669,18 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
   cursor: pointer; letter-spacing: 0.01em;
 }
 .reflect-write-btn:hover { opacity: 0.75; }
-.backdated-label {
-  font-size: 0.8125rem; font-style: italic; color: var(--color-text-faint);
+/* Written-after-the-fact tag. Replaces .backdated-label, which only ever said
+   "Added after the fact" with no sense of how late — see public/app/backlog.js
+   for the rule (4am grace, so late-night journaling isn't tagged). A pill
+   rather than the old italic run-on, because it now sits next to the 💕 marker
+   on timeline cards and needs to read as a tag at a glance. */
+.backlog-tag {
+  font-size: 0.75rem; padding: 2px 8px;
+  background: var(--color-surface-offset);
+  border-radius: 10px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 /* ──────────────────────────────────────────
