@@ -50,7 +50,9 @@ export function authHeaders(extra = {}) {
   return token ? { ...extra, 'x-app-token': token } : { ...extra };
 }
 
-async function request(method, path, opts = {}) {
+// `quiet` suppresses bug-report funnelling for work the app already retries on
+// its own. A failure there is a deferral, not a defect — see quietApi below.
+async function request(method, path, opts = {}, { quiet = false } = {}) {
   const headers = { ...(opts.headers || {}) };
   const token = authToken();
   if (token) headers['x-app-token'] = token;
@@ -58,7 +60,7 @@ async function request(method, path, opts = {}) {
   try {
     res = await fetch(path, { ...opts, headers });
   } catch (err) {
-    reportApiError({ method, path, status: null, error: err.message });
+    if (!quiet) reportApiError({ method, path, status: null, error: err.message });
     throw err;
   }
   if (res.status === 401) {
@@ -76,7 +78,7 @@ async function request(method, path, opts = {}) {
     // fallback the view's catch-branch already handles, not a server error,
     // so reporting it here was flooding the bug inbox with "API 503" noise
     // every time a user's connection blipped or a deploy briefly dropped a request.
-    if (!e.offline) reportApiError({ method, path, status: res.status, code: e.code, serverError: e.error });
+    if (!e.offline && !quiet) reportApiError({ method, path, status: res.status, code: e.code, serverError: e.error });
     throw Object.assign(new Error(e.error || `HTTP ${res.status}`), e);
   }
   return res.json();
@@ -127,13 +129,31 @@ function showUnlock() {
 }
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
-export const api = {
-  get:      (path)       => request('GET', path),
-  post:     (path, data) => request('POST', path, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(data) }),
-  postForm: (path, fd)   => request('POST', path, { method: 'POST', body: fd }),
-  put:      (path, data) => request('PUT', path, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify(data) }),
-  delete:   (path)       => request('DELETE', path, { method: 'DELETE' }),
-};
+// One definition, two reporting policies — built from a factory rather than
+// written out twice, because a second hand-maintained copy of this surface is
+// exactly how escHtml reached eleven versions and the Groq client reached two.
+function makeApi(quiet) {
+  return {
+    get:      (path)       => request('GET', path, {}, { quiet }),
+    post:     (path, data) => request('POST', path, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(data) }, { quiet }),
+    postForm: (path, fd)   => request('POST', path, { method: 'POST', body: fd }, { quiet }),
+    put:      (path, data) => request('PUT', path, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify(data) }, { quiet }),
+    delete:   (path)       => request('DELETE', path, { method: 'DELETE' }, { quiet }),
+  };
+}
+export const api = makeApi(false);
+
+// Same surface, but failures never reach the bug inbox. For background work the
+// app retries by itself, where a failure means "later", not "broken".
+//
+// report.js funnels any failed write because a lost write is usually data loss.
+// It cannot see that healMissingEntries re-queries and re-picks the same
+// entries on the next load, so a single network blip during that backfill filed
+// a crash report — up to `cap` of them per load — for something that fixes
+// itself. Same shape as the Groq 429s that used to fill the inbox: expected,
+// self-healing, and not a defect. Deliberately NOT used by the manual backfill
+// in settings.js, where the user asked for it and is owed a real report.
+export const quietApi = makeApi(true);
 
 // ── Toast notifications ─────────────────────────────────────
 export function showToast(message, type = '') {
@@ -619,7 +639,7 @@ async function init() {
   // + paced; server falls back to a faster model when Groq is busy). Runs once
   // per load, online only, and silent unless it actually heals something.
   if (navigator.onLine) {
-    healMissingEntries(api, { cap: 5, delay: 1000 }).then(({ done }) => {
+    healMissingEntries(quietApi, { cap: 5, delay: 1000 }).then(({ done }) => {
       if (done > 0) {
         showToast(`Caught up on ${done} entr${done === 1 ? 'y' : 'ies'} ✨`, 'success');
         // Refresh any view that could be showing a now-stale (just-healed) entry —
