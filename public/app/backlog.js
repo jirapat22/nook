@@ -42,6 +42,24 @@ function localDay(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// A note on `is_backdated`, which this deliberately does NOT consult.
+//
+// That column stores what the client believed at write time, from its own local
+// date, so it is the one signal that survives an offline write: a queued entry
+// gets created_at at SYNC time, which makes the lag below over-report. Vetoing
+// on the flag would fix that.
+//
+// It would also break a more common case. The PUT route rewrites `date` but
+// never recomputes `is_backdated`, so moving an entry's date backwards leaves
+// the flag stale at false — and the veto would then hide a tag that genuinely
+// belongs. `updated_at` can't separate the two either: analyze PUTs its summary
+// back seconds after almost every save, so nearly every entry looks edited.
+//
+// Trading a common wrong answer for a rare one is a bad deal, so the flag stays
+// stored (it is still the durable record, and the basis of any real fix) and
+// unread. Closing the offline gap properly means persisting the client's local
+// write date, which routes/entries.js already receives as `today` and discards.
+
 // How many days after the fact this entry was written. 0 means same day, or not
 // knowable — either way, callers treat it as "not backlogged".
 export function backlogDays(entry) {

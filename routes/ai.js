@@ -43,7 +43,8 @@ async function analyzeResilient(apiKey, messagesFull, messagesLean) {
   let lastErr;
   const failures = [];
   const deadModels = new Set();
-  for (const step of plan) {
+  for (let i = 0; i < plan.length; i++) {
+    const step = plan[i];
     // A model Groq has retired answers model_not_found every time, so skip its
     // remaining steps — but keep going, because the fallback is a DIFFERENT
     // model and may well be fine. (Aborting entirely would be wrong here.)
@@ -53,9 +54,17 @@ async function analyzeResilient(apiKey, messagesFull, messagesLean) {
       return await groqChat(apiKey, step.messages, { max_tokens: step.max_tokens, model: step.model });
     } catch (err) {
       lastErr = err;
-      failures.push(`${step.model} → ${err.status || '?'} ${err.groqCode || err.message}`);
+      // Budget is part of the story for a truncation, so name it.
+      failures.push(`${step.model}@${step.max_tokens} → ${err.status || '?'} ${err.groqCode || err.message}`);
       console.warn(`[analyze] ${step.model} failed (${err.status || '?'}): ${err.message}`);
       if (err.groqCode === 'model_not_found' || err.status === 404) deadModels.add(step.model);
+      // An answer that didn't fit will not fit in less room. The plan's budgets
+      // only shrink, so continuing spent four Groq calls and six seconds of
+      // backoff arriving at a guaranteed failure — measured, not assumed. Same
+      // reasoning the plan already applies to an oversized payload above; the
+      // check reads the remaining steps rather than assuming the shape, so it
+      // stays right if the plan is ever reordered.
+      if (err.truncated && !plan.slice(i + 1).some(s => s.max_tokens > step.max_tokens)) break;
       // A rejected key fails identically on every model, so working through
       // the rest of the plan just spends 6s of sleeps to arrive at the same
       // error — and delays telling the user their key is wrong. Bail out, the
@@ -562,11 +571,11 @@ router.post('/followup', async (req, res) => {
       { role: 'user', content: `Entry so far: ${JSON.stringify(entry_so_far)}\nRound: ${round}` },
     ];
 
-    // 256 was sized for a non-reasoning model. gpt-oss generates hidden
-    // reasoning out of the same budget, and groqChat treats a truncated
-    // response (finish_reason 'length') as an error — so too tight a ceiling
-    // turns into a hard failure rather than a shorter answer.
-    const result = await groqChat(apiKey, messages, { max_tokens: 500 });
+    // Sized for the answer alone. Room for the model's hidden reasoning is
+    // added by lib/groq.js (REASONING_HEADROOM), so this stays a statement
+    // about how long a reply we want rather than a number to re-tune every
+    // time the model changes.
+    const result = await groqChat(apiKey, messages, { max_tokens: 256 });
     res.json(result);
   } catch (err) {
     console.error('POST /api/ai/followup error:', err);
@@ -628,9 +637,7 @@ Return JSON: { "questions": ["q1", "q2"] } — 2 questions max, 1-2 sentences ea
         role: 'user',
         content: `Entry from ${entryDate}${entry.time_of_day ? ' (' + entry.time_of_day + ')' : ''}:\n\n${content}\n\n---\nRecent context (for spotting patterns):\n${recentContext}`,
       },
-      // Same reasoning-token headroom as /followup above: two questions is a
-      // small answer, but hidden reasoning is drawn from the same budget.
-    ], { temperature: 0.8, max_tokens: 700 });
+    ], { temperature: 0.8, max_tokens: 300 });
 
     res.json({ questions: Array.isArray(result.questions) ? result.questions : [] });
   } catch (err) {

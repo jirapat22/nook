@@ -426,7 +426,9 @@ export class EntryView {
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
         if (res.status === 401) throw new Error('Session expired — reload and unlock, your audio is kept');
-        throw new Error(e.error || `Transcription failed (HTTP ${res.status})`);
+        // Carry the server's code through: the catch below needs it to tell a
+        // failure worth retrying from one that can only ever fail again.
+        throw Object.assign(new Error(e.error || `Transcription failed (HTTP ${res.status})`), { code: e.code });
       }
       const result = await res.json();
       if (this._destroyed) return;
@@ -455,7 +457,23 @@ export class EntryView {
       const aborted = err.name === 'AbortError';
       const msg = aborted ? 'Transcription took too long.' : (err.message || 'Transcription failed.');
       showToast(msg, 'error');
+      // Some failures are permanent properties of the blob itself: too short to
+      // hold speech, or past the upload ceiling. Re-uploading the same bytes
+      // fails identically every time, so keeping it and offering "Try again"
+      // builds a trap — the retry re-fails, and the blob resurfaces after every
+      // reload as a recording that "never transcribed". The server already
+      // knows these are terminal; this is the client acting on that.
+      const permanent = err.code === 'AUDIO_TOO_SHORT' || err.code === 'AUDIO_TOO_LARGE';
       // Use textContent for the message itself (XSS-safe) and innerHTML only for structure
+      if (permanent) {
+        clearPendingAudio();   // also clears an earlier copy, if this came from the resurface prompt
+        transcript.innerHTML = `
+          <div style="color:var(--color-text);margin-bottom:6px"><strong class="js-err-msg"></strong></div>
+          <div style="font-size:0.8rem;color:var(--color-text-muted);margin-bottom:10px">Tap the mic to record again.</div>`;
+        transcript.querySelector('.js-err-msg').textContent = msg;
+        hint.textContent = 'Tap to record again';
+        return;
+      }
       // Persist before rendering the error: a failure is exactly when the user
       // is most likely to reload, and the blob otherwise only exists in memory.
       savePendingAudio(audioBlob, { mode: this.mode });

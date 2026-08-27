@@ -284,6 +284,12 @@ router.get('/weekly-summary', async (req, res) => {
         content: 'You are Nook, a warm personal journal companion. Write a friendly weekly summary in 2-3 short paragraphs. Highlight patterns, growth moments, recurring themes, and one gentle observation. Keep it personal and warm, not clinical. Return JSON: { "summary": "..." }',
       },
       { role: 'user', content: `My entries this week:\n${entryData}` },
+      // Sized for the prose only. This is the longest answer any Groq call in
+      // Nook asks for and it had the SMALLEST budget — when the move to
+      // reasoning models raised /reflect and /followup by hand, this one was
+      // missed, and an overflow here is a hard 500 plus a bug report rather
+      // than a shorter summary. Reasoning room is now added centrally in
+      // lib/groq.js, so leave this as the answer size and do not re-raise it.
     ], { max_tokens: 512 });
 
     res.json({ summary: typeof result.summary === 'string' ? result.summary : '' });
