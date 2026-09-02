@@ -1487,6 +1487,10 @@ export class EntryView {
             <textarea class="textarea" id="confirm-notes" placeholder="${escHtml(person.facts_extracted?.join(', ') || 'Anything you want to remember...')}" style="min-height:60px"></textarea>
             <p class="text-xs hidden" id="confirm-notes-error" style="color:var(--color-danger);margin-top:4px">Add a quick note so this person doesn't get confused with your other one of the same name.</p>
           </div>
+          ${existing.length ? `
+            <button class="btn btn-secondary btn-sm" id="confirm-existing" style="width:100%;margin-bottom:10px">
+              Actually, this is someone I already have…
+            </button>` : ''}
           <div class="modal-actions">
             <button class="btn btn-ghost btn-sm" id="confirm-skip">${uncertain ? 'Not a person' : 'Skip'}</button>
             <button class="btn btn-primary" id="confirm-add">${uncertain ? 'Yes, add' : 'Add'}</button>
@@ -1540,6 +1544,37 @@ export class EntryView {
       const cleanup = () => { modal.remove(); resolve(); };
       modal.querySelector('#confirm-skip').addEventListener('click', cleanup);
       modal.addEventListener('click', e => { if (e.target === modal) cleanup(); });
+
+      // "Did you mean?" only opens when a name looks similar to someone already
+      // tracked. With no near-match at all the flow arrives straight here,
+      // where the only outcomes were create or skip — so a mention of someone
+      // you already have under a different name had nowhere to go but a
+      // duplicate. Same picker as the fuzzy prompt, same reason.
+      modal.querySelector('#confirm-existing')?.addEventListener('click', async () => {
+        // Kept mounted but hidden, so backing out of the picker returns to the
+        // half-filled form rather than discarding it.
+        modal.style.display = 'none';
+        const chosen = await this.pickExistingPerson(existing, {
+          title: `Who is "${person.name}"?`,
+          subtitle: 'Link this mention to someone already in your People.',
+        });
+        modal.style.display = '';
+        if (!chosen) return;
+        modal.remove();
+        try {
+          await api.post('/api/people/link-mention', {
+            person_id: chosen.id, entry_id: entryId,
+            context: person.context, sentiment_score: person.sentiment,
+            facts_extracted: person.facts_extracted || [], emotion_toward: person.emotion_toward,
+            link_method: 'manual',
+          });
+          showToast(`Linked to ${chosen.name}`, 'success');
+        } catch {
+          showToast(`Couldn't link this entry to ${chosen.name}`, 'error');
+        }
+        resolve();
+      });
+
       modal.querySelector('#confirm-add').addEventListener('click', async () => {
         const name = nameInput.value.trim();
         if (!name) { nameInput.focus(); return; }
