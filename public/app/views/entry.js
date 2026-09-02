@@ -1053,7 +1053,7 @@ export class EntryView {
       }
       // Handle fuzzy "Did you mean?" — one at a time
       for (const { person, matches } of fuzzy) {
-        const chosen = await this.showDidYouMeanPrompt(person, matches, entryId);
+        const chosen = await this.showDidYouMeanPrompt(person, matches, entryId, existing);
         if (chosen === 'new') newPeople.push(person);
       }
       // Show undo toast for auto-scored picks first (non-blocking), then block on
@@ -1181,47 +1181,187 @@ export class EntryView {
     });
   }
 
-  showDidYouMeanPrompt(person, candidates, entryId) {
+  // Two things this modal could not express, both hit in real entries:
+  //
+  //   1. "Char" surfaced "Charlie Perris" when the user meant "Shah". The only
+  //      exits were a suggested candidate or "someone new", so a matcher miss
+  //      forced a duplicate — no way to reach a person it had not guessed.
+  //   2. The AI read "Lily and Honda" as one person, "Lilian Honda". Tapping
+  //      Lily resolved the prompt and silently dropped Honda, because one
+  //      detected name could only ever become one link.
+  //
+  // Candidates are now a multi-select, the picker can pull in anyone else, and
+  // the two compose: pick Lily, add Honda, link both at once. Cost is one
+  // extra tap to confirm, and only on the fuzzy path — an exact name match
+  // never opens this modal.
+  showDidYouMeanPrompt(person, candidates, entryId, existing = []) {
     return new Promise(resolve => {
       document.querySelector('.modal-backdrop')?.remove();
       const modal = document.createElement('div');
       modal.className = 'modal-backdrop';
+
+      // rows starts as the fuzzy guesses and grows as people are pulled in from
+      // the picker. selected maps id -> { person, method } so each link records
+      // how it was actually chosen rather than one blanket method.
+      const rows = [...candidates];
+      const selected = new Map();
+      const safeName = escHtml(person.name);
+
       modal.innerHTML = `
         <div class="modal-sheet">
           <div class="modal-handle"></div>
           <div class="modal-title">Did you mean…?</div>
           <p style="font-size:0.875rem;color:var(--color-text-muted);margin-bottom:16px">
-            You mentioned <strong>${escHtml(person.name)}</strong> — is this one of these people?
+            You mentioned <strong>${safeName}</strong> — who is this? Pick everyone it refers to.
           </p>
-          ${candidates.map(m => `
-            <button class="btn btn-secondary" data-id="${m.id}"
-              style="width:100%;margin-bottom:8px;text-align:left;display:flex;justify-content:space-between;align-items:center">
-              <strong>${escHtml(m.name)}</strong>
-              ${m.relationship_type ? `<span style="color:var(--color-text-faint);font-size:0.8rem">${escHtml(m.relationship_type)}</span>` : ''}
-            </button>`).join('')}
-          <button class="btn btn-ghost btn-sm" id="dym-new" style="width:100%;margin-top:4px">
-            No — "${escHtml(person.name)}" is someone new
+          <div id="dym-rows"></div>
+          <button class="btn btn-secondary btn-sm" id="dym-other" style="width:100%;margin-top:4px">
+            Someone else I already know…
+          </button>
+          <button class="btn btn-primary" id="dym-confirm" style="width:100%;margin-top:10px" disabled>
+            Choose someone
+          </button>
+          <button class="btn btn-ghost btn-sm" id="dym-new" style="width:100%;margin-top:6px">
+            No — "${safeName}" is someone new
           </button>
         </div>`;
       document.body.appendChild(modal);
+
+      const rowsEl    = modal.querySelector('#dym-rows');
+      const confirmEl = modal.querySelector('#dym-confirm');
+      const otherEl   = modal.querySelector('#dym-other');
+
+      const render = () => {
+        rowsEl.innerHTML = rows.map(m => {
+          const sel = selected.has(m.id);
+          return `
+            <button class="btn ${sel ? 'btn-primary' : 'btn-secondary'}" data-id="${m.id}"
+              style="width:100%;margin-bottom:8px;text-align:left;display:flex;justify-content:space-between;align-items:center;gap:8px">
+              <span style="display:flex;align-items:center;gap:8px;min-width:0">
+                <span style="flex-shrink:0;width:1em;opacity:${sel ? '1' : '0.4'}">${sel ? '✓' : '○'}</span>
+                <strong style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(m.name)}</strong>
+              </span>
+              ${m.relationship_type ? `<span style="font-size:0.8rem;flex-shrink:0;${sel ? '' : 'color:var(--color-text-faint)'}">${escHtml(m.relationship_type)}</span>` : ''}
+            </button>`;
+        }).join('');
+        const n = selected.size;
+        confirmEl.disabled = n === 0;
+        confirmEl.textContent = n === 0 ? 'Choose someone'
+          : n === 1 ? `Link to ${[...selected.values()][0].person.name}`
+          : `Link to ${n} people`;
+        // Hide the picker entry only when there is genuinely no one left to add.
+        otherEl.style.display =
+          existing.some(p => !rows.some(r => r.id === p.id)) ? '' : 'none';
+      };
+
+      const toggle = id => {
+        if (selected.has(id)) selected.delete(id);
+        else {
+          const m = rows.find(r => r.id === id);
+          // Anyone reached through the picker was chosen by hand; the
+          // pre-offered rows are the matcher's guess, confirmed.
+          if (m) selected.set(id, { person: m, method: m._viaPicker ? 'manual' : 'fuzzy_confirmed' });
+        }
+        render();
+      };
+      rowsEl.addEventListener('click', e => {
+        const btn = e.target.closest('[data-id]');
+        if (btn) toggle(btn.dataset.id);
+      });
+
+      otherEl.addEventListener('click', async () => {
+        // Stay mounted but out of sight, so backing out of the picker returns
+        // here with the current selection intact instead of losing it.
+        modal.style.display = 'none';
+        const chosen = await this.pickExistingPerson(
+          existing.filter(p => !rows.some(r => r.id === p.id)),
+          { title: `Who is "${person.name}"?`, subtitle: 'Pick anyone already in your People.' },
+        );
+        modal.style.display = '';
+        if (!chosen) return;
+        rows.push({ ...chosen, _viaPicker: true });
+        toggle(chosen.id);
+      });
+
+      confirmEl.addEventListener('click', async () => {
+        const picks = [...selected.values()];
+        modal.remove();
+        for (const { person: target, method } of picks) {
+          await api.post('/api/people/link-mention', {
+            person_id: target.id, entry_id: entryId,
+            context: person.context, sentiment_score: person.sentiment,
+            facts_extracted: person.facts_extracted || [], emotion_toward: person.emotion_toward,
+            link_method: method,
+          }).catch(() => {});
+        }
+        showToast(picks.length === 1
+          ? `Linked to ${picks[0].person.name}`
+          : `Linked to ${picks.map(x => x.person.name).join(' and ')}`, 'success');
+        resolve('linked');
+      });
 
       modal.querySelector('#dym-new').addEventListener('click', () => { modal.remove(); resolve('new'); });
       // Dismissing without choosing must NOT lose the person — fall through to the
       // "add as new" flow (they can still tap "Not now" there) instead of dropping.
       modal.addEventListener('click', e => { if (e.target === modal) { modal.remove(); resolve('new'); } });
 
-      candidates.forEach(m => {
-        modal.querySelector(`[data-id="${m.id}"]`).addEventListener('click', async () => {
-          modal.remove();
-          await api.post('/api/people/link-mention', {
-            person_id: m.id, entry_id: entryId,
-            context: person.context, sentiment_score: person.sentiment,
-            facts_extracted: person.facts_extracted || [], emotion_toward: person.emotion_toward,
-            link_method: 'fuzzy_confirmed',
-          }).catch(() => {});
-          resolve('linked');
-        });
+      render();
+    });
+  }
+
+  // One searchable list of everyone already tracked, for any prompt that needs
+  // "no, I meant somebody else". Resolves with the chosen person, or null if
+  // the user backed out — callers must treat null as "nothing decided" and
+  // restore whatever they were showing.
+  pickExistingPerson(people, { title = 'Who did you mean?', subtitle = '' } = {}) {
+    return new Promise(resolve => {
+      const modal = document.createElement('div');
+      modal.className = 'modal-backdrop';
+      // Stacks above the modal that opened it (z-index 200), which stays
+      // mounted underneath so Back can return to it.
+      modal.style.zIndex = '210';
+      const sorted = [...people].sort((a, b) => a.name.localeCompare(b.name));
+      modal.innerHTML = `
+        <div class="modal-sheet">
+          <div class="modal-handle"></div>
+          <div class="modal-title">${escHtml(title)}</div>
+          ${subtitle ? `<p style="font-size:0.875rem;color:var(--color-text-muted);margin-bottom:12px">${escHtml(subtitle)}</p>` : ''}
+          <input type="text" class="input" id="pick-search" placeholder="Search your people…" autocomplete="off">
+          <div id="pick-list" style="max-height:45vh;overflow-y:auto;margin-top:10px"></div>
+          <button class="btn btn-ghost btn-sm" id="pick-cancel" style="width:100%;margin-top:8px">Back</button>
+        </div>`;
+      document.body.appendChild(modal);
+
+      const listEl   = modal.querySelector('#pick-list');
+      const searchEl = modal.querySelector('#pick-search');
+      const render = () => {
+        const q = searchEl.value.trim().toLowerCase();
+        // Search aliases too — the point is reaching someone the fuzzy matcher
+        // missed, and a nickname is often how you would look for them.
+        const shown = q
+          ? sorted.filter(p => [p.name, ...(Array.isArray(p.aliases) ? p.aliases : [])]
+              .some(n => String(n).toLowerCase().includes(q)))
+          : sorted;
+        listEl.innerHTML = shown.length
+          ? shown.map(p => `
+              <button class="btn btn-secondary" data-pick="${p.id}"
+                style="width:100%;margin-bottom:6px;text-align:left;display:flex;justify-content:space-between;align-items:center;gap:8px">
+                <strong style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.name)}</strong>
+                ${p.relationship_type ? `<span style="color:var(--color-text-faint);font-size:0.8rem;flex-shrink:0">${escHtml(p.relationship_type)}</span>` : ''}
+              </button>`).join('')
+          : `<p style="font-size:0.85rem;color:var(--color-text-muted);text-align:center;padding:12px 0">No one matches "${escHtml(searchEl.value.trim())}"</p>`;
+      };
+      render();
+      searchEl.addEventListener('input', render);
+
+      const done = value => { modal.remove(); resolve(value); };
+      listEl.addEventListener('click', e => {
+        const btn = e.target.closest('[data-pick]');
+        if (btn) done(sorted.find(x => String(x.id) === btn.dataset.pick) || null);
       });
+      modal.querySelector('#pick-cancel').addEventListener('click', () => done(null));
+      modal.addEventListener('click', e => { if (e.target === modal) done(null); });
+      searchEl.focus();
     });
   }
 
