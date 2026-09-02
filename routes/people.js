@@ -411,22 +411,59 @@ router.post('/:id/merge', async (req, res) => {
 
 // POST /api/people/link-mention — link an AI-detected person mention to an entry
 router.post('/link-mention', async (req, res) => {
+  const client = await db.getClient();
   try {
-    const { person_id, entry_id, context, sentiment_score, facts_extracted = [], emotion_toward, link_method } = req.body;
+    const {
+      person_id, entry_id, context, sentiment_score, facts_extracted = [],
+      emotion_toward, link_method, detected_name,
+    } = req.body;
+    await client.query('BEGIN');
     // ON CONFLICT guards against a race with backfillMentions inserting a row for
     // the same person+entry first (e.g. linking a brand-new person from inside an
     // entry triggers both paths). DO UPDATE (no-op) rather than DO NOTHING so
     // RETURNING always yields a row — otherwise result.rows[0] could be undefined.
-    const result = await db.query(`
+    const result = await client.query(`
       INSERT INTO person_mentions (person_id, entry_id, context, sentiment_score, facts_extracted, emotion_toward, link_method)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       ON CONFLICT (person_id, entry_id) DO UPDATE SET person_id = EXCLUDED.person_id
       RETURNING *
     `, [person_id, entry_id, context, sentiment_score, JSON.stringify(facts_extracted), emotion_toward, link_method || 'exact']);
+
+    // entries.detected_people is a denormalized snapshot of the names the AI
+    // read out of the entry. Every UNLINK path below already prunes it; linking
+    // never did, and the entry view only hides a detected name when it equals a
+    // linked person's own name or alias. So resolving a mention to someone
+    // named differently left the original sitting under "Nook also spotted",
+    // still offering to be added: picking Shah for a detected "Char", or Lily
+    // and Honda for a detected "Lilian Honda", both came back.
+    //
+    // Strip the name the user actually resolved (detected_name) as well as the
+    // linked person's name/aliases — the latter is what the unlink routes match
+    // on, and keeps callers that send no detected_name behaving as before.
+    const names = new Set();
+    if (detected_name) names.add(String(detected_name).trim().toLowerCase());
+    const personRow = await client.query('SELECT name, aliases FROM people WHERE id = $1', [person_id]);
+    if (personRow.rows.length) {
+      const row = personRow.rows[0];
+      for (const n of [row.name, ...(Array.isArray(row.aliases) ? row.aliases : [])]) {
+        if (n) names.add(String(n).trim().toLowerCase());
+      }
+    }
+    const entryRow = await client.query('SELECT detected_people FROM entries WHERE id = $1', [entry_id]);
+    const detected = Array.isArray(entryRow.rows[0]?.detected_people) ? entryRow.rows[0].detected_people : [];
+    const cleaned = detected.filter(p => !names.has(String(p?.name || '').trim().toLowerCase()));
+    if (cleaned.length !== detected.length) {
+      await client.query('UPDATE entries SET detected_people = $1 WHERE id = $2', [JSON.stringify(cleaned), entry_id]);
+    }
+
+    await client.query('COMMIT');
     res.status(201).json(result.rows[0]);
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('link-mention error:', err);
     res.status(500).json({ error: 'Failed to link mention', code: 'DB_ERROR' });
+  } finally {
+    client.release();
   }
 });
 

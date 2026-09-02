@@ -1022,6 +1022,7 @@ export class EntryView {
               context: person.context, sentiment_score: person.sentiment,
               facts_extracted: person.facts_extracted || [], emotion_toward: person.emotion_toward,
               link_method: 'auto_scored',
+              detected_name: person.name,
             }).catch(() => null);
             if (link) autoLinked.push({ mention: person, chosen: top.p, candidates: exactMatches, mentionId: link.id });
           } else {
@@ -1175,6 +1176,7 @@ export class EntryView {
           context: person.context, sentiment_score: person.sentiment,
           facts_extracted: person.facts_extracted || [], emotion_toward: person.emotion_toward,
           link_method: 'exact_confirmed',
+          detected_name: person.name,
         }).catch(() => {});
         resolve('linked');
       });
@@ -1292,6 +1294,7 @@ export class EntryView {
             context: person.context, sentiment_score: person.sentiment,
             facts_extracted: person.facts_extracted || [], emotion_toward: person.emotion_toward,
             link_method: method,
+            detected_name: person.name,
           }).catch(() => {});
         }
         showToast(picks.length === 1
@@ -1403,6 +1406,7 @@ export class EntryView {
             context: person.context, sentiment_score: person.sentiment,
             facts_extracted: person.facts_extracted || [], emotion_toward: person.emotion_toward,
             link_method: 'manual',
+            detected_name: person.name,
           }).catch(() => {});
           resolve();
         });
@@ -1567,6 +1571,7 @@ export class EntryView {
             context: person.context, sentiment_score: person.sentiment,
             facts_extracted: person.facts_extracted || [], emotion_toward: person.emotion_toward,
             link_method: 'manual',
+            detected_name: person.name,
           });
           showToast(`Linked to ${chosen.name}`, 'success');
         } catch {
@@ -1610,6 +1615,7 @@ export class EntryView {
             context: person.context, sentiment_score: person.sentiment,
             facts_extracted: person.facts_extracted || [], emotion_toward: person.emotion_toward,
             link_method: 'new_person',
+            detected_name: person.name,
           });
           showToast(`Added ${name} ✓`, 'success');
         } catch {
