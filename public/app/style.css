@@ -125,11 +125,21 @@ p  { line-height: 1.65; }
   position: sticky; top: 0; z-index: 100;
   flex-shrink: 0;
 }
+/* The wordmark is a link home. It has to *look* tappable, or it reads as
+   decoration and nobody tries it — hence the press feedback and the pointer. */
 .top-bar-logo {
   display: flex; align-items: center; gap: 8px;
   font-family: var(--font-display); font-size: 1.2rem; font-weight: 600;
   color: var(--color-primary);
+  cursor: pointer;
+  /* Widens the tap target past the glyphs without shifting the layout. */
+  margin: -6px -8px; padding: 6px 8px;
+  border-radius: 10px;
+  transition: opacity 0.15s ease, background 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
 }
+.top-bar-logo:hover { background: var(--color-surface-offset); }
+.top-bar-logo:active { opacity: 0.6; }
 .top-bar-logo svg { width: 28px; height: 28px; }
 .top-bar-actions { display: flex; align-items: center; gap: 12px; }
 .streak-counter {

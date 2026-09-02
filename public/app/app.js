@@ -436,14 +436,14 @@ function updateOnlineStatus() {
 function renderShell() {
   document.getElementById('app-shell').innerHTML = `
     <header class="top-bar">
-      <div class="top-bar-logo">
+      <a href="#home" class="top-bar-logo" title="Home" aria-label="Nook — go to Home">
         <svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M 7 21 L 7 9 L 19 9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
           <circle cx="7" cy="9" r="3" fill="currentColor"/>
           <circle cx="7" cy="9" r="5" fill="currentColor" opacity="0.15"/>
         </svg>
         <span>Nook</span>
-      </div>
+      </a>
       <div class="top-bar-actions">
         <div class="streak-counter" id="streak-counter">
           <svg viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px;color:#e85d04">
