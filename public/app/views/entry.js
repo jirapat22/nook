@@ -1,4 +1,4 @@
-import { api, showToast, speak, AppState, todayStr, authHeaders } from '../app.js';
+import { api, quietApi, showToast, speak, AppState, todayStr, authHeaders } from '../app.js';
 import { VoiceRecorder }   from '../components/voiceRecorder.js';
 import { AiPanel }         from '../components/aiPanel.js';
 import { LoveLifeSection } from '../components/loveLifeSection.js';
@@ -976,11 +976,20 @@ export class EntryView {
   // Best-effort: analyse an entry that was saved without AI analysis and write
   // the results back. Fire-and-forget — failures are swallowed (the raw entry
   // is already saved; the user can still re-analyse manually later).
+  //
+  // quietApi, for the same reason the startup backfill uses it: this is fired
+  // un-awaited and the view redirects home 1.6s later, so a dropped connection
+  // here is routine. Nothing is lost — the entry is already saved, and
+  // healMissingEntries re-analyses anything without a summary on a later load.
+  // Through the loud api that self-healing blip filed a crash report, because
+  // report.js funnels every failed POST on the assumption a write was lost.
+  // A real fault still surfaces: the backend files its own report, with the
+  // actual Groq cause in it rather than a bare status.
   async backgroundAnalyze(entryId, content) {
     try {
-      const a = await api.post('/api/ai/analyze', { content });
+      const a = await quietApi.post('/api/ai/analyze', { content });
       // A raw-saved entry has no mood yet, so let analysis fill it.
-      await api.put(`/api/entries/${entryId}`, analysisToPayload(a, { fillMood: true }));
+      await quietApi.put(`/api/entries/${entryId}`, analysisToPayload(a, { fillMood: true }));
     } catch { /* non-fatal — entry stays as-is, re-analyse remains available */ }
   }
 
