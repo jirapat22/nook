@@ -5,6 +5,7 @@ import { renderMarkdown } from '../markdown.js';
 import { moodEditorHtml, detailsEditorHtml, peopleEditorHtml, wireEntryEditors } from '../components/entryEditors.js';
 import { escHtml } from '../html.js';
 import { backlogBadge } from '../backlog.js';
+import { memoryCardHtml, wireMemoryCards } from '../components/memoryCard.js';
 
 export class DayView {
   constructor(params = []) {
@@ -28,8 +29,13 @@ export class DayView {
     if (!quiet) container.innerHTML = '<div class="loading-spinner"></div>';
 
     let entries = [];
+    let memories = [];
     try {
-      entries = await api.get(`/api/entries?date=${this.dateStr}&limit=20`);
+      [entries, memories] = await Promise.all([
+        api.get(`/api/entries?date=${this.dateStr}&limit=20`),
+        // Memories are a bonus here — a failure shouldn't blank the whole day.
+        api.get(`/api/memories?date=${this.dateStr}&limit=100`).catch(() => []),
+      ]);
     } catch {
       container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">😕</div><p>Could not load this day</p><a href="#home" class="btn btn-primary btn-sm mt-12">Back home</a></div>`;
       return;
@@ -80,7 +86,7 @@ export class DayView {
           ${topThemes.length ? `<div class="day-summary-themes">${topThemes.map(t => `<span class="entry-card-tag">${escHtml(t)}</span>`).join('')}</div>` : ''}
         </div>` : ''}
 
-        ${entries.length === 0 ? `
+        ${entries.length === 0 && memories.length === 0 ? `
           <div class="empty-state" style="padding:40px 0">
             <div class="empty-state-icon">🌿</div>
             <h3>No entries this day</h3>
@@ -92,10 +98,17 @@ export class DayView {
           ${entries.map(e => timelineEntry(e)).join('')}
         </div>` : ''}
 
+        ${memories.length ? `
+        <div class="section-header mt-16"><h3>🧠 Memories</h3></div>
+        <div class="memory-list" id="day-memories">
+          ${memories.map(m => memoryCardHtml(m)).join('')}
+        </div>` : ''}
+
         ${isToday ? `
         <div class="day-add-cta">
           <a href="#new-entry/text" class="btn btn-secondary btn-sm">+ Add text entry</a>
           <a href="#new-entry/voice" class="btn btn-primary btn-sm">🎙 Voice entry</a>
+          <a href="#remember" class="btn btn-secondary btn-sm">🧠 Remember</a>
         </div>` : ''}
       </div>`;
 
@@ -113,6 +126,9 @@ export class DayView {
       const entry = entries.find(e => e.id === block.dataset.entryId);
       if (entry) wireEntryEditors(block, entry, () => this.mount(container, { quiet: true }));
     });
+
+    const memList = container.querySelector('#day-memories');
+    if (memList) wireMemoryCards(memList, memories, () => this.mount(container, { quiet: true }));
 
     if (quiet && scroller) scroller.scrollTop = savedScroll;
 

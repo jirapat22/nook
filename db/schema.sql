@@ -239,3 +239,25 @@ DELETE FROM person_mentions WHERE id IN (
 -- Guard against the same race going forward: one mention row per person+entry.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_person_mentions_unique_person_entry
   ON person_mentions(person_id, entry_id);
+
+-- Quick memories: short "remember this" notes captured in seconds (a birthday,
+-- a café someone recommended, money lent), as opposed to the long reflective
+-- journal entry. Saved instantly; the AI tidy-up (title/kind/tags/people/date)
+-- fills in afterwards, so `analyzed` = FALSE means it hasn't run (yet).
+-- The id comes from the client, so a save the service worker queued offline
+-- and replays later can't create a duplicate (INSERT ... ON CONFLICT DO NOTHING).
+CREATE TABLE IF NOT EXISTS memories (
+  id UUID PRIMARY KEY,
+  date DATE NOT NULL,                 -- the user's local day it was captured (counts toward the streak)
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  content TEXT NOT NULL,              -- exactly what was typed / transcribed
+  entry_mode VARCHAR(10) DEFAULT 'text',
+  title TEXT,                         -- AI: short label, e.g. "Sarah's birthday"
+  kind VARCHAR(20),                   -- AI: person | place | idea | money | date | fact | todo | other
+  tags JSONB DEFAULT '[]',
+  people JSONB DEFAULT '[]',          -- [{ id, name }] matched to the people table; id null if not tracked
+  event_date DATE,                    -- AI: a date the memory is ABOUT (birthday, due date), if any
+  analyzed BOOLEAN DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS idx_memories_date ON memories(date DESC, created_at DESC);

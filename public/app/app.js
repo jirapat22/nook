@@ -12,6 +12,7 @@ import { SettingsView } from './views/settings.js';
 import { SearchView }   from './views/search.js';
 import { DayView }      from './views/day.js';
 import { OnboardingView } from './views/onboarding.js';
+import { MemoryView }   from './views/memory.js';
 import { installReporting, reportApiError, reportHandled } from './report.js';
 import { healMissingEntries } from './analyze-helpers.js';
 
@@ -325,6 +326,7 @@ const routes = {
   'search':   SearchView,
   'day':      DayView,
   'onboarding': OnboardingView,
+  'remember': MemoryView,
 };
 
 let currentView = null;

@@ -19,6 +19,13 @@
       "description": "Write a new journal entry",
       "url": "/#new-entry",
       "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Remember something",
+      "short_name": "Remember",
+      "description": "Save a quick memory",
+      "url": "/#remember",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

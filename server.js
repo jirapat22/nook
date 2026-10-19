@@ -17,12 +17,13 @@ const aiRouter = require('./routes/ai');
 const insightsRouter = require('./routes/insights');
 const peopleRouter = require('./routes/people');
 const tagsRouter = require('./routes/tags');
+const memoriesRouter = require('./routes/memories');
 const {
   syncAllPeople, markPersonDeleted, resolveBugReport,
   flushUnsyncedPeople, reconcileOrbitNodes,
 } = require('./lib/orbit');
 const { saveReport, reportHandled, flushUnsent } = require('./lib/reports');
-const { computeStreak, toDateStr, serverToday } = require('./lib/streak');
+const { computeStreak, toDateStr, serverToday, ACTIVE_DATES_SQL } = require('./lib/streak');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -382,16 +383,18 @@ app.put('/api/settings', async (req, res) => {
 // Export routes
 app.get('/api/export/json', async (req, res) => {
   try {
-    const [entries, people, mentions] = await Promise.all([
+    const [entries, people, mentions, memories] = await Promise.all([
       db.query('SELECT * FROM entries ORDER BY date DESC'),
       db.query('SELECT * FROM people ORDER BY name'),
       db.query('SELECT * FROM person_mentions ORDER BY mentioned_at DESC'),
+      db.query('SELECT * FROM memories ORDER BY date DESC, created_at DESC'),
     ]);
     res.json({
       exported_at: new Date().toISOString(),
       entries: entries.rows,
       people: people.rows,
       person_mentions: mentions.rows,
+      memories: memories.rows,
     });
   } catch (err) {
     console.error('Export JSON error:', err);
@@ -413,6 +416,7 @@ app.use('/api/ai', aiRouter);
 app.use('/api/insights', insightsRouter);
 app.use('/api/people', peopleRouter);
 app.use('/api/tags', tagsRouter);
+app.use('/api/memories', memoriesRouter);
 
 // ─── Orbit integration ──────────────────────────────────────────────
 // PART 2 — Public live-data summary for the Orbit hub.
@@ -433,7 +437,7 @@ app.get('/api/orbit-summary', async (req, res) => {
     // Distinct journaled days, for streak calculation. Shares the one
     // implementation with /api/insights/streaks — this used to be a third
     // hand-rolled copy that mixed local and UTC date getters.
-    const distinctDates = await db.query('SELECT DISTINCT date FROM entries');
+    const distinctDates = await db.query(ACTIVE_DATES_SQL);
     const { current: streak } = computeStreak(distinctDates.rows.map(r => r.date), todayStr);
 
     if (!lastEntry.rows.length) {

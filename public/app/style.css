@@ -2862,3 +2862,66 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* ── Quick memories (#remember, home timeline, day view) ── */
+.memory-view { padding: 0 16px 80px; }
+.memory-capture { padding: 12px; }
+.memory-input { min-height: 96px; font-size: 1rem; }
+.memory-capture-actions {
+  display: flex; align-items: center; gap: 10px; margin-top: 10px;
+}
+.memory-hint { flex: 1; min-width: 0; }
+.memory-mic { width: 48px; min-width: 48px; padding: 0; justify-content: center; }
+.memory-mic svg { width: 20px; height: 20px; }
+.memory-mic.recording {
+  border-color: var(--color-danger); color: var(--color-danger);
+  animation: memory-pulse 1.2s ease-in-out infinite;
+}
+@keyframes memory-pulse { 50% { opacity: 0.55; } }
+
+.memory-ask { display: flex; gap: 8px; }
+.memory-ask .input { flex: 1; min-width: 0; }
+.memory-answer { margin-top: 10px; padding: 12px 14px; line-height: 1.55; }
+.memory-sources { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.memory-source {
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: 0.8125rem; color: var(--color-text);
+  padding: 6px 8px; border-radius: var(--radius-sm, 8px);
+  background: var(--color-surface-offset);
+}
+.memory-source span:first-of-type { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.memory-list { display: flex; flex-direction: column; gap: 8px; }
+.memory-card {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 10px 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.memory-card:hover { border-color: var(--color-border); }
+.memory-card-icon { font-size: 1.15rem; line-height: 1.4; }
+.memory-card-body { flex: 1; min-width: 0; }
+.memory-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.memory-card-title { font-weight: 600; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.memory-card-meta { font-size: 0.75rem; color: var(--color-text-faint); white-space: nowrap; }
+.memory-card-text {
+  margin: 2px 0 0; font-size: 0.875rem; color: var(--color-text-muted); line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.memory-card-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.memory-person { text-decoration: none; }
+
+/* Home: filter chips + memories inside day cards */
+.home-filter { display: flex; gap: 6px; margin: 4px 0 12px; overflow-x: auto; }
+.home-filter .chip { white-space: nowrap; }
+.day-card-memories-list { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.day-card-memory {
+  font-size: 0.8125rem; color: var(--color-text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.memory-day-group { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.memory-day-label { font-weight: 600; font-size: 0.875rem; }
+.home-quick-emoji { font-size: 1.3rem; line-height: 22px; }

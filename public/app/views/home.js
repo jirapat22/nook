@@ -2,6 +2,14 @@ import { api, showToast, updateStreakDisplay, todayStr } from '../app.js';
 import { dayActivityKeys, renderActivityChips } from '../components/activities.js';
 import { assert } from '../report.js';
 import { escHtml } from '../html.js';
+import { memoryCardHtml, wireMemoryCards, KIND_EMOJI } from '../components/memoryCard.js';
+
+// Which timeline the home screen shows: everything, journal only, or memories
+// only. Remembered per device; storage can be unavailable (private mode), so
+// every access is wrapped.
+const FILTER_KEY = 'nook_home_filter';
+function getFilter() { try { return localStorage.getItem(FILTER_KEY) || 'all'; } catch { return 'all'; } }
+function setFilter(v) { try { localStorage.setItem(FILTER_KEY, v); } catch {} }
 
 export class HomeView {
   constructor() {}
@@ -11,8 +19,9 @@ export class HomeView {
     // Local calendar date (not UTC) so day-grouping matches the user's clock.
     const today = todayStr();
 
-    const [entries, streakData, onThisDay, settings, pendingActions] = await Promise.all([
+    const [entries, memories, streakData, onThisDay, settings, pendingActions] = await Promise.all([
       api.get('/api/entries?limit=50').catch(() => []),
+      api.get('/api/memories?limit=100').catch(() => []),
       api.get(`/api/insights/streaks?today=${today}`).catch(() => ({ current: 0 })),
       api.get(`/api/entries/on-this-day?date=${today}`).catch(() => []),
       api.get('/api/settings').catch(() => ({})),
@@ -45,9 +54,27 @@ export class HomeView {
     for (const list of byDay.values()) {
       list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     }
-    // Sort days latest-first
-    const days = [...byDay.entries()].sort((a, b) => b[0].localeCompare(a[0]));
-    const todayHasEntries = byDay.has(today);
+    // Memories grouped the same way, so a day card can show both — and a day
+    // with only memories still gets a card.
+    const memsByDay = new Map();
+    for (const m of memories) {
+      const k = normDate(m.date);
+      if (!memsByDay.has(k)) memsByDay.set(k, []);
+      memsByDay.get(k).push(m);
+    }
+    const filter = getFilter();
+    const showEntries = filter !== 'memories';
+    const showMems = filter !== 'journal';
+    // Only reach as far back as the oldest loaded entry, so a memory-only day
+    // from long ago doesn't jump in ahead of journal days that weren't loaded.
+    const oldestEntry = entries.length ? normDate(entries[entries.length - 1].date) : '';
+    const dayKeys = new Set();
+    if (showEntries) byDay.forEach((_, k) => dayKeys.add(k));
+    if (showMems) memsByDay.forEach((_, k) => { if (!showEntries || k >= oldestEntry) dayKeys.add(k); });
+    // Sort days latest-first; each day is [date, entries, memories]
+    const days = [...dayKeys].sort((a, b) => b.localeCompare(a))
+      .map(k => [k, showEntries ? (byDay.get(k) || []) : [], showMems ? (memsByDay.get(k) || []) : []]);
+    const todayHasEntries = byDay.has(today) || memsByDay.has(today);
 
     container.innerHTML = `
       <div class="home-view">
@@ -66,7 +93,12 @@ export class HomeView {
           <div class="streak-widget-icon">🔥</div>
         </div>` : ''}
 
-        ${!todayHasEntries ? `
+        <div class="home-filter" role="tablist">
+          ${[['all', 'All'], ['journal', '📓 Journal'], ['memories', '🧠 Memories']].map(([k, label]) =>
+            `<button class="chip chip-btn ${filter === k ? 'chip-primary' : ''}" data-filter="${k}" role="tab" aria-selected="${filter === k}">${label}</button>`).join('')}
+        </div>
+
+        ${!todayHasEntries && filter !== 'memories' ? `
           <a href="#day/${today}" class="day-card day-card-empty">
             <div class="day-card-header">
               <div class="day-card-title">Today</div>
@@ -77,8 +109,15 @@ export class HomeView {
 
         ${days.length ? `
           <div class="day-cards-list">
-            ${days.map(([d, list]) => dayCard(d, list, today)).join('')}
-          </div>` : !todayHasEntries ? '' : ''}
+            ${filter === 'memories'
+              ? days.map(([d, , mems]) => memoryDayGroup(d, mems, today)).join('')
+              : days.map(([d, list, mems]) => dayCard(d, list, mems, today)).join('')}
+          </div>` : filter === 'memories' ? `
+          <div class="empty-state" style="padding:32px 0">
+            <div class="empty-state-icon">🧠</div>
+            <h3>No memories yet</h3>
+            <p>Tap Remember below to save your first one.</p>
+          </div>` : ''}
 
         ${pendingActions.length ? `
         <div class="section-header mt-16">
@@ -105,6 +144,10 @@ export class HomeView {
             </svg>
             <span>Text</span>
           </button>
+          <button class="home-quick-btn home-quick-remember" id="remember-btn">
+            <span class="home-quick-emoji" aria-hidden="true">🧠</span>
+            <span>Remember</span>
+          </button>
           <button class="home-quick-btn home-quick-voice" id="voice-entry-btn">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
               <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
@@ -125,6 +168,18 @@ export class HomeView {
     container.querySelector('#text-entry-btn').addEventListener('click', () => {
       location.hash = '#new-entry/text';
     });
+    container.querySelector('#remember-btn').addEventListener('click', () => {
+      location.hash = '#remember';
+    });
+
+    container.querySelectorAll('.home-filter [data-filter]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (btn.dataset.filter === filter) return;
+        setFilter(btn.dataset.filter);
+        this.mount(container);
+      });
+    });
+    wireMemoryCards(container, memories, () => this.mount(container));
 
     container.querySelectorAll('.entry-preview-card').forEach(card => {
       card.addEventListener('click', () => {
@@ -158,7 +213,45 @@ export class HomeView {
   destroy() {}
 }
 
-function dayCard(dateStr, entries, todayStr) {
+// Day label pair used by both kinds of day card: ["Today" / "Monday", "19 Oct"].
+function dayLabels(dateStr, todayStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  const dayLabel = dateStr === todayStr ? 'Today'
+    : dateStr === previousDay(todayStr) ? 'Yesterday'
+    : date.toLocaleDateString('en-GB', { weekday: 'long' });
+  return [dayLabel, date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })];
+}
+
+// "Memories" filter: a day heading with that day's memory cards under it.
+function memoryDayGroup(dateStr, mems, todayStr) {
+  const [dayLabel, dateLabel] = dayLabels(dateStr, todayStr);
+  return `
+    <div class="memory-day-group">
+      <div class="memory-day-label">${dayLabel} <span class="text-muted">· ${dateLabel}</span></div>
+      ${mems.map(m => memoryCardHtml(m)).join('')}
+    </div>`;
+}
+
+function dayCard(dateStr, entries, mems, todayStr) {
+  // A day with only quick memories: a lighter card listing what was noted.
+  if (!entries.length) {
+    const [dayLabel, dateLabel] = dayLabels(dateStr, todayStr);
+    return `
+    <a href="#day/${dateStr}" class="day-card day-card-memories">
+      <div class="day-card-header">
+        <div>
+          <div class="day-card-title">${dayLabel}</div>
+          <div class="day-card-date">${dateLabel}</div>
+        </div>
+        <div class="day-card-stats">
+          <span class="day-card-count">🧠 ${mems.length} ${mems.length === 1 ? 'memory' : 'memories'}</span>
+        </div>
+      </div>
+      ${memoryLines(mems)}
+    </a>`;
+  }
+
   const [y, m, d] = dateStr.split('-').map(Number);
   const yesterdayStr = previousDay(todayStr);
   const isToday = dateStr === todayStr;
@@ -202,13 +295,24 @@ function dayCard(dateStr, entries, todayStr) {
         </div>
         <div class="day-card-stats">
           <span class="day-card-count">${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}</span>
+          ${mems.length ? `<span class="day-card-count">🧠 ${mems.length}</span>` : ''}
           ${avgMood != null ? `<span class="day-card-mood"><span class="mood-dot ${mCls}"></span>${avgMood}/10</span>` : ''}
           ${hasLove ? '<span class="entry-card-love">💕</span>' : ''}
         </div>
       </div>
       ${renderActivityChips(activities)}
       <p class="day-card-snippet">${escHtml(snippet)}</p>
+      ${memoryLines(mems)}
     </a>`;
+}
+
+// Up to three one-line memory titles inside a day card ("📅 Sarah's birthday").
+function memoryLines(mems) {
+  if (!mems.length) return '';
+  const shown = mems.slice(0, 3).map(m =>
+    `<div class="day-card-memory">${KIND_EMOJI[m.kind] || '🧠'} ${escHtml(m.title || m.content)}</div>`).join('');
+  const more = mems.length > 3 ? `<div class="day-card-memory text-muted">+${mems.length - 3} more</div>` : '';
+  return `<div class="day-card-memories-list">${shown}${more}</div>`;
 }
 
 function entryCard(entry) {

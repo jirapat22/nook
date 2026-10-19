@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nook-v109';
+const CACHE_NAME = 'nook-v110';
 const API_CACHE  = 'nook-api-v1'; // separate cache for GET API responses
 const STATIC_ASSETS = [
   '/',
@@ -27,6 +27,8 @@ const STATIC_ASSETS = [
   '/app/views/person.js',
   '/app/views/day.js',
   '/app/views/onboarding.js',
+  '/app/views/memory.js',
+  '/app/components/memoryCard.js',
   '/manifest.json',
   '/icons/icon.svg',
 ];
@@ -147,7 +149,10 @@ async function handleApi(request) {
   try {
     return await fetch(request.clone());
   } catch (err) {
-    if (['POST', 'PUT', 'DELETE'].includes(request.method)) {
+    // "Ask Nook" is a question, not a change — replaying it hours later
+    // would answer nobody, so it's never queued.
+    const isQuestion = new URL(request.url).pathname === '/api/memories/ask';
+    if (['POST', 'PUT', 'DELETE'].includes(request.method) && !isQuestion) {
       await queueRequest(request.clone());
     }
     return new Response(JSON.stringify({ error: 'offline', offline: true, queued: true }), {

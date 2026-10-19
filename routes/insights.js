@@ -3,7 +3,7 @@ const router = express.Router();
 const db = require('../db/db');
 const { getGroqKey, groqChatRetrying, sendIfRateLimited } = require('../lib/groq');
 const { reportHandled } = require('../lib/reports');
-const { computeStreak } = require('../lib/streak');
+const { computeStreak, ACTIVE_DATES_SQL } = require('../lib/streak');
 
 // Helper: parse range param to interval
 function rangeToInterval(range) {
@@ -97,7 +97,7 @@ router.get('/correlations', async (req, res) => {
 // whether today/yesterday were journaled.
 router.get('/streaks', async (req, res) => {
   try {
-    const datesResult = await db.query('SELECT DISTINCT date FROM entries');
+    const datesResult = await db.query(ACTIVE_DATES_SQL);
     const today = /^\d{4}-\d{2}-\d{2}$/.test(req.query.today || '') ? req.query.today : undefined;
     res.json(computeStreak(datesResult.rows.map(r => r.date), today));
   } catch (err) {
