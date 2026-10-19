@@ -3,9 +3,13 @@ const { Pool } = require('pg');
 // Railway PostgreSQL always needs SSL; detect by presence of DATABASE_URL with sslmode
 // or fall back to checking NODE_ENV. Using rejectUnauthorized:false is safe for managed DBs.
 const useSSL = process.env.DATABASE_URL && process.env.DATABASE_URL.includes('railway');
+// DATABASE_SSL=false opts out: for a self-hosted Postgres on the same machine
+// (Docker's private network), where the server has no SSL to offer and refuses
+// the connection otherwise. Unset = the Railway behaviour above, unchanged.
+const sslOff = process.env.DATABASE_SSL === 'false';
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: (process.env.NODE_ENV === 'production' || useSSL) ? { rejectUnauthorized: false } : false,
+  ssl: !sslOff && (process.env.NODE_ENV === 'production' || useSSL) ? { rejectUnauthorized: false } : false,
 });
 
 pool.on('error', (err) => {
