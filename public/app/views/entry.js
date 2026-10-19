@@ -1,5 +1,5 @@
 import { api, quietApi, showToast, speak, AppState, todayStr, authHeaders } from '../app.js';
-import { VoiceRecorder }   from '../components/voiceRecorder.js';
+import { VoiceRecorder, keywordStopSupported } from '../components/voiceRecorder.js';
 import { AiPanel }         from '../components/aiPanel.js';
 import { LoveLifeSection } from '../components/loveLifeSection.js';
 import { renderMoodFaces, wireMoodFaces } from '../components/moodFaces.js';
@@ -531,7 +531,10 @@ export class EntryView {
         micBtn.classList.add('recording');
         micBtn.setAttribute('aria-label', 'Recording in progress');
         this.container.querySelector('#mic-glow')?.classList.add('recording');
-        hint.textContent = 'Listening… say "stop recording" or tap Stop';
+        // Only mention the voice shortcut where it actually runs (not iPhone)
+        hint.textContent = keywordStopSupported
+          ? 'Listening… say "stop recording" or tap Stop'
+          : 'Listening… tap Stop when you’re done';
         waveform.classList.remove('hidden');
         recStatus.classList.remove('hidden');
         stopBtn.classList.remove('hidden');

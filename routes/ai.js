@@ -132,7 +132,10 @@ router.post('/transcribe', upload.single('audio'), async (req, res) => {
         if (Array.isArray(p.aliases)) names.push(...p.aliases);
       }
       const unique = [...new Set(names.filter(Boolean))].slice(0, 60);
-      if (unique.length) namePrompt = `People who may be mentioned: ${unique.join(', ')}.`;
+      // Phrased like the speech itself: Whisper reads the prompt as "the text
+      // that came just before", so a natural sentence steers spelling (and
+      // keeps punctuation on) better than a label-style list.
+      if (unique.length) namePrompt = `Today I talked about my day, including ${unique.join(', ')}.`;
     } catch { /* non-fatal — transcription still works without the hint */ }
 
     // Transcription language. 'auto' lets Whisper detect (better for Thai or
@@ -155,6 +158,9 @@ router.post('/transcribe', upload.single('audio'), async (req, res) => {
       f.append('model', 'whisper-large-v3');
       if (lang && lang !== 'auto') f.append('language', lang);
       f.append('response_format', 'json');
+      // 0 = always pick the most likely words. Higher values let Whisper
+      // "get creative" on unclear audio, which is where invented words come from.
+      f.append('temperature', '0');
       if (namePrompt) f.append('prompt', namePrompt);
       return f;
     };
@@ -375,7 +381,9 @@ router.post('/analyze', async (req, res) => {
     } catch { /* non-fatal */ }
 
     const systemPrompt = `You are Nook, a warm and insightful personal journal assistant.
-Analyze the user's journal entry and return a JSON object with EXACTLY this structure:
+Analyze the user's journal entry and return a JSON object with EXACTLY this structure.
+The entry is often a voice transcript, so it can contain speech-recognition slips: a misheard word that doesn't fit the sentence, a name spelled phonetically, or a sentence cut off mid-way. In everything you write, use the word the user clearly meant (and the known spelling of any person's name) rather than repeating the slip — but never invent content that isn't there.
+
 {
   "first_person_summary": "A diary-style narrative of the day in FIRST PERSON ('Today I...', 'I felt...', 'I'm thinking about...'). Cover EVERYTHING meaningful the user said — every person, event, plan, worry, and unresolved thread (e.g. 'the thing with Luke'). Do NOT compress the day into a few lines or drop details to be brief: let the length match how much they shared, so a long entry gets a long summary. Fix grammar and remove filler, but keep all the substance. It should read like the user's own complete diary entry in their voice, not a short report or highlight reel. Light markdown for structure, used sparingly: if the entry covers several distinct events or topics (e.g. work, then gym, then a call with a friend), separate them into short paragraphs (blank line between) or a '- ' bullet per event so it's scannable at a glance — don't force structure on a single continuous thought. **Bold** only a genuinely standout fact or number (a time, a duration, an amount) here and there, not every sentence.",
   "ai_summary": "2-3 sentence outside-view summary (third-person OK here — this is the brief overview shown in lists).",

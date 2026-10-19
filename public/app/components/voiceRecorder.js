@@ -1,7 +1,16 @@
 // VoiceRecorder — wraps MediaRecorder + keyword detection ("done")
 // Handles iOS Safari quirks (no timeslice, limited codec support)
 
-const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+export const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
+// Whether the "say stop recording" voice shortcut runs. Off on iOS: there the
+// browser's SpeechRecognition shares the one audio session with MediaRecorder,
+// and every time it restarts (iOS ends it after each pause, onend restarts it)
+// the session is handed back and forth — leaving gaps in the recording, which
+// Whisper then turns into chopped sentences and guessed words. The Stop button
+// does the same job, so losing the shortcut on iPhone is the cheap side.
+export const keywordStopSupported =
+  !isIOS && !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 
 export class VoiceRecorder {
   constructor({ onStart, onStop, onKeyword } = {}) {
@@ -20,12 +29,17 @@ export class VoiceRecorder {
   async start() {
     if (this.isRecording) return;
     try {
-      // Audio constraints noticeably improve Whisper transcription quality.
+      // Keep the raw voice as intact as possible — Whisper is trained on noisy
+      // audio and copes with background sound far better than with words the
+      // browser has already cut. Noise suppression and echo cancellation (which
+      // on iOS switches on Apple's "voice processing" gate) clip soft syllables
+      // and trailing words. Nothing plays while recording, so there's no echo
+      // to cancel. Auto gain stays on so a quiet voice is still loud enough.
       // Fallback to plain `audio: true` if constraints are rejected by old browsers.
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
+          echoCancellation: false,
+          noiseSuppression: false,
           autoGainControl: true,
         },
       }).catch(() => navigator.mediaDevices.getUserMedia({ audio: true }));
@@ -155,8 +169,8 @@ export class VoiceRecorder {
   }
 
   startKeywordDetection() {
+    if (!keywordStopSupported) return; // see keywordStopSupported at the top
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return;
 
     try {
       this.recognition = new SR();
