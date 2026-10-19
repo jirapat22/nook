@@ -120,7 +120,9 @@ if (!EXPECTED_TOKEN) {
 // get in; orbit/webhook is authenticated separately below via the shared
 // ORBIT_INGEST_SECRET (X-API-Key), not the app password — Orbit calling in
 // has no way to know a Nook user's x-app-token.
-const AUTH_EXEMPT = new Set(['/api/login', '/api/orbit-summary', '/api/orbit/webhook']);
+// orbit/memories-export is the same: the vault's daily GitHub Action pulls
+// memories with that key.
+const AUTH_EXEMPT = new Set(['/api/login', '/api/orbit-summary', '/api/orbit/webhook', '/api/orbit/memories-export']);
 
 app.post('/api/login', (req, res) => {
   if (!EXPECTED_TOKEN) return res.json({ ok: true, token: null, authRequired: false });
@@ -272,6 +274,34 @@ app.post('/api/reports/:id/resolve', async (req, res) => {
 // already gone (Nook resolved it first), this is a harmless no-op.
 // Auth is the shared ORBIT_INGEST_SECRET via X-API-Key, not the app
 // password — see AUTH_EXEMPT above.
+// GET /api/orbit/memories-export — every quick memory, for the Obsidian
+// vault's daily export (.github/workflows/daily-memories.yml in orbit-vault).
+// All of them, every time: there are few and they're short, and rebuilding the
+// whole set means edits and deletes in Nook show up in the vault too.
+// Auth: X-API-Key = ORBIT_INGEST_SECRET, compared in constant time so the key
+// can't be guessed a character at a time from response timings.
+app.get('/api/orbit/memories-export', async (req, res) => {
+  const secret = process.env.ORBIT_INGEST_SECRET || '';
+  const given = Buffer.from(String(req.headers['x-api-key'] || ''));
+  const want = Buffer.from(secret);
+  if (!secret || given.length !== want.length || !crypto.timingSafeEqual(given, want)) {
+    return res.status(401).json({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+  }
+  try {
+    const { rows } = await db.query(
+      `SELECT id, date, created_at, content, entry_mode, title, kind, tags, people, event_date
+       FROM memories ORDER BY date, created_at`
+    );
+    res.json({
+      exported_at: new Date().toISOString(),
+      memories: rows.map(m => ({ ...m, date: toDateStr(m.date), event_date: toDateStr(m.event_date) })),
+    });
+  } catch (err) {
+    console.error('memories-export error:', err);
+    res.status(500).json({ error: 'Export failed', code: 'EXPORT_ERROR' });
+  }
+});
+
 app.post('/api/orbit/webhook', async (req, res) => {
   const secret = process.env.ORBIT_INGEST_SECRET;
   if (!secret || req.headers['x-api-key'] !== secret) {
