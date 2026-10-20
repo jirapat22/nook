@@ -633,6 +633,13 @@ async function init() {
   // Guard: scheduleReminder needs reminder_enabled in settings; skip if blank.
   if (settings.reminder_enabled) scheduleReminder(settings).catch(() => {});
 
+  // Opened from the separate "Remember" home-screen icon (/remember): land on
+  // the quick-memory screen. Only on a bare launch — a hash means the user has
+  // already navigated somewhere inside it.
+  if (location.pathname === '/remember' && !location.hash) {
+    history.replaceState(null, '', '/remember#remember');
+  }
+
   // Initial route
   await handleRoute();
   AppState.initialized = true;

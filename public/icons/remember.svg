@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
+  <!-- Remember: Nook's orange with a cream bookmark and a spark — "keep this" -->
+  <rect width="200" height="200" rx="44" fill="#d97d3f"/>
+  <!-- Bookmark -->
+  <path d="M 66,44 H 134 A 8 8 0 0 1 142 52 V 160 L 100,134 L 58,160 V 52 A 8 8 0 0 1 66 44 Z" fill="#efe8df"/>
+  <!-- Spark -->
+  <path d="M 100,66 L 106,84 L 124,90 L 106,96 L 100,114 L 94,96 L 76,90 L 94,84 Z" fill="#d97d3f"/>
+</svg>

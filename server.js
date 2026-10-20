@@ -581,6 +581,23 @@ app.all('/api/*', (req, res) => {
   res.status(404).json({ error: 'Not found', code: 'NOT_FOUND' });
 });
 
+// /remember — the same app, dressed as a second home-screen app ("Remember")
+// that opens straight onto the quick-memory screen. "Add to Home Screen" takes
+// its name, icon and start page from whatever page you add it from, so this is
+// index.html with the manifest, title and icon swapped. app.js sees the
+// /remember path and routes to #remember.
+let rememberHtml = null;
+app.get('/remember', (req, res) => {
+  if (!rememberHtml) {
+    rememberHtml = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8')
+      .replace('href="/manifest.json"', 'href="/manifest-remember.json"')
+      .replace('<meta name="apple-mobile-web-app-title" content="Nook">', '<meta name="apple-mobile-web-app-title" content="Remember">')
+      .replace('<title>Nook</title>', '<title>Remember · Nook</title>')
+      .replace('<link rel="apple-touch-icon" href="/icons/icon.svg">', '<link rel="apple-touch-icon" href="/icons/remember-180.png">');
+  }
+  res.type('html').send(rememberHtml);
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });

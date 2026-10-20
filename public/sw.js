@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nook-v110';
+const CACHE_NAME = 'nook-v111';
 const API_CACHE  = 'nook-api-v1'; // separate cache for GET API responses
 const STATIC_ASSETS = [
   '/',
@@ -30,6 +30,8 @@ const STATIC_ASSETS = [
   '/app/views/memory.js',
   '/app/components/memoryCard.js',
   '/manifest.json',
+  '/manifest-remember.json',
+  '/icons/remember.svg',
   '/icons/icon.svg',
 ];
 
@@ -85,15 +87,19 @@ self.addEventListener('fetch', event => {
   // HTML navigations: network-first so the just-deployed entrypoint is the
   // one that gets paired with the freshly-cached JS modules. Fall back to
   // cached index.html only when actually offline.
+  // /remember is its own page (the Remember home-screen app: different
+  // manifest/icon), so it gets its own cache slot instead of overwriting
+  // index.html's.
   if (request.mode === 'navigate' || url.pathname === '/' || url.pathname === '/index.html') {
+    const slot = url.pathname === '/remember' ? '/remember' : '/index.html';
     event.respondWith(
       fetch(request).then(response => {
         if (response.ok) {
           const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put('/index.html', clone));
+          caches.open(CACHE_NAME).then(cache => cache.put(slot, clone));
         }
         return response;
-      }).catch(() => caches.match('/index.html'))
+      }).catch(async () => (await caches.match(slot)) || caches.match('/index.html'))
     );
     return;
   }
