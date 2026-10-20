@@ -2864,20 +2864,99 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
 }
 
 /* ── Quick memories (#remember, home timeline, day view) ── */
-.memory-view { padding: 0 16px 80px; }
-.memory-capture { padding: 12px; }
-.memory-input { min-height: 96px; font-size: 1rem; }
-.memory-capture-actions {
-  display: flex; align-items: center; gap: 10px; margin-top: 10px;
+/* The Remember screen has one job, so the bottom nav steps aside. */
+body.remember-mode .bottom-nav { display: none; }
+.memory-view { padding: 0 16px 48px; }
+.memory-top {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 0 10px;
 }
-.memory-hint { flex: 1; min-width: 0; }
-.memory-mic { width: 48px; min-width: 48px; padding: 0; justify-content: center; }
-.memory-mic svg { width: 20px; height: 20px; }
-.memory-mic.recording {
-  border-color: var(--color-danger); color: var(--color-danger);
-  animation: memory-pulse 1.2s ease-in-out infinite;
+.memory-top .back-btn { margin: 0; }
+.memory-top-title { font-family: var(--font-display); font-weight: 600; font-size: 1.05rem; }
+
+/* Type: one big friendly box, Save tucked in its corner */
+.memory-type {
+  position: relative;
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  transition: border-color var(--transition);
 }
-@keyframes memory-pulse { 50% { opacity: 0.55; } }
+.memory-type:focus-within { border-color: var(--color-primary); }
+.memory-input {
+  display: block; width: 100%;
+  min-height: 120px; resize: none;
+  padding: 16px 16px 56px;
+  border: 0; background: transparent; outline: none;
+  font: inherit; font-size: 1.0625rem; line-height: 1.5; color: var(--color-text);
+}
+.memory-input::placeholder { color: var(--color-text-faint); }
+.memory-save { position: absolute; right: 10px; bottom: 10px; }
+.memory-save:disabled { opacity: 0.35; box-shadow: none; }
+
+/* Talk: the big button, in the thumb zone */
+.memory-talk {
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  padding: 28px 0 24px;
+}
+.memory-status {
+  /* Fixed height: messages are kept to one line, so the mic button never
+     jumps around under your thumb. */
+  min-height: 1.75em; max-width: 100%;
+  text-align: center; font-size: 0.9375rem; color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+.memory-status.is-saved { color: var(--color-success); font-weight: 500; }
+.memory-status.is-error { color: var(--color-danger); }
+.memory-status.is-recording { color: var(--color-danger); font-weight: 600; font-variant-numeric: tabular-nums; }
+.memory-rec-dot {
+  display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--color-danger); margin-right: 4px; vertical-align: 1px;
+  animation: memory-pulse 1s ease-in-out infinite;
+}
+.memory-undo {
+  margin-left: 6px; padding: 2px 10px; border-radius: 999px;
+  border: 1px solid currentColor; background: none; color: inherit;
+  font: inherit; font-size: 0.8125rem; font-weight: 600; cursor: pointer;
+}
+.memory-mic-big {
+  width: 96px; height: 96px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  border: 0; cursor: pointer;
+  background: var(--color-primary); color: var(--color-on-accent);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--color-primary) 40%, transparent);
+  transition: transform 0.15s ease, background var(--transition);
+  -webkit-tap-highlight-color: transparent;
+}
+.memory-mic-big svg { width: 38px; height: 38px; }
+.memory-mic-big:active { transform: scale(0.94); }
+.memory-mic-big.recording {
+  background: var(--color-danger);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-danger) 45%, transparent);
+  animation: memory-ring 1.4s ease-out infinite;
+}
+.memory-mic-big.recording svg { width: 30px; height: 30px; }
+.memory-mic-big.busy { opacity: 0.55; pointer-events: none; }
+@keyframes memory-pulse { 50% { opacity: 0.35; } }
+@keyframes memory-ring {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-danger) 45%, transparent); }
+  100% { box-shadow: 0 0 0 22px transparent; }
+}
+
+/* Ask Nook: folded away until wanted */
+.memory-ask-wrap {
+  border-top: 1px dashed var(--color-border-light);
+  padding-top: 12px;
+}
+.memory-ask-wrap summary {
+  cursor: pointer; list-style: none;
+  font-size: 0.9375rem; font-weight: 600; color: var(--color-text-muted);
+  padding: 4px 0;
+}
+.memory-ask-wrap summary::-webkit-details-marker { display: none; }
+.memory-ask-wrap summary::after { content: ' ▸'; }
+.memory-ask-wrap[open] summary::after { content: ' ▾'; }
+.memory-ask-wrap .memory-ask { margin-top: 10px; }
 
 .memory-ask { display: flex; gap: 8px; }
 .memory-ask .input { flex: 1; min-width: 0; }
