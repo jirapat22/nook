@@ -13,6 +13,7 @@ import { SearchView }   from './views/search.js';
 import { DayView }      from './views/day.js';
 import { OnboardingView } from './views/onboarding.js';
 import { MemoryView }   from './views/memory.js';
+import { anyRecording } from './components/voiceRecorder.js';
 import { installReporting, reportApiError, reportHandled } from './report.js';
 import { healMissingEntries } from './analyze-helpers.js';
 
@@ -240,31 +241,39 @@ function themeIconSvg(theme) {
 // ── Daily reminder ──────────────────────────────────────────
 let _swReg = null;
 
-// ── Update banner ────────────────────────────────────────────
-// Shown instead of auto-reloading when a new SW version is ready. Refresh
-// happens on the user's own tap, never forced — an unprompted reload could
-// wipe an in-progress voice recording or unsaved draft.
-let _updateBannerShown = false;
-function showUpdateBanner() {
-  if (_updateBannerShown) return;
-  _updateBannerShown = true;
-  const banner = document.createElement('div');
-  banner.id = 'update-banner';
-  banner.className = 'update-banner';
-  banner.innerHTML = `
-    <span>✨ A new version of Nook is ready</span>
-    <button class="btn btn-primary btn-sm" id="update-refresh-btn">Refresh</button>
-  `;
-  document.body.appendChild(banner);
-  banner.querySelector('#update-refresh-btn').addEventListener('click', () => {
-    if (_swReg?.waiting) {
-      _swReg.waiting.postMessage({ type: 'SKIP_WAITING' });
-    } else {
-      // Nothing waiting to activate (edge case) — just reload to pick up
-      // whatever the server has now.
-      location.reload();
-    }
-  });
+// ── Automatic updates ────────────────────────────────────────
+// A new version used to wait behind a "Refresh" banner, and in practice it was
+// easy to keep running a stale copy for days without noticing. Now a waiting
+// version is switched in by itself — but only at a moment when a reload can't
+// lose anything:
+//   - right after the app opens (nothing has been done yet),
+//   - when you move to another screen (you're leaving the old one anyway),
+//   - when the app goes into the background (you're not looking).
+// Never while a voice recording is running, and never in the background while
+// a text box holds unsent words. Switching = telling the waiting worker to take
+// over; the 'controllerchange' listener below then reloads the page.
+let _updatePending = false;
+const BOOT_WINDOW_MS = 10000; // "just opened" — how long after launch counts
+const _bootedAt = Date.now();
+
+// Typed-but-unsaved words anywhere on screen (e.g. the Remember box). Journal
+// drafts are kept in storage by the entry view, but checking every box is the
+// simple, safe rule.
+function hasUnsavedText() {
+  return [...document.querySelectorAll('#app-content textarea, #app-content input[type="text"]')]
+    .some(el => el.value.trim());
+}
+
+function applyUpdate() {
+  if (!_swReg?.waiting) { _updatePending = false; return; }
+  _swReg.waiting.postMessage({ type: 'SKIP_WAITING' });
+}
+
+// A new version finished downloading. Switch now if we've only just opened;
+// otherwise wait for the next safe moment (see listeners in init).
+function onUpdateReady() {
+  _updatePending = true;
+  if (Date.now() - _bootedAt < BOOT_WINDOW_MS && !anyRecording() && !hasUnsavedText()) applyUpdate();
 }
 
 export async function showLocalNotification(title, body) {
@@ -549,19 +558,29 @@ async function init() {
       // a deploy. navigator.serviceWorker.controller being set is what tells
       // us this is an update to an already-running app, not the first install
       // (a first install has no controller yet and never enters "waiting").
-      if (reg.waiting && navigator.serviceWorker.controller) showUpdateBanner();
+      if (reg.waiting && navigator.serviceWorker.controller) onUpdateReady();
       reg.addEventListener('updatefound', () => {
         const nw = reg.installing;
         nw?.addEventListener('statechange', () => {
           if (nw.state === 'installed' && navigator.serviceWorker.controller) {
-            showUpdateBanner();
+            onUpdateReady();
           }
         });
       });
     }).catch(err => { console.warn('SW registration failed:', err); reportHandled(err, { where: 'sw-register' }); });
 
-    // Reload happens only once the new SW actually takes control — which now
-    // only happens after the user taps Refresh on the banner (see below).
+    // Safe moments to switch to a waiting version (see "Automatic updates").
+    // Moving to another screen: the reload lands on the screen you picked.
+    // This listener is added before the router's, so it runs first.
+    window.addEventListener('hashchange', () => {
+      if (_updatePending && !anyRecording()) applyUpdate();
+    });
+    // Leaving the app: update unseen, unless words are still in a text box.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden' && _updatePending && !anyRecording() && !hasUnsavedText()) applyUpdate();
+    });
+
+    // Reload once the new version actually takes control (after applyUpdate).
     let reloading = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (!reloading) { reloading = true; location.reload(); }

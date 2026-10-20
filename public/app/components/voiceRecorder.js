@@ -12,6 +12,11 @@ export const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSS
 export const keywordStopSupported =
   !isIOS && !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 
+// Every recorder that's currently recording, across all views. The auto-updater
+// in app.js checks this so a new version never reloads the page mid-recording.
+const liveRecorders = new Set();
+export function anyRecording() { return liveRecorders.size > 0; }
+
 export class VoiceRecorder {
   constructor({ onStart, onStop, onKeyword } = {}) {
     this.onStart   = onStart   || (() => {});
@@ -111,6 +116,7 @@ export class VoiceRecorder {
     }
 
     this.isRecording = true;
+    liveRecorders.add(this);
     this.onStart();
     this.startKeywordDetection();
   }
@@ -118,6 +124,7 @@ export class VoiceRecorder {
   async stop() {
     if (!this.isRecording) return;
     this.isRecording = false;
+    liveRecorders.delete(this);
     this.stopKeywordDetection();
     clearInterval(this._iosFlushInterval);
 
@@ -218,6 +225,7 @@ export class VoiceRecorder {
 
   destroy() {
     this.isRecording = false;
+    liveRecorders.delete(this);
     this._onStopFired = true; // suppress any in-flight onstop callback after destroy
     this.stopKeywordDetection();
     clearTimeout(this._stopTimeout);

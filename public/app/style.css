@@ -1343,23 +1343,6 @@ mark { background: var(--color-primary-light); color: var(--color-primary); bord
 .modal-title { font-family: var(--font-display); font-size: 1.1rem; margin-bottom: 16px; }
 .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
 
-/* New-version banner — slides in from the top, stays until tapped */
-.update-banner {
-  position: fixed;
-  top: calc(var(--top-bar-height) + 8px);
-  left: 50%; transform: translateX(-50%);
-  display: flex; align-items: center; gap: 12px;
-  background: var(--color-surface);
-  border: 1.5px solid var(--color-primary);
-  border-radius: var(--radius-lg);
-  padding: 10px 12px 10px 16px;
-  box-shadow: var(--shadow-lg);
-  z-index: 200;
-  width: min(360px, calc(100vw - 24px));
-  animation: slideDown 0.3s ease;
-}
-.update-banner span { flex: 1; font-size: 0.875rem; color: var(--color-text); }
-
 /* People prompt slide-up */
 .people-prompt {
   position: fixed;

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nook-v112';
+const CACHE_NAME = 'nook-v113';
 const API_CACHE  = 'nook-api-v1'; // separate cache for GET API responses
 const STATIC_ASSETS = [
   '/',
@@ -38,8 +38,8 @@ const STATIC_ASSETS = [
 // Install: cache static assets. Does NOT auto skipWaiting — that would
 // activate immediately and reload every open tab out from under the user
 // (could wipe an in-progress voice recording). Activation only happens when
-// the page explicitly asks for it via the message handler below, after the
-// user taps "Refresh" on the update banner (see app.js showUpdateBanner).
+// the page asks for it via the message handler below, which app.js does at a
+// safe moment — not recording, nothing unsaved (see "Automatic updates").
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => cache.addAll(STATIC_ASSETS))
