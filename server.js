@@ -595,7 +595,7 @@ app.get('/remember', (req, res) => {
       .replace('href="/manifest.json"', 'href="/manifest-remember.json"')
       .replace('<meta name="apple-mobile-web-app-title" content="Nook">', '<meta name="apple-mobile-web-app-title" content="Remember">')
       .replace('<title>Nook</title>', '<title>Remember · Nook</title>')
-      .replace('<link rel="apple-touch-icon" href="/icons/icon.svg">', '<link rel="apple-touch-icon" href="/icons/remember-180.png">');
+      .replace('<link rel="apple-touch-icon" href="/icons/icon-180.png">', '<link rel="apple-touch-icon" href="/icons/remember-180.png">');
   }
   res.type('html').send(rememberHtml);
 });
