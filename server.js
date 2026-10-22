@@ -456,11 +456,13 @@ app.get('/api/orbit-summary', async (req, res) => {
   try {
     const todayStr = serverToday();
 
-    // Last entry — for freshness only. Entry text is deliberately not
-    // selected: this endpoint is public (see the stat line below).
+    // Latest journal entry OR quick memory — for freshness only, matching
+    // what counts toward the streak. Text is deliberately not selected: this
+    // endpoint is public (see the stat line below).
     const lastEntry = await db.query(`
-      SELECT date, created_at
-      FROM entries
+      SELECT date, created_at FROM entries
+      UNION ALL
+      SELECT date, created_at FROM memories
       ORDER BY date DESC, created_at DESC
       LIMIT 1
     `);
@@ -493,7 +495,7 @@ app.get('/api/orbit-summary', async (req, res) => {
     // the latest entry, names and all — was world-readable to anyone who
     // found the URL. Streak and freshness convey the same "am I keeping up?"
     // signal without publishing any journal content.
-    const stat = `${streakLabel} · last entry ${freshness}`;
+    const stat = `${streakLabel} · last logged ${freshness}`;
 
     res.json({
       label: 'Journal',

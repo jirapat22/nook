@@ -15,7 +15,7 @@ const { getGroqKey, groqChatRetrying, sendIfRateLimited } = require('../lib/groq
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const KINDS = ['person', 'place', 'idea', 'money', 'date', 'fact', 'todo', 'other'];
+const KINDS = ['person', 'place', 'idea', 'money', 'date', 'health', 'fact', 'todo', 'other'];
 const MAX_CONTENT = 4000; // a memory is a note, not an essay
 
 // Columns the client gets back for a memory (one list, used everywhere).
@@ -66,7 +66,7 @@ Return ONLY a JSON object:
   "people": ["every person named in the note"],
   "event_date": "YYYY-MM-DD if the note is ABOUT a specific date (a birthday, a deadline, when something happened), else null"
 }
-Kinds: person = a fact about someone; place = somewhere to go/remember; idea = an idea or plan; money = money owed/lent/spent; date = a birthday/anniversary/appointment; fact = any other fact; todo = something to do; other = none fit.
+Kinds: person = a fact about someone; place = somewhere to go/remember; idea = an idea or plan; money = money owed/lent/spent; date = a birthday/anniversary/appointment; health = body, symptoms, treatment, sleep, fitness or how a remedy is going; fact = any other fact; todo = ONLY an explicit action to take (\"buy\", \"call\", \"book\") — an update on how something is going is not a todo; other = none fit.
 The note was written on ${captured}; resolve relative dates ("yesterday", "next Friday") from that day. For a yearly date with no year given (like a birthday), use its next occurrence on or after ${captured}.
 The note may be a voice transcript with misheard words — label what was clearly meant.${names.length ? `\nPeople the user already tracks (use these exact spellings when one is meant): ${names.slice(0, 80).join(', ')}.` : ''}`;
 

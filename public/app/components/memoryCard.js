@@ -6,7 +6,7 @@ import { escHtml } from '../html.js';
 // The AI files each memory under one kind; the emoji makes it scannable.
 export const KIND_EMOJI = {
   person: '👤', place: '📍', idea: '💡', money: '💰',
-  date: '📅', fact: '📌', todo: '✅', other: '🧠',
+  date: '📅', health: '🩺', fact: '📌', todo: '✅', other: '🧠',
 };
 
 // "12 Mar 2027" — NZ-style day-month order.

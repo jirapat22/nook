@@ -254,7 +254,7 @@ CREATE TABLE IF NOT EXISTS memories (
   content TEXT NOT NULL,              -- exactly what was typed / transcribed
   entry_mode VARCHAR(10) DEFAULT 'text',
   title TEXT,                         -- AI: short label, e.g. "Sarah's birthday"
-  kind VARCHAR(20),                   -- AI: person | place | idea | money | date | fact | todo | other
+  kind VARCHAR(20),                   -- AI: person | place | idea | money | date | health | fact | todo | other
   tags JSONB DEFAULT '[]',
   people JSONB DEFAULT '[]',          -- [{ id, name }] matched to the people table; id null if not tracked
   event_date DATE,                    -- AI: a date the memory is ABOUT (birthday, due date), if any
