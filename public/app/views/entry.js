@@ -5,7 +5,7 @@ import { LoveLifeSection } from '../components/loveLifeSection.js';
 import { renderMoodFaces, wireMoodFaces } from '../components/moodFaces.js';
 import { moodEditorHtml, detailsEditorHtml, peopleEditorHtml, wireEntryEditors } from '../components/entryEditors.js';
 import { savePendingAudio, loadPendingAudio, clearPendingAudio } from '../components/pendingAudio.js';
-import { analysisToPayload } from '../analyze-helpers.js';
+import { analysisToPayload, postAnalyze, waitForLocalAnalysis } from '../analyze-helpers.js';
 import { renderMarkdown } from '../markdown.js';
 import { populateSubgroupAndIntroducedBy, readSubgroup, getNicknamesFor, runBackfillReview, nameCollides } from './people.js';
 import { escHtml } from '../html.js';
@@ -702,7 +702,15 @@ export class EntryView {
         const e = await res.json().catch(() => ({}));
         throw new Error(e.error || `AI analysis HTTP ${res.status}`);
       }
-      this.analysis = await res.json();
+      let analysis = await res.json();
+      // 202 = Groq was unavailable, so the home Mac's local AI took over.
+      // It's slower (~1-2 min), so say so and wait for it instead of failing.
+      if (res.status === 202 && analysis.job_id) {
+        showToast('Main AI is busy, so the home AI is taking over (about 1–2 min)…');
+        analysis = await waitForLocalAnalysis(quietApi, analysis.job_id, { isCancelled: () => this._destroyed });
+        if (this._destroyed) return;
+      }
+      this.analysis = analysis;
       this.renderAnalysisResults();
       this.showActionBar();
 
@@ -990,7 +998,7 @@ export class EntryView {
   // actual Groq cause in it rather than a bare status.
   async backgroundAnalyze(entryId, content) {
     try {
-      const a = await quietApi.post('/api/ai/analyze', { content });
+      const a = await postAnalyze(quietApi, { content });
       // A raw-saved entry has no mood yet, so let analysis fill it.
       await quietApi.put(`/api/entries/${entryId}`, analysisToPayload(a, { fillMood: true }));
     } catch { /* non-fatal — entry stays as-is, re-analyse remains available */ }

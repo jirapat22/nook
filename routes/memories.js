@@ -12,6 +12,7 @@ const router = express.Router();
 const db = require('../db/db');
 const { reportHandled } = require('../lib/reports');
 const { getGroqKey, groqChatRetrying, sendIfRateLimited } = require('../lib/groq');
+const { localAiEnabled, chatWithLocalFallback } = require('../lib/ollama');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -48,7 +49,8 @@ async function tidyMemory(id) {
   inFlight.add(id);
   try {
     const apiKey = await getGroqKey();
-    if (!apiKey) return; // no key configured — memories still work, just unlabelled
+    // No Groq key and no local AI → memories still work, just unlabelled.
+    if (!apiKey && !localAiEnabled()) return;
 
     const { rows } = await db.query('SELECT id, content, date FROM memories WHERE id = $1', [id]);
     const m = rows[0];
@@ -70,7 +72,8 @@ Kinds: person = a fact about someone; place = somewhere to go/remember; idea = a
 The note was written on ${captured}; resolve relative dates ("yesterday", "next Friday") from that day. For a yearly date with no year given (like a birthday), use its next occurrence on or after ${captured}.
 The note may be a voice transcript with misheard words — label what was clearly meant.${names.length ? `\nPeople the user already tracks (use these exact spellings when one is meant): ${names.slice(0, 80).join(', ')}.` : ''}`;
 
-    const out = await groqChatRetrying(apiKey, [
+    // Background job, nobody waiting on it, so the slow local AI is a fine backup here.
+    const out = await chatWithLocalFallback(apiKey, [
       { role: 'system', content: system },
       { role: 'user', content: m.content.slice(0, MAX_CONTENT) },
     ], { temperature: 0.2, max_tokens: 300 });

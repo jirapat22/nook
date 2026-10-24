@@ -32,6 +32,31 @@ export function analysisToPayload(a, { fillMood = false } = {}) {
   return payload;
 }
 
+// When Groq is down, POST /api/ai/analyze hands the entry to the home Mac's
+// local AI and answers 202 { job_id } straight away, because the local AI
+// needs ~1-2 minutes, longer than a request may stay open (Cloudflare cuts it
+// at 100s). This checks back every few seconds until the analysis is ready.
+export async function waitForLocalAnalysis(api, jobId, { isCancelled, maxWaitMs = 6 * 60_000 } = {}) {
+  const until = Date.now() + maxWaitMs;
+  while (Date.now() < until) {
+    await new Promise(r => setTimeout(r, 4000));
+    if (isCancelled && isCancelled()) throw Object.assign(new Error('Cancelled'), { code: 'CANCELLED' });
+    const job = await api.get(`/api/ai/analyze/jobs/${jobId}`);
+    if (job.status === 'done') return job.result;
+    if (job.status === 'error') {
+      throw Object.assign(new Error('AI analysis unavailable — your entry is saved.'), { code: 'AI_ERROR' });
+    }
+  }
+  throw Object.assign(new Error('AI took too long — entry still saveable'), { code: 'AI_TIMEOUT' });
+}
+
+// POST /api/ai/analyze and return the analysis, waiting for the local AI if
+// the server had to hand it over (see waitForLocalAnalysis).
+export async function postAnalyze(api, body) {
+  const first = await api.post('/api/ai/analyze', body);
+  return first && first.job_id ? waitForLocalAnalysis(api, first.job_id) : first;
+}
+
 // Analyse entries saved without AI analysis and write the results back. Paced,
 // best-effort (failures are skipped and retried on a later run). `cap` limits
 // how many to process this pass (0 = all). Returns { done, failed, skipped, total }.
@@ -46,7 +71,7 @@ export async function healMissingEntries(api, { cap = 0, delay = 800, onProgress
       const full = await api.get(`/api/entries/${batch[i].id}`);
       const content = (full.user_edited_content || full.cleaned_content || full.raw_transcript || '').trim();
       if (!content) { skipped++; continue; }
-      const a = await api.post('/api/ai/analyze', { content });
+      const a = await postAnalyze(api, { content });
       await api.put(`/api/entries/${batch[i].id}`, analysisToPayload(a, { fillMood: full.mood_overall == null }));
       done++;
     } catch (err) {

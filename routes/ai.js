@@ -3,12 +3,14 @@ const router = express.Router();
 const multer = require('multer');
 const FormData = require('form-data');
 const fetch = require('node-fetch');
+const crypto = require('crypto');
 const db = require('../db/db');
 const { reportHandled } = require('../lib/reports');
 const {
   PRIMARY_MODEL, FALLBACK_MODEL, FATAL_STATUSES, sleep,
   getGroqKey, groqChat, groqChatRetrying, sendIfRateLimited,
 } = require('../lib/groq');
+const { localAiEnabled, ollamaChat } = require('../lib/ollama');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -81,6 +83,109 @@ async function analyzeResilient(apiKey, messagesFull, messagesLean) {
   agg.retryAfter = lastErr?.retryAfter;
   agg.groqCode = lastErr?.groqCode;
   throw agg;
+}
+
+// Check and tidy whatever the model returned before it reaches the client.
+// Shared by the Groq path and the local-AI job, so both give the same shape.
+function cleanAnalysis(analysis) {
+  // Safeguard for SUB-dimensions only: Llama gravitates to 5 when uncertain, so
+  // null out smells-like-default sub-dimension values and mark them uncertain.
+  // "overall" is intentionally exempt — it's always a best guess the user confirms.
+  // Normalize first: the fallback model (smaller, tighter token budget) can omit
+  // the whole "mood" key rather than emit it with nulls. Without this, the block
+  // below never runs and the "overall is never null" guarantee silently breaks.
+  if (!analysis.mood || typeof analysis.mood !== 'object') analysis.mood = {};
+  {
+    const subKeys = ['energy','happiness','anxiety','confidence','motivation','social_battery','physical','focus'];
+    const numeric = subKeys
+      .map(k => ({ k, v: analysis.mood[k] }))
+      .filter(x => typeof x.v === 'number');
+    const fives = numeric.filter(x => x.v === 5);
+    const distinct = new Set(numeric.map(x => x.v)).size;
+    const uncertain = new Set((analysis.mood.uncertain_dimensions || []).filter(d => d !== 'overall'));
+
+    // 3+ sub-dimensions returned exactly 5 (or all identical) → treat as defaulted.
+    const looksDefaulted =
+      (numeric.length >= 3 && fives.length >= 3) ||
+      (numeric.length >= 4 && distinct === 1);
+    if (looksDefaulted) {
+      for (const { k, v } of numeric) {
+        if (v === 5 || distinct === 1) {
+          analysis.mood[k] = null;
+          uncertain.add(k);
+        }
+      }
+    }
+
+    // overall is never null — fall back to a neutral 5 the user can adjust.
+    if (typeof analysis.mood.overall !== 'number') analysis.mood.overall = 5;
+
+    analysis.mood.uncertain_dimensions = [...uncertain];
+  }
+
+  // Keep only valid, de-duplicated activity keys (the AI is told to use this set).
+  if (Array.isArray(analysis.activities)) {
+    const seen = new Set();
+    analysis.activities = analysis.activities
+      .map(a => String(a || '').toLowerCase().trim())
+      .filter(a => ACTIVITY_KEYS.includes(a) && !seen.has(a) && seen.add(a))
+      .slice(0, 6);
+  } else {
+    analysis.activities = [];
+  }
+
+  // sleep_hours: only trust a plausible number, discard anything else the
+  // model might hallucinate (a string, a huge number, negative, etc).
+  const sh = analysis.sleep_hours;
+  analysis.sleep_hours = (typeof sh === 'number' && isFinite(sh) && sh >= 0 && sh <= 24)
+    ? Math.round(sh * 2) / 2  // nearest half-hour — matches the manual stepper
+    : null;
+
+  // Same class of guard as activities/sleep_hours above, for the remaining
+  // free-text array fields: a malformed LLM response (e.g. a string instead
+  // of an array) would otherwise flow straight to the client and, once
+  // saved, break every jsonb_array_elements_text aggregate query for that
+  // entry (routes/tags.js, routes/insights.js) — not just this request.
+  analysis.key_themes = Array.isArray(analysis.key_themes) ? analysis.key_themes.filter(t => typeof t === 'string') : [];
+  analysis.life_areas = Array.isArray(analysis.life_areas) ? analysis.life_areas.filter(t => typeof t === 'string') : [];
+  analysis.suggested_tags = Array.isArray(analysis.suggested_tags) ? analysis.suggested_tags.filter(t => typeof t === 'string') : [];
+  analysis.people_mentioned = Array.isArray(analysis.people_mentioned)
+    ? analysis.people_mentioned.filter(p => p && typeof p === 'object' && typeof p.name === 'string' && p.name.trim())
+    : [];
+
+  return analysis;
+}
+
+// ── Local-AI analysis jobs ──────────────────────────────────────────────
+// Kept in memory: a job only lives for the minute or two the client is
+// waiting, and if the server restarts mid-job the client just sees "not
+// found", and the entry stays saved for the usual self-heal to retry later.
+const localJobs = new Map(); // id → { status: 'pending'|'done'|'error', result, createdAt }
+const JOB_TTL_MS = 15 * 60_000;
+
+function startLocalAnalysis(messages, groqErr, req) {
+  // Forget finished jobs nobody came back for.
+  for (const [id, job] of localJobs) {
+    if (Date.now() - job.createdAt > JOB_TTL_MS) localJobs.delete(id);
+  }
+  const id = crypto.randomUUID();
+  const job = { status: 'pending', result: null, createdAt: Date.now() };
+  localJobs.set(id, job);
+  const t0 = Date.now();
+  ollamaChat(messages, { max_tokens: 4000 })
+    .then(raw => {
+      job.result = cleanAnalysis(raw);
+      job.status = 'done';
+      console.log(`[analyze] local AI finished in ${Math.round((Date.now() - t0) / 1000)}s`);
+    })
+    .catch(err => {
+      job.status = 'error';
+      console.error('[analyze] local AI failed too:', err.message);
+      // Both AIs failed: that IS worth a report, with both causes in it.
+      reportHandled(new Error(`analyze failed on Groq AND local AI — Groq: ${groqErr.message} | local: ${err.message}`),
+        { method: req.method, path: req.originalUrl, groqStatus: groqErr.status });
+    });
+  return id;
 }
 
 // POST /api/ai/transcribe — audio blob → text
@@ -257,7 +362,8 @@ router.post('/transcribe', upload.single('audio'), async (req, res) => {
 router.post('/analyze', async (req, res) => {
   try {
     const apiKey = await getGroqKey();
-    if (!apiKey) {
+    // No Groq key is only a dead end when there's no local AI to use instead.
+    if (!apiKey && !localAiEnabled()) {
       return res.status(400).json({
         error: 'Groq API key not configured. Add it in Settings.',
         code: 'NO_API_KEY',
@@ -471,74 +577,22 @@ TENSE MATTERS: if the open thread is something PLANNED FOR THE FUTURE relative t
       { role: 'user', content: leanContent },
     ];
 
-    const analysis = await analyzeResilient(apiKey, messagesFull, messagesLean);
-
-    // Safeguard for SUB-dimensions only: Llama gravitates to 5 when uncertain, so
-    // null out smells-like-default sub-dimension values and mark them uncertain.
-    // "overall" is intentionally exempt — it's always a best guess the user confirms.
-    // Normalize first: the fallback model (smaller, tighter token budget) can omit
-    // the whole "mood" key rather than emit it with nulls. Without this, the block
-    // below never runs and the "overall is never null" guarantee silently breaks.
-    if (!analysis.mood || typeof analysis.mood !== 'object') analysis.mood = {};
-    {
-      const subKeys = ['energy','happiness','anxiety','confidence','motivation','social_battery','physical','focus'];
-      const numeric = subKeys
-        .map(k => ({ k, v: analysis.mood[k] }))
-        .filter(x => typeof x.v === 'number');
-      const fives = numeric.filter(x => x.v === 5);
-      const distinct = new Set(numeric.map(x => x.v)).size;
-      const uncertain = new Set((analysis.mood.uncertain_dimensions || []).filter(d => d !== 'overall'));
-
-      // 3+ sub-dimensions returned exactly 5 (or all identical) → treat as defaulted.
-      const looksDefaulted =
-        (numeric.length >= 3 && fives.length >= 3) ||
-        (numeric.length >= 4 && distinct === 1);
-      if (looksDefaulted) {
-        for (const { k, v } of numeric) {
-          if (v === 5 || distinct === 1) {
-            analysis.mood[k] = null;
-            uncertain.add(k);
-          }
-        }
-      }
-
-      // overall is never null — fall back to a neutral 5 the user can adjust.
-      if (typeof analysis.mood.overall !== 'number') analysis.mood.overall = 5;
-
-      analysis.mood.uncertain_dimensions = [...uncertain];
+    // Groq first (fast). If every Groq attempt fails and the local AI is on,
+    // hand the entry to it as a background job: it takes ~1-2 minutes, which
+    // is longer than the app's 60s wait and Cloudflare's 100s limit, so the
+    // client gets a job id now and checks back (GET /analyze/jobs/:id).
+    let analysis;
+    try {
+      if (!apiKey) throw Object.assign(new Error('No Groq key configured'), { code: 'NO_API_KEY' });
+      analysis = await analyzeResilient(apiKey, messagesFull, messagesLean);
+    } catch (groqErr) {
+      if (!localAiEnabled()) throw groqErr;
+      console.warn(`[analyze] Groq unavailable, handing over to local AI: ${groqErr.message}`);
+      const jobId = startLocalAnalysis(messagesFull, groqErr, req);
+      return res.status(202).json({ job_id: jobId, status: 'pending', provider: 'local' });
     }
 
-    // Keep only valid, de-duplicated activity keys (the AI is told to use this set).
-    if (Array.isArray(analysis.activities)) {
-      const seen = new Set();
-      analysis.activities = analysis.activities
-        .map(a => String(a || '').toLowerCase().trim())
-        .filter(a => ACTIVITY_KEYS.includes(a) && !seen.has(a) && seen.add(a))
-        .slice(0, 6);
-    } else {
-      analysis.activities = [];
-    }
-
-    // sleep_hours: only trust a plausible number, discard anything else the
-    // model might hallucinate (a string, a huge number, negative, etc).
-    const sh = analysis.sleep_hours;
-    analysis.sleep_hours = (typeof sh === 'number' && isFinite(sh) && sh >= 0 && sh <= 24)
-      ? Math.round(sh * 2) / 2  // nearest half-hour — matches the manual stepper
-      : null;
-
-    // Same class of guard as activities/sleep_hours above, for the remaining
-    // free-text array fields: a malformed LLM response (e.g. a string instead
-    // of an array) would otherwise flow straight to the client and, once
-    // saved, break every jsonb_array_elements_text aggregate query for that
-    // entry (routes/tags.js, routes/insights.js) — not just this request.
-    analysis.key_themes = Array.isArray(analysis.key_themes) ? analysis.key_themes.filter(t => typeof t === 'string') : [];
-    analysis.life_areas = Array.isArray(analysis.life_areas) ? analysis.life_areas.filter(t => typeof t === 'string') : [];
-    analysis.suggested_tags = Array.isArray(analysis.suggested_tags) ? analysis.suggested_tags.filter(t => typeof t === 'string') : [];
-    analysis.people_mentioned = Array.isArray(analysis.people_mentioned)
-      ? analysis.people_mentioned.filter(p => p && typeof p === 'object' && typeof p.name === 'string' && p.name.trim())
-      : [];
-
-    res.json(analysis);
+    res.json(cleanAnalysis(analysis));
   } catch (err) {
     console.error('POST /api/ai/analyze error:', err);
     // Same reasoning as /transcribe above — capture the real Groq
@@ -555,6 +609,18 @@ TENSE MATTERS: if the open thread is something PLANNED FOR THE FUTURE relative t
       code: 'AI_ERROR',
     });
   }
+});
+
+// GET /api/ai/analyze/jobs/:id — check on a local-AI analysis handed off by
+// POST /analyze (202). 'pending' → ask again in a few seconds.
+router.get('/analyze/jobs/:id', (req, res) => {
+  const job = localJobs.get(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Analysis job not found (it may have expired)', code: 'JOB_NOT_FOUND' });
+  if (job.status === 'done') {
+    localJobs.delete(req.params.id); // handed over, no need to keep it
+    return res.json({ status: 'done', result: job.result });
+  }
+  res.json({ status: job.status });
 });
 
 // POST /api/ai/followup — generate next follow-up question
