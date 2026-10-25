@@ -44,10 +44,10 @@ export async function waitForLocalAnalysis(api, jobId, { isCancelled, maxWaitMs 
     const job = await api.get(`/api/ai/analyze/jobs/${jobId}`);
     if (job.status === 'done') return job.result;
     if (job.status === 'error') {
-      throw Object.assign(new Error('AI analysis unavailable — your entry is saved.'), { code: 'AI_ERROR' });
+      throw Object.assign(new Error('AI analysis unavailable, but your entry is saved.'), { code: 'AI_ERROR' });
     }
   }
-  throw Object.assign(new Error('AI took too long — entry still saveable'), { code: 'AI_TIMEOUT' });
+  throw Object.assign(new Error('AI took too long, but your entry can still be saved'), { code: 'AI_TIMEOUT' });
 }
 
 // POST /api/ai/analyze and return the analysis, waiting for the local AI if

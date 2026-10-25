@@ -182,7 +182,7 @@ function startLocalAnalysis(messages, groqErr, req) {
       job.status = 'error';
       console.error('[analyze] local AI failed too:', err.message);
       // Both AIs failed: that IS worth a report, with both causes in it.
-      reportHandled(new Error(`analyze failed on Groq AND local AI — Groq: ${groqErr.message} | local: ${err.message}`),
+      reportHandled(new Error(`analyze failed on Groq AND local AI. Groq: ${groqErr.message} | local: ${err.message}`),
         { method: req.method, path: req.originalUrl, groqStatus: groqErr.status });
     });
   return id;
@@ -611,7 +611,7 @@ TENSE MATTERS: if the open thread is something PLANNED FOR THE FUTURE relative t
   }
 });
 
-// GET /api/ai/analyze/jobs/:id — check on a local-AI analysis handed off by
+// GET /api/ai/analyze/jobs/:id: check on a local-AI analysis handed off by
 // POST /analyze (202). 'pending' → ask again in a few seconds.
 router.get('/analyze/jobs/:id', (req, res) => {
   const job = localJobs.get(req.params.id);
