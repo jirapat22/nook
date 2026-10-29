@@ -2,3 +2,6 @@ node_modules/
 .env
 *.log
 .DS_Store
+
+# Bug reports filed from Discord by I.O. (screenshots + notes, stay on the Mac)
+.bugs/
