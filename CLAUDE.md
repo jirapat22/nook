@@ -27,3 +27,11 @@ When Pat says **"check new bugs"** (or similar):
 3. Fix, test, commit, push and deploy as usual (see Hosting above), and explain the cause in a line or two.
 4. Set `Status:` in `note.md` to `fixed (<commit>)` or `won't fix: <reason>`, then move the folder to `.bugs/done/`.
 If a screenshot is unclear, ask Pat rather than guessing.
+
+## AI backups
+
+`lib/groq.js` `groqChat` (every JSON AI call) tries Groq, and when Groq is rate-limited, too busy or down
+(413/429/5xx) the same request goes to **Cerebras** (`CEREBRAS_API_KEY`, same gpt-oss-120b) and then **Gemini**
+(`GEMINI_API_KEY`) before Groq's own error is thrown, so callers' rate-limit handling is unchanged. Added 07/11/2026
+because Groq's free plan also caps each model at 200,000 tokens a day. Groq-only fields (`reasoning_format`,
+`reasoning_effort`) are only sent to Groq. Voice transcription stays Groq-only. A missing key skips that backup.
