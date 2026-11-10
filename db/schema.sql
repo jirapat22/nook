@@ -143,7 +143,8 @@ CREATE INDEX IF NOT EXISTS idx_people_introduced_by ON people(introduced_by_id);
 -- When this person's node was last successfully pushed to Orbit, stamped with
 -- the row's own updated_at at push time (not NOW()) so an edit landing mid-push
 -- leaves the row dirty. A row is out of sync when orbit_synced_at IS NULL or is
--- older than updated_at; lib/orbit.js flushUnsyncedPeople() retries those.
+-- older than updated_at (compared at millisecond precision, since the stamp
+-- round-trips through a JS Date); lib/orbit.js flushUnsyncedPeople() retries those.
 --
 -- Before this, the push was a single fire-and-forget HTTP call whose result was
 -- discarded — so one transient failure diverged Nook and Orbit permanently, and
