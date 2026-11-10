@@ -1,3 +1,4 @@
+const { serverToday } = require('../lib/streak');
 const express = require('express');
 const router = express.Router();
 const db = require('../db/db');
@@ -171,7 +172,7 @@ router.get('/on-this-day', async (req, res) => {
   try {
     const dateStr = (req.query.date && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date))
       ? req.query.date
-      : new Date().toISOString().split('T')[0];
+      : serverToday();
     const [year, month, day] = dateStr.split('-').map(Number);
     const result = await db.query(`
       SELECT id, date, time_of_day, ai_summary, important_today,
@@ -384,7 +385,7 @@ router.put('/:id/action-item', async (req, res) => {
     if (finalState === 'snoozed') {
       const base = /^\d{4}-\d{2}-\d{2}$/.test(req.body.today || '')
         ? req.body.today
-        : new Date().toISOString().split('T')[0];
+        : serverToday();
       const [y, m, d] = base.split('-').map(Number);
       snoozeUntilUpdate = new Date(Date.UTC(y, m - 1, d + Number(snooze_days))).toISOString().split('T')[0];
     }

@@ -1,3 +1,4 @@
+const { serverToday } = require('../lib/streak');
 // Quick memories — the "remember this" side of Nook.
 //
 // A journal entry is a reflection on the day; a memory is one small fact you
@@ -152,7 +153,7 @@ router.post('/', async (req, res) => {
     if (content.length > MAX_CONTENT) {
       return res.status(400).json({ error: 'That\'s a bit long for a memory — try a journal entry instead.', code: 'TOO_LONG' });
     }
-    const day = DATE_RE.test(date || '') ? date : new Date().toISOString().split('T')[0];
+    const day = DATE_RE.test(date || '') ? date : serverToday();
     const mode = req.body.entry_mode === 'voice' ? 'voice' : 'text';
 
     // ON CONFLICT DO NOTHING: an offline save replayed by the service worker

@@ -206,11 +206,14 @@ router.get('/weekly-compare', async (req, res) => {
     function weekBounds(weekStr) {
       if (!weekStr) return null;
       const [year, week] = weekStr.split('-W').map(Number);
-      const jan4 = new Date(year, 0, 4);
+      // All in UTC so the container's timezone can't shift the day: building a
+      // local midnight and then calling toISOString() (UTC) moved both ends one
+      // day earlier when TZ=Pacific/Auckland.
+      const jan4 = new Date(Date.UTC(year, 0, 4));
       const start = new Date(jan4);
-      start.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7) + (week - 1) * 7);
+      start.setUTCDate(jan4.getUTCDate() - ((jan4.getUTCDay() + 6) % 7) + (week - 1) * 7);
       const end = new Date(start);
-      end.setDate(start.getDate() + 6);
+      end.setUTCDate(start.getUTCDate() + 6);
       return {
         start: start.toISOString().split('T')[0],
         end: end.toISOString().split('T')[0],
