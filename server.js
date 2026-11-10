@@ -124,12 +124,34 @@ if (!EXPECTED_TOKEN) {
 // memories with that key.
 const AUTH_EXEMPT = new Set(['/api/login', '/api/orbit-summary', '/api/orbit/webhook', '/api/orbit/memories-export']);
 
+// Login guess limit (audit 10/11/2026). Nook is public through the tunnel and the
+// password is the only lock on the journal, so cap wrong guesses: 10 per IP and
+// 100 overall per 15 minutes. Cloudflare puts the real visitor IP in
+// CF-Connecting-IP (req.ip would be the tunnel container). In memory is enough:
+// a restart only resets the count, it never locks Pat out for long.
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_PER_IP = 10;
+const LOGIN_MAX_TOTAL = 100;
+const loginFails = new Map();   // ip -> [timestamps of wrong guesses]
+function recentFails(key, now) {
+  const list = (loginFails.get(key) || []).filter(t => now - t < LOGIN_WINDOW_MS);
+  if (list.length) loginFails.set(key, list); else loginFails.delete(key);
+  return list;
+}
+
 app.post('/api/login', (req, res) => {
   if (!EXPECTED_TOKEN) return res.json({ ok: true, token: null, authRequired: false });
+  const now = Date.now();
+  const ip = String(req.headers['cf-connecting-ip'] || req.ip || 'unknown');
+  if (recentFails(ip, now).length >= LOGIN_MAX_PER_IP || recentFails('*', now).length >= LOGIN_MAX_TOTAL) {
+    return res.status(429).json({ ok: false, error: 'Too many wrong passwords. Try again in 15 minutes.', code: 'RATE_LIMITED' });
+  }
   const pw = Buffer.from(String((req.body && req.body.password) || ''));
   const expected = Buffer.from(APP_PASSWORD);
   const ok = pw.length === expected.length && crypto.timingSafeEqual(pw, expected);
   if (ok) return res.json({ ok: true, token: EXPECTED_TOKEN, authRequired: true });
+  loginFails.set(ip, [...recentFails(ip, now), now]);
+  loginFails.set('*', [...recentFails('*', now), now]);
   return res.status(401).json({ ok: false, error: 'Wrong password', code: 'BAD_PASSWORD' });
 });
 
