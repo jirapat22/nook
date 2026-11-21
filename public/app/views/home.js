@@ -93,6 +93,23 @@ export class HomeView {
           <div class="streak-widget-icon">🔥</div>
         </div>` : ''}
 
+        <!-- "Still on your mind?" and "On this day" used to sit UNDER the
+             day list, so with 50 days loaded nobody ever scrolled far enough
+             to see them. They are short, so they now come first. -->
+        ${pendingActions.length ? `
+        <div class="section-label">Still on your mind? <span>from the last 2 weeks</span></div>
+        <div class="pending-actions-list">
+          ${pendingActions.map(a => pendingActionCard(a)).join('')}
+        </div>` : ''}
+
+        ${onThisDay.length ? `
+        <div class="section-label">On this day</div>
+        <div class="on-this-day-list">
+          ${onThisDay.map(e => onThisDayCard(e)).join('')}
+        </div>` : ''}
+
+        <!-- Small uppercase header above the timeline, like every calm screen. -->
+        <div class="section-label">Your days</div>
         <div class="home-filter" role="tablist">
           ${[['all', 'All'], ['journal', '📓 Journal'], ['memories', '🧠 Memories']].map(([k, label]) =>
             `<button class="chip chip-btn ${filter === k ? 'chip-primary' : ''}" data-filter="${k}" role="tab" aria-selected="${filter === k}">${label}</button>`).join('')}
@@ -118,22 +135,6 @@ export class HomeView {
             <h3>No memories yet</h3>
             <p>Tap Remember below to save your first one.</p>
           </div>` : ''}
-
-        ${pendingActions.length ? `
-        <div class="section-header mt-16">
-          <h3>✅ Still on your mind?</h3>
-        </div>
-        <div class="pending-actions-list">
-          ${pendingActions.map(a => pendingActionCard(a)).join('')}
-        </div>` : ''}
-
-        ${onThisDay.length ? `
-        <div class="section-header mt-16">
-          <h3>📅 On this day</h3>
-        </div>
-        <div class="on-this-day-list">
-          ${onThisDay.map(e => onThisDayCard(e)).join('')}
-        </div>` : ''}
 
         <!-- Sticky quick-action bar: Text left, Voice right -->
         <div class="home-quick-bar">
@@ -367,9 +368,11 @@ function pendingActionCard(a) {
         <div class="pending-action-date">from ${label}</div>
       </div>
       <div class="pending-action-btns">
-        <button class="pending-action-btn pending-done" data-state="done" title="Done">✓ Done</button>
-        <button class="pending-action-btn pending-snooze" data-state="snoozed" title="Snooze 7 days">📌 Still</button>
-        <button class="pending-action-btn pending-dismiss" data-state="dismissed" title="Not doing">✕ Not now</button>
+        <!-- Small round icon buttons so each item stays ONE slim row (the
+             words live in title + aria-label for hover and screen readers). -->
+        <button class="pending-action-btn pending-done" data-state="done" title="Done" aria-label="Done">✓</button>
+        <button class="pending-action-btn pending-snooze" data-state="snoozed" title="Still on it (ask again in 7 days)" aria-label="Still on it">📌</button>
+        <button class="pending-action-btn pending-dismiss" data-state="dismissed" title="Not doing it" aria-label="Not doing it">✕</button>
       </div>
     </div>`;
 }

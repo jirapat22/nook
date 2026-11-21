@@ -3182,3 +3182,101 @@ body { font-variant-numeric: tabular-nums; }
   /* Toasts sit over the content column, not the middle of the whole screen. */
   .toast-container { bottom: 24px; left: calc(50% + 116px); }
 }
+
+/* ── Home (calm) ── */
+/* Streak: a warm tinted card instead of a loud orange gradient block. The
+   ember colour now lives in the number, so it still glows, but the screen's
+   first thing is no longer the brightest thing in the app. */
+.streak-widget {
+  background: var(--color-primary-light);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 22%, transparent);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  color: var(--color-text);
+  margin-bottom: 4px;
+}
+.streak-widget-info h3 {
+  font-family: var(--font-body);
+  font-size: 0.75rem; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--color-text-muted);
+  opacity: 1;
+}
+.streak-widget-info .streak-number-big {
+  color: var(--color-primary);
+  font-family: var(--font-display);
+  font-size: 2.1rem; font-weight: 600;
+  margin-top: 4px;
+}
+.streak-widget-info > div:last-child { color: var(--color-text-muted); }
+.streak-widget-icon { font-size: 2.2rem; }
+
+/* Old-style headers inside views ("Still on your mind?" etc.) get the same
+   small uppercase voice as .section-label. */
+.section-header h3 {
+  font-family: var(--font-body);
+  font-size: 0.75rem; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase;
+}
+
+/* Day cards: same soft card as everywhere else. No hop on hover: a list that
+   jumps under the mouse is the opposite of calm. */
+.day-cards-list { gap: 12px; }
+.day-card {
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+}
+.day-card:hover { transform: none; box-shadow: none; }
+.day-card-title { font-size: 1.05rem; }
+.home-filter { margin: 0 0 12px; }
+.greeting-section { padding: 22px 4px 18px; }
+.greeting-section h2 { font-size: clamp(1.5rem, 5vw, 1.9rem); letter-spacing: -0.01em; }
+.home-quick-btn { border-radius: var(--radius-lg); border-width: 1px; }
+/* "Still on your mind?": ONE card with a row per item, instead of a tall
+   card each. Three separate cards with three big buttons each pushed the
+   day list a whole phone screen down once they moved to the top. */
+.pending-actions-list {
+  margin-top: 0; gap: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.pending-action {
+  flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+  background: none; border: none; border-radius: 0;
+  padding: 12px 16px;
+}
+.pending-action + .pending-action { border-top: 1px solid var(--color-border-light); }
+/* The text takes the row; the buttons wrap underneath it only when the row
+   is too narrow (a phone at large text), never squashing the words. */
+.pending-action { flex-wrap: nowrap; }
+.pending-action-text { flex: 1 1 auto; min-width: 0; }
+.pending-action-btns { flex: 0 0 auto; gap: 6px; flex-wrap: nowrap; }
+.pending-action-btn {
+  flex: 0 0 auto; min-width: 0;
+  width: 36px; height: 36px; padding: 0;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 0.875rem;
+}
+/* Day-card badges (entries, memories, mood, love) wrap under the title on a
+   very narrow screen instead of running off the card's right edge. */
+.day-card-header { flex-wrap: wrap; }
+.day-card-stats { flex-wrap: wrap; }
+.entry-preview-card { border-radius: var(--radius-lg); padding: 14px 18px; }
+
+/* Narrow screens (small phones, or a phone zoomed to 150%): the wordmark
+   text hides so it cannot run into the streak counter, and the action
+   icons pack closer. The logo mark still links home. */
+@media (max-width: 360px) {
+  .top-bar { padding: 0 12px; }
+  .top-bar-logo span { display: none; }
+  .top-bar-actions { gap: 4px; }
+  /* Reminder rows: the words get the full width, the buttons drop below. */
+  .pending-action { flex-wrap: wrap; }
+  .pending-action-text { flex-basis: 100%; }
+  /* "Remember" was wider than its third of the quick bar at 150%. */
+  .home-quick-bar { gap: 8px; }
+  .home-quick-btn { font-size: 0.75rem; padding: 0 4px; }
+}
