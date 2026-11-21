@@ -38,8 +38,13 @@
   --radius-md:            14px;
   --radius-lg:            20px;
   --radius-xl:            28px;
-  --font-display:         'Fraunces', Georgia, serif;
-  --font-body:            'Hanken Grotesk', -apple-system, sans-serif;
+  /* System fonts only (calm redesign, 21/11/2026): no Google Fonts download,
+     so the app looks the same offline and never flashes a fallback font.
+     Headings keep a SERIF on purpose: it is a big part of Nook's warm,
+     handwritten-journal feel. ui-serif is "New York" on iPhone/Mac Safari;
+     Chrome skips it and lands on Iowan Old Style (Mac) or Georgia. */
+  --font-display:         ui-serif, 'New York', 'Iowan Old Style', Georgia, serif;
+  --font-body:            -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --nav-height:           64px;
   --top-bar-height:       56px;
   --transition:           200ms ease;
@@ -2987,3 +2992,193 @@ body.remember-mode .bottom-nav { display: none; }
 .memory-day-group { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
 .memory-day-label { font-weight: 600; font-size: 0.875rem; }
 .home-quick-emoji { font-size: 1.3rem; line-height: 22px; }
+
+/* ══════════════════════════════════════════════════════════════
+   CALM LAYER (redesign, 21/11/2026)
+   The same calm STRUCTURE as Plated, Finance, Ironlog and TaskTime:
+   soft rounded cards, small UPPERCASE grey headers above each card,
+   generous spacing, tabular numbers and a tidy nav (a side nav on desktop).
+   Nook keeps its OWN warm palette: nothing here changes a colour token,
+   it only changes shape, spacing and layout. It sits at the END of the file
+   so it wins over the older rules above without rewriting each one.
+   ══════════════════════════════════════════════════════════════ */
+
+/* Numbers line up in columns (streaks, mood scores, counts), so a 9 and a 1
+   take the same width and a row of stats does not wobble. */
+body { font-variant-numeric: tabular-nums; }
+
+/* ── Cards: softer and rounder ──
+   20px corners, a 1px hairline instead of a drop shadow, more padding.
+   A shadow on every card is what made a stack of them look busy. */
+.card {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border-light);
+  box-shadow: none;
+  padding: 18px;
+}
+.card + .card { margin-top: 12px; }
+/* Titles INSIDE a card read as the small uppercase label, the same voice as
+   .section-label, so a card does not shout with its own big heading. */
+.card-title {
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+/* ── Section label: the small grey header ABOVE a card ──
+   Used as <div class="section-label">Mood <span>this week</span></div>.
+   The optional <span> is a quiet note on the right (like Plated's
+   "3 logged · 1643 kcal"). */
+.section-label {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 22px 4px 8px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.section-label > span {
+  font-weight: 500; letter-spacing: 0; text-transform: none;
+  color: var(--color-text-faint);
+  text-align: right;
+  min-width: 0;
+}
+.section-label:first-child { padding-top: 8px; }
+
+/* Page title: serif, a little bigger, tighter, with room around it. */
+.page-header { padding: 22px 4px 6px; }
+.page-header h1 { font-size: 1.75rem; letter-spacing: -0.01em; }
+
+/* Calm top bar: same colour as the page, so the content and the bar read as
+   one surface instead of a stripe across the top. */
+.top-bar {
+  background: var(--color-bg);
+  border-bottom-color: transparent;
+}
+
+/* Desktop-only nav pieces stay hidden on a phone. */
+.side-brand, .nav-new-label { display: none; }
+
+/* ── Desktop (900px and up): side nav + centred content ──
+   Same layout as Plated: the nav moves to a column on the left, and the
+   content gets the rest of the width. Two layout laws from the last redesign:
+   1. a LIST you scroll (home, a day, an entry, people, search, settings)
+      is ONE centred column (~760px), never a ragged 2-column grid;
+   2. a DASHBOARD (calendar, insights) may use the width, but in balanced,
+      equal-height rows. */
+@media (min-width: 900px) {
+  body { background: var(--color-bg); display: block; }
+  #app-shell {
+    max-width: none;
+    box-shadow: none;
+    display: grid;
+    grid-template-columns: 232px minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-areas:
+      "nav top"
+      "nav banner"
+      "nav main";
+  }
+  .top-bar { grid-area: top; padding: 0 28px; position: static; }
+  /* The brand lives in the side nav now, so the top bar keeps only its
+     actions (streak, search, theme, settings) on the right. */
+  .top-bar-logo { visibility: hidden; }
+  .offline-banner { grid-area: banner; }
+  .app-content { grid-area: main; }
+
+  .bottom-nav {
+    grid-area: nav;
+    position: static;
+    height: auto;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    padding: 18px 14px;
+    background: var(--color-surface);
+    border-top: none;
+    border-right: 1px solid var(--color-border-light);
+    overflow-y: auto;
+  }
+  .side-brand {
+    display: flex; align-items: center; gap: 10px;
+    order: -2;
+    padding: 4px 10px 18px;
+    font-family: var(--font-display);
+    font-size: 1.25rem; font-weight: 600;
+    color: var(--color-primary);
+  }
+  .side-logo {
+    width: 34px; height: 34px;
+    border-radius: 11px;
+    display: grid; place-items: center;
+    background: var(--color-primary-light);
+  }
+  .side-logo svg { width: 22px; height: 22px; }
+
+  /* A nav row: icon then label, left aligned. */
+  .nav-item {
+    flex: 0 0 auto;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 12px;
+    min-height: 42px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: var(--color-text-muted);
+  }
+  .nav-item svg { width: 20px; height: 20px; flex-shrink: 0; }
+  .nav-item:hover { background: var(--color-surface-offset); color: var(--color-text); }
+  .nav-item.active,
+  .nav-item.active:hover { background: var(--color-primary-light); color: var(--color-primary); }
+
+  /* "New entry": the round + becomes a full-width labelled button at the
+     top of the nav (order: -1 lifts it above Home), the app's main action. */
+  .nav-item--new {
+    order: -1;
+    flex: 0 0 auto;
+    justify-content: center;
+    gap: 8px;
+    margin: 0 0 14px;
+    background: var(--color-primary);
+    color: var(--color-on-accent);
+    font-weight: 600;
+  }
+  .nav-item--new:hover,
+  .nav-item--new.active,
+  .nav-item--new.active:hover { background: var(--color-primary-hover); color: var(--color-on-accent); }
+  .nav-item--new .nav-new-btn {
+    width: auto; height: auto;
+    background: none; box-shadow: none; color: inherit;
+  }
+  .nav-item--new .nav-new-btn svg { width: 18px; height: 18px; }
+  .nav-new-label { display: inline; }
+
+  /* Content column widths. Lists: one calm centred column. */
+  .home-view, .day-view, .entry-view, .entry-detail, .people-view,
+  .person-profile, .search-view, .settings-view, .memory-view, .onboarding-view {
+    max-width: 760px;
+    margin-left: auto; margin-right: auto;
+    padding-left: 28px; padding-right: 28px;
+  }
+  /* Dashboards: wider, the views lay out their own balanced grids. */
+  .calendar-view, .insights-view {
+    max-width: 1120px;
+    margin-left: auto; margin-right: auto;
+    padding: 0 32px 32px;
+  }
+
+  /* The old 760px rules turned home and people into 2-column card grids,
+     which made a date-ordered list zig-zag. Back to one column. */
+  .entry-cards-grid { display: block; }
+  .entry-cards-grid .entry-preview-card { margin-bottom: 10px; }
+  .people-list { display: flex; flex-direction: column; gap: 10px; }
+
+  /* Toasts sit over the content column, not the middle of the whole screen. */
+  .toast-container { bottom: 24px; left: calc(50% + 116px); }
+}

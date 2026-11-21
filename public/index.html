@@ -11,9 +11,11 @@
   <link rel="manifest" href="/manifest.json">
   <link rel="apple-touch-icon" href="/icons/icon-180.png">
   <link rel="icon" type="image/svg+xml" href="/icons/icon.svg">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- No web fonts (calm redesign, 21/11/2026). Nook used to load Fraunces +
+       Hanken Grotesk from Google Fonts, which meant a font swap flash on every
+       cold start and a different look offline. style.css now uses the system
+       fonts, with the system serif for headings so Nook keeps its warm,
+       journal-like voice. -->
   <link rel="stylesheet" href="/app/style.css">
 </head>
 <body>

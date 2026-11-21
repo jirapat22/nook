@@ -486,6 +486,17 @@ function renderShell() {
     <main id="app-content" class="app-content"></main>
 
     <nav class="bottom-nav" role="navigation">
+      <!-- Desktop only (hidden on phones by style.css): on a wide screen this
+           bar becomes a side nav, like Plated's, and the brand sits at its top. -->
+      <a class="side-brand" href="#home" aria-label="Nook, go to Home">
+        <span class="side-logo">
+          <svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M 7 21 L 7 9 L 19 9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="7" cy="9" r="3" fill="currentColor"/>
+          </svg>
+        </span>
+        <span>Nook</span>
+      </a>
       <a class="nav-item" href="#home" data-view="home" aria-label="Home">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
@@ -509,6 +520,9 @@ function renderShell() {
             <line x1="5" y1="12" x2="19" y2="12"/>
           </svg>
         </div>
+        <!-- Only shown in the desktop side nav, where the round + becomes a
+             labelled "New entry" button (a bare + is unclear in a list). -->
+        <span class="nav-new-label">New entry</span>
       </a>
       <a class="nav-item" href="#insights" data-view="insights" aria-label="Insights">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
