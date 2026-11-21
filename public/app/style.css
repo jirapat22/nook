@@ -3423,3 +3423,38 @@ body { font-variant-numeric: tabular-nums; }
 .ins-love .chart-container canvas { max-height: 200px; }
 /* Long button label wraps on narrow screens instead of spilling out. */
 .weekly-summary-btn { white-space: normal; height: auto; }
+
+/* ── Day + entry reading views (calm) ──
+   Both are LISTS you read top to bottom, so on desktop they stay in the one
+   centred column set above. Here they get the label-above-card rhythm. */
+.day-header { padding-top: 18px; margin-bottom: 10px; flex-wrap: wrap; }
+.day-title { font-family: var(--font-display); font-size: 1.45rem; font-weight: 600; letter-spacing: -0.01em; }
+/* The entries of a day sit inside ONE soft card, a hairline between them. */
+.day-timeline {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  padding: 0 16px 0 8px;
+  overflow: hidden;
+}
+.timeline-entry:hover { background: none; }
+/* The three "add" buttons wrap onto two lines on a phone instead of the
+   last one ("Remember") running off the right edge. */
+.day-add-cta { flex-wrap: wrap; border-top: none; padding-top: 8px; }
+.day-add-cta .btn { flex: 1 1 140px; border-radius: 999px; }
+
+.entry-detail-meta { margin-bottom: 6px; }
+.entry-content-block {
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  font-size: 1rem;
+  line-height: 1.75;
+}
+.entry-source-toggle { border-radius: var(--radius-lg); }
+.mood-inline-card { margin-top: 10px; }
+.entry-detail-actions { flex-wrap: wrap; margin-top: 18px; }
+.entry-detail-actions .btn { border-radius: 999px; }
+/* Back link on its own line above the day title, so a long title such as
+   "Today · Saturday 21 November" is not squeezed beside it. */
+.day-header { flex-direction: column; align-items: flex-start; gap: 4px; }

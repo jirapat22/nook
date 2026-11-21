@@ -1736,7 +1736,7 @@ export class EntryView {
           </div>
 
           <!-- Main first-person diary block -->
-          ${firstPerson || userEdit ? `<div class="ai-section-label">Today, in your words</div>` : ''}
+          ${firstPerson || userEdit ? `<div class="section-label">Today, in your words</div>` : ''}
           <div class="entry-content-block md-content" id="entry-content-display">${renderMarkdown(mainContent)}</div>
 
           <!-- Edit mode for main content (hidden by default) -->
@@ -1770,12 +1770,13 @@ export class EntryView {
           <!-- Details: edit in place. Each chip carries an × and each row a +,
                so adding or removing a theme/tag/area is one tap from here
                instead of opening a comma-separated-text form. -->
-          <div class="mb-12" id="entry-details-block">
-            <div class="ai-section-label">Details</div>
+          <!-- Calm layout: small label ABOVE, the editors inside one soft card. -->
+          <div class="section-label">Details</div>
+          <div class="card mb-12" id="entry-details-block">
             ${detailsEditorHtml(entry)}
           </div>
 
-          ${entry.action_items?.length ? `<div class="mb-12"><div class="ai-section-label">Action items</div><div class="action-items-list">${entry.action_items.map(i => {
+          ${entry.action_items?.length ? `<div class="section-label">Action items</div><div class="card mb-12"><div class="action-items-list">${entry.action_items.map(i => {
             const text = typeof i === 'string' ? i : (i.text || '');
             const st = entry.action_items_state && entry.action_items_state[text];
             const done = st === 'done' || st === true;
@@ -1785,15 +1786,15 @@ export class EntryView {
           <!-- People linked to this entry. Always rendered (even when empty)
                so the + is always there — adding someone used to mean finding
                "Link person" down in the action row next to Delete. -->
-          <div class="mb-12">
-            <div class="ai-section-label">People in this entry</div>
+          <div class="section-label">People in this entry</div>
+          <div class="card mb-12">
             ${peopleEditorHtml(entry)}
           </div>
 
           <!-- People the AI spotted but that aren't linked yet -->
           ${spottedPeople.length ? `
-          <div class="mb-12 spotted-people-block">
-            <div class="ai-section-label">Nook also spotted — not added yet</div>
+          <div class="section-label">Nook also spotted, not added yet</div>
+          <div class="card mb-12 spotted-people-block">
             <p class="text-xs text-faint mb-8">Not who you meant? Dismiss × instead of adding — tapping "+ add" links to an existing person with that exact name if one exists.</p>
             <div class="entry-people-list">
               ${spottedPeople.map((p, i) => `

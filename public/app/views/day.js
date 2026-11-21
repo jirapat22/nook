@@ -94,12 +94,13 @@ export class DayView {
           </div>` : ''}
 
         ${entries.length ? `
+        <div class="section-label">Entries <span>${entries.length}</span></div>
         <div class="day-timeline">
           ${entries.map(e => timelineEntry(e)).join('')}
         </div>` : ''}
 
         ${memories.length ? `
-        <div class="section-header mt-16"><h3>🧠 Memories</h3></div>
+        <div class="section-label">Memories <span>${memories.length}</span></div>
         <div class="memory-list" id="day-memories">
           ${memories.map(m => memoryCardHtml(m)).join('')}
         </div>` : ''}
