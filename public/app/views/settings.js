@@ -215,8 +215,10 @@ export class SettingsView {
         <!-- Captured reports (auto errors + manual feedback) -->
         <div class="settings-section-title">🐞 Captured reports</div>
         <div class="card">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px">
-            <p class="text-sm text-muted" style="margin:0">Errors and feedback captured by the app. ✓ = forwarded to Orbit. Resolving clears it here <em>and</em> on Orbit.</p>
+          <!-- flex-wrap: at large text the buttons drop under the text instead of
+               pushing past the right edge of the card. -->
+          <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px">
+            <p class="text-sm text-muted" style="margin:0;flex:1 1 180px">Errors and feedback captured by the app. ✓ = forwarded to Orbit. Resolving clears it here <em>and</em> on Orbit.</p>
             <div style="display:flex;gap:6px;flex-shrink:0">
               <button class="btn btn-ghost btn-sm" id="reports-resolve-all">Resolve all</button>
               <button class="btn btn-secondary btn-sm" id="reports-refresh">Refresh</button>

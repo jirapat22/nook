@@ -3458,3 +3458,26 @@ body { font-variant-numeric: tabular-nums; }
 /* Back link on its own line above the day title, so a long title such as
    "Today · Saturday 21 November" is not squeezed beside it. */
 .day-header { flex-direction: column; align-items: flex-start; gap: 4px; }
+
+/* ── New entry + Remember (calm) ── */
+/* Voice / Text switch: the same pill segmented control as Insights. */
+.entry-mode-toggle { border-radius: 999px; }
+.mode-tab { border-radius: 999px; }
+.entry-view .textarea { border-radius: var(--radius-lg); padding: 16px 18px; border-width: 1px; }
+.memory-type { border-radius: var(--radius-lg); border-width: 1px; }
+.memory-card { border-radius: var(--radius-lg); }
+
+/* Remember hides the bottom nav on a phone (one job, thumb space). On
+   desktop the nav is a side column, so hiding it left an empty 232px
+   strip and pushed the screen off centre. Keep it there. */
+@media (min-width: 900px) {
+  body.remember-mode .bottom-nav { display: flex; }
+}
+/* Date row wraps at large text so "Yesterday" drops below instead of being
+   cut off at the right edge. */
+.date-row { flex-wrap: wrap; }
+/* Settings at large text: report rows and button rows wrap, and long
+   error messages break instead of pushing the card wider than the screen. */
+.report-row-head { flex-wrap: wrap; }
+.report-msg, .report-ctx { overflow-wrap: anywhere; }
+.settings-view .btn { white-space: normal; }
