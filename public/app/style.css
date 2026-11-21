@@ -3280,3 +3280,90 @@ body { font-variant-numeric: tabular-nums; }
   .home-quick-bar { gap: 8px; }
   .home-quick-btn { font-size: 0.75rem; padding: 0 4px; }
 }
+
+/* ── Calendar (calm dashboard) ── */
+.calendar-view { padding: 0 16px 28px; }
+/* The month card: nav, weekdays, days and legend in one soft card. */
+.calendar-grid {
+  border-radius: var(--radius-lg);
+  box-shadow: none;
+  padding: 14px 14px 12px;
+}
+.calendar-nav { margin-bottom: 10px; }
+.calendar-weekdays { background: none; border-bottom: none; }
+.cal-weekday { font-size: 0.6875rem; letter-spacing: 0.06em; }
+/* minmax(0, 1fr), not plain 1fr: a 1fr column refuses to shrink below its
+   content, so with the gaps the 7th column (Saturday) was pushed off the
+   right edge of a 390px phone. */
+.calendar-weekdays, .calendar-days { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.calendar-days { gap: 4px; }
+/* Days are soft rounded tiles instead of a ruled grid. */
+.cal-day {
+  border: none;
+  border-radius: 12px;
+  aspect-ratio: 1 / 0.92;
+}
+.cal-day.has-entries { background: color-mix(in srgb, var(--color-primary) 9%, transparent); border-radius: 12px; }
+.cal-day.today.has-entries { background: color-mix(in srgb, var(--color-primary) 9%, transparent); }
+.cal-day.selected,
+.cal-day.selected.has-entries { background: var(--color-primary-light); box-shadow: inset 0 0 0 1.5px var(--color-primary); }
+.cal-legend {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 16px;
+  margin-top: 12px; padding-top: 10px;
+  border-top: 1px solid var(--color-border-light);
+  font-size: 0.75rem; color: var(--color-text-muted);
+}
+.cal-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.cal-legend .cal-day-dot { margin: 0; }
+
+/* "This month": four small stats in a 2 x 2 grid. */
+.cal-month-stats {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px 12px;
+}
+.cal-stat-num {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--font-display);
+  font-size: 1.6rem; font-weight: 600; line-height: 1.1;
+}
+.cal-stat-num small { font-family: var(--font-body); font-size: 0.8125rem; color: var(--color-text-faint); font-weight: 500; }
+.cal-stat-label { font-size: 0.75rem; color: var(--color-text-muted); margin-top: 3px; }
+
+/* Day card */
+.day-entries-panel { margin-top: 0; padding: 0; animation: none; }
+.day-panel-header { background: none; padding: 14px 18px; gap: 10px; }
+.day-panel-header h3 { font-size: 1rem; }
+.day-panel-list { display: flex; flex-direction: column; }
+.day-panel-entry { display: block; padding: 12px 18px; }
+.day-panel-entry + .day-panel-entry { border-top: 1px solid var(--color-border-light); }
+.day-panel-entry:hover { background: var(--color-surface-offset); }
+.cal-day-empty { text-align: center; color: var(--color-text-muted); padding: 28px 18px; }
+.cal-day-empty .empty-state-icon { font-size: 2rem; margin-bottom: 8px; }
+
+/* Desktop: month on the left, side column on the right. align-items:
+   stretch + the Day card growing (flex: 1) makes both columns end at the
+   same line, which is the "equal height, no empty corner" rule. */
+@media (min-width: 900px) {
+  .cal-dashboard {
+    display: grid;
+    grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr);
+    gap: 0 24px;
+    align-items: stretch;
+  }
+  .cal-col-main, .cal-col-side { display: flex; flex-direction: column; min-width: 0; }
+  .cal-col-main .calendar-grid { flex: 1; }
+  .cal-day-slot { flex: 1; display: flex; flex-direction: column; }
+  .cal-day-slot > .card { flex: 1; }
+  .cal-day-slot .day-panel-list { max-height: 360px; overflow-y: auto; }
+}
+/* Calendar on a very narrow screen (small phone, or 150% zoom): less card
+   padding, tighter tiles and labels, and the 💕 tucked into the corner so it
+   cannot sit on top of the date number. */
+@media (max-width: 360px) {
+  .calendar-grid { padding: 10px 6px; }
+  .calendar-days { gap: 2px; }
+  .cal-weekday { letter-spacing: 0; font-size: 0.625rem; }
+  .cal-day { aspect-ratio: auto; min-height: 46px; padding: 2px; }
+  .cal-day-love { top: 1px; right: 1px; font-size: 0.45rem; }
+  .cal-day.today .cal-day-num { width: 22px; height: 22px; }
+  .cal-month-label-btn { font-size: 1rem; padding: 4px 6px; }
+}
