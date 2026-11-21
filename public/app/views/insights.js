@@ -63,7 +63,9 @@ export class InsightsView {
         api.get(`/api/insights/top-people?range=${this.range}`).catch(() => []),
       ]);
 
-      content.innerHTML = `
+      // All sections go in one grid: one column on a phone, a balanced
+      // two-column dashboard on desktop (see .ins-grid in style.css).
+      content.innerHTML = `<div class="ins-grid">
         ${this.renderStreakSection(streaks)}
         ${this.renderWeeklySummarySection()}
         ${this.renderMoodChartSection(moodTrends)}
@@ -73,7 +75,8 @@ export class InsightsView {
         ${this.renderDayPatternsSection(dayPatterns)}
         ${this.renderHeatmapSection()}
         ${loveLife.length ? this.renderLoveLifeSection(loveLife) : ''}
-      `;
+      </div>`;
+      balanceGrid(content.querySelector('.ins-grid'));
 
       // Mount charts after DOM is ready
       this.mountMoodChart(moodTrends);
@@ -91,24 +94,29 @@ export class InsightsView {
   renderStreakSection(streaks) {
     const { current = 0, longest = 0, total_days = 0 } = streaks;
     return `
-      <div class="chart-card">
-        <h3>🔥 Streak & Consistency</h3>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+      <section class="ins-block ins-streak">
+        <div class="section-label">Streak</div>
+        <div class="chart-card">
+        <div class="ins-stats">
           ${statBox('Current', current + ' days', '🔥')}
           ${statBox('Best', longest + ' days', '🏆')}
           ${statBox('Total', total_days + ' days', '📝')}
         </div>
-      </div>`;
+      </div>
+      </section>`;
   }
 
   // ── Weekly summary ───────────────────────────────────────────
   renderWeeklySummarySection() {
     return `
-      <div class="chart-card">
-        <h3>✨ Weekly Summary</h3>
+      <section class="ins-block ins-summary">
+        <div class="section-label">Weekly summary</div>
+        <div class="chart-card">
+        <p class="ins-hint">A short, kind look back at your week, written from your entries.</p>
         <button class="btn btn-secondary weekly-summary-btn" id="weekly-summary-btn">Generate this week's summary</button>
         <div id="weekly-summary-result"></div>
-      </div>`;
+      </div>
+      </section>`;
   }
 
   attachWeeklySummaryBtn() {
@@ -131,16 +139,20 @@ export class InsightsView {
   // ── Mood chart ───────────────────────────────────────────────
   renderMoodChartSection(data) {
     if (!data.length) return `
-      <div class="chart-card">
-        <h3>📈 Mood Trends</h3>
+      <section class="ins-block ins-mood">
+        <div class="section-label">Mood trends</div>
+        <div class="chart-card">
         <p class="text-muted text-sm">Not enough data yet. Keep journaling!</p>
-      </div>`;
+      </div>
+      </section>`;
     return `
-      <div class="chart-card">
-        <h3>📈 Mood Trends</h3>
+      <section class="ins-block ins-mood">
+        <div class="section-label">Mood trends</div>
+        <div class="chart-card">
         <div class="chart-container"><canvas id="mood-chart"></canvas></div>
         <div class="chart-legend" id="mood-legend"></div>
-      </div>`;
+      </div>
+      </section>`;
   }
 
   mountMoodChart(data) {
@@ -204,28 +216,31 @@ export class InsightsView {
     if (!correlations.length) return '';
     const top = correlations.slice(0, 6);
     return `
-      <div class="chart-card">
-        <h3>🔗 Life Area Correlations</h3>
+      <section class="ins-block ins-corr">
+        <div class="section-label">Mood by life area</div>
+        <div class="chart-card">
         <p class="text-xs text-faint mb-8">Based on entries where you confirmed the mood yourself.</p>
         ${top.map(c => {
           const delta = c.delta;
           const sign = delta > 0 ? '+' : '';
           const cls = delta > 0 ? 'positive' : delta < 0 ? 'negative' : '';
           return `
-          <div class="insight-card" style="margin-bottom:0;box-shadow:none;border:1px solid var(--color-border-light)">
+          <div class="corr-row">
             <p>On <strong>${escHtml(c.area)}</strong> days, your mood averages <strong>${c.avg_mood}/10</strong></p>
             ${delta != null ? `<div class="insight-delta ${cls}">${sign}${delta} vs your average</div>` : ''}
           </div>`;
         }).join('')}
-      </div>`;
+      </div>
+      </section>`;
   }
 
   // ── Top mentioned people ─────────────────────────────────────
   renderTopPeopleSection(people) {
     if (!people.length) return '';
     return `
-      <div class="chart-card">
-        <h3>👥 People on your mind</h3>
+      <section class="ins-block ins-people">
+        <div class="section-label">People on your mind</div>
+        <div class="chart-card">
         <p class="text-xs text-faint mb-8">Who you mentioned most this period — tap to open their profile.</p>
         <div class="top-people-list">
           ${people.map(p => {
@@ -244,17 +259,20 @@ export class InsightsView {
               </a>`;
           }).join('')}
         </div>
-      </div>`;
+      </div>
+      </section>`;
   }
 
   // ── Topic frequency ──────────────────────────────────────────
   renderTopicFreqSection(data) {
     if (!data.length) return '';
     return `
-      <div class="chart-card">
-        <h3>📚 Life Areas</h3>
+      <section class="ins-block ins-areas">
+        <div class="section-label">Life areas</div>
+        <div class="chart-card">
         <div class="chart-container"><canvas id="topic-chart"></canvas></div>
-      </div>`;
+      </div>
+      </section>`;
   }
 
   mountTopicChart(data) {
@@ -289,11 +307,13 @@ export class InsightsView {
     const best  = data.reduce((a, b) => (a.avg_mood > b.avg_mood ? a : b), data[0]);
     const worst = data.reduce((a, b) => (a.avg_mood < b.avg_mood ? a : b), data[0]);
     return `
-      <div class="chart-card">
-        <h3>📅 Day of Week Patterns</h3>
+      <section class="ins-block ins-days">
+        <div class="section-label">Day of the week</div>
+        <div class="chart-card">
         <div class="chart-container"><canvas id="day-chart"></canvas></div>
         ${best?.avg_mood ? `<p class="text-sm text-muted mt-8">You tend to feel best on <strong>${best.day_name?.trim()}</strong></p>` : ''}
-      </div>`;
+      </div>
+      </section>`;
   }
 
   mountDayChart(data) {
@@ -322,13 +342,14 @@ export class InsightsView {
   // ── Activity heatmap ─────────────────────────────────────────
   renderHeatmapSection() {
     return `
-      <div class="chart-card">
-        <h3>🗓️ Journaling Activity</h3>
+      <section class="ins-block ins-heat">
+        <div class="section-label">Journaling activity, last 12 weeks</div>
+        <div class="chart-card">
         <div class="heatmap-wrap">
           <div class="heatmap-months" id="heatmap-months"></div>
           <div class="heatmap" id="heatmap-grid"></div>
         </div>
-        <div style="display:flex;align-items:center;gap:6px;margin-top:8px">
+        <div class="heatmap-legend">
           <span class="text-xs text-faint">Less</span>
           <div class="heatmap-cell" style="width:14px;height:14px"></div>
           <div class="heatmap-cell level-1" style="width:14px;height:14px"></div>
@@ -337,7 +358,8 @@ export class InsightsView {
           <div class="heatmap-cell level-4" style="width:14px;height:14px"></div>
           <span class="text-xs text-faint">More</span>
         </div>
-      </div>`;
+      </div>
+      </section>`;
   }
 
   async mountHeatmap() {
@@ -389,7 +411,8 @@ export class InsightsView {
           labels.push(`<span class="heatmap-month" style="grid-column:${c + 1}/span ${span}">${first.toLocaleDateString('en-GB', { month: 'short' })}</span>`);
           c += span;
         }
-        monthsEl.style.gridTemplateColumns = `repeat(${cols}, 12px)`;
+        // Same flexible columns as the grid below, so labels stay over their weeks.
+        monthsEl.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
         monthsEl.innerHTML = labels.join('');
       }
     } catch { grid.innerHTML = ''; }
@@ -398,11 +421,13 @@ export class InsightsView {
   // ── Love life chart ──────────────────────────────────────────
   renderLoveLifeSection(data) {
     return `
-      <div class="chart-card">
-        <h3>💕 Love Life Intensity</h3>
+      <section class="ins-block ins-love">
+        <div class="section-label">Love life</div>
+        <div class="chart-card">
         <div class="chart-container"><canvas id="love-chart"></canvas></div>
         <p class="text-xs text-faint mt-8">Emotion intensity over time (names hidden)</p>
-      </div>`;
+      </div>
+      </section>`;
   }
 
   mountLoveChart(data) {
@@ -440,13 +465,35 @@ export class InsightsView {
   }
 }
 
+// One small stat tile (number + label). Styled in style.css (.ins-stat)
+// instead of inline styles, so it follows the theme and the calm layout.
 function statBox(label, value, icon) {
   return `
-    <div style="text-align:center;padding:12px;background:var(--color-surface-offset);border-radius:var(--radius-sm)">
-      <div style="font-size:1.4rem">${icon}</div>
-      <div style="font-size:1.1rem;font-weight:700;margin-top:4px">${value}</div>
-      <div style="font-size:0.75rem;color:var(--color-text-muted)">${label}</div>
+    <div class="ins-stat">
+      <div class="ins-stat-num">${value}</div>
+      <div class="ins-stat-label">${icon} ${label}</div>
     </div>`;
+}
+
+// Desktop pairs the cards two per row. Some cards only appear when there is
+// data (people, life areas, love life...), so a card can end up alone in its
+// row with an empty hole beside it. This walks the cards in order and lets
+// any card left without a partner take the full row instead (.ins-wide).
+// The mood chart (.ins-mood) is always full width.
+function balanceGrid(grid) {
+  if (!grid) return;
+  let waiting = null; // a half-width card still looking for a partner
+  for (const block of grid.querySelectorAll(':scope > .ins-block')) {
+    if (block.classList.contains('ins-mood')) {
+      if (waiting) waiting.classList.add('ins-wide');
+      waiting = null;
+    } else if (waiting) {
+      waiting = null; // pair complete
+    } else {
+      waiting = block;
+    }
+  }
+  if (waiting) waiting.classList.add('ins-wide');
 }
 
 function formatShortDate(dateStr) {

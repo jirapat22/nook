@@ -3367,3 +3367,59 @@ body { font-variant-numeric: tabular-nums; }
   .cal-day.today .cal-day-num { width: 22px; height: 22px; }
   .cal-month-label-btn { font-size: 1rem; padding: 4px 6px; }
 }
+
+/* ── Insights (calm dashboard) ── */
+.insights-view { padding: 0 16px 28px; }
+/* Tabs: a calm segmented control. */
+.insights-tabs { border-radius: 999px; padding: 4px; margin: 10px 0 4px; }
+.insights-tab { border-radius: 999px; }
+.insights-tab.active { box-shadow: none; border: 1px solid var(--color-border-light); }
+/* Each section = uppercase label above + one soft card. */
+.ins-block { display: flex; flex-direction: column; min-width: 0; }
+.chart-card {
+  border-radius: var(--radius-lg);
+  padding: 18px;
+  margin-bottom: 0;
+  box-shadow: none;
+}
+.chart-container canvas { max-height: 220px; }
+/* Streak tiles */
+.ins-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.ins-stat { background: var(--color-surface-offset); border-radius: var(--radius-md); padding: 12px 10px; text-align: center; }
+.ins-stat-num { font-family: var(--font-display); font-size: 1.35rem; font-weight: 600; }
+.ins-stat-label { font-size: 0.75rem; color: var(--color-text-muted); margin-top: 2px; }
+/* Mood by life area: plain rows with a hairline between them. */
+.corr-row { padding: 10px 0; }
+.corr-row + .corr-row { border-top: 1px solid var(--color-border-light); }
+.corr-row p { font-size: 0.9375rem; line-height: 1.5; }
+.corr-row .insight-delta { font-size: 0.8125rem; font-weight: 600; margin-top: 2px; }
+/* Heatmap: cells grow with the card (up to ~22px) instead of staying 12px. */
+.heatmap-wrap { overflow-x: visible; }
+.heatmap, .heatmap-months { max-width: 340px; }
+.heatmap { grid-template-rows: repeat(7, auto); grid-auto-columns: minmax(0, 1fr); }
+.heatmap-cell { aspect-ratio: 1; border-radius: 3px; }
+
+/* Desktop: two equal columns. Cards in the same row stretch to the same
+   height (align-items: stretch + the card growing), so no ragged bottoms. */
+@media (min-width: 900px) {
+  .ins-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 24px;
+    align-items: stretch;
+  }
+  .ins-block > .chart-card { flex: 1; }
+  .ins-mood, .ins-wide { grid-column: 1 / -1; }
+  .ins-mood .chart-container canvas { max-height: 260px; }
+}
+.ins-hint { font-size: 0.875rem; color: var(--color-text-muted); margin-bottom: 12px; line-height: 1.5; }
+.weekly-summary-btn { margin-bottom: 0; }
+#weekly-summary-result:not(:empty) { margin-top: 12px; }
+/* The heatmap is narrower than its card on desktop: centre it and its legend
+   so the card does not look half empty on the right. */
+.ins-heat .chart-card { display: flex; flex-direction: column; justify-content: center; }
+.heatmap-wrap { width: 100%; max-width: 340px; margin: 8px auto 0; }
+.heatmap-legend { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 10px; }
+.ins-love .chart-container canvas { max-height: 200px; }
+/* Long button label wraps on narrow screens instead of spilling out. */
+.weekly-summary-btn { white-space: normal; height: auto; }
