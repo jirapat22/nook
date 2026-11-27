@@ -35,3 +35,12 @@ If a screenshot is unclear, ask Pat rather than guessing.
 (`GEMINI_API_KEY`) before Groq's own error is thrown, so callers' rate-limit handling is unchanged. Added 07/11/2026
 because Groq's free plan also caps each model at 200,000 tokens a day. Groq-only fields (`reasoning_format`,
 `reasoning_effort`) are only sent to Groq. Voice transcription stays Groq-only. A missing key skips that backup.
+
+## Shared AI gateway (aigw, since 28/11/2026)
+
+When `AIGW_URL` is set (mac-server compose, key from `env/aigw-client.env`), `groqChat` asks aigw FIRST
+(`aigwChat` in `lib/groq.js`: system + one user message, `private: true` = never the paid tier, `no_local: true` =
+aigw skips the Mac's model since Nook has its own `lib/ollama.js` fallback, 90 s timeout, same max_tokens +
+reasoning headroom). Any aigw problem (off, down, 502, odd answer, multi-turn chat) returns undefined and the
+Groq -> Cerebras -> Gemini code runs exactly as before, so 429/truncation handling is unchanged. All of Nook's AI is
+server-side. Tests: `test/aigw.test.js`.
