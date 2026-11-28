@@ -35,6 +35,9 @@ If a screenshot is unclear, ask Pat rather than guessing.
 because Groq's free plan also caps each model at 200,000 tokens a day. Groq-only fields (`reasoning_format`,
 `reasoning_effort`) are only sent to Groq. Voice transcription stays Groq-only. A missing key skips that backup.
 (Cerebras was a backup too until 29/11/2026; Pat dropped it: paid and unused.)
+Keys (29/11/2026): `GEMINI_API_KEY` was removed from `env/nook.env` (cloud keys live in aigw). `GROQ_API_KEY`
+STAYS: voice notes use Groq Whisper directly (`routes/ai.js`) and aigw has no transcription endpoint yet. So
+with aigw down, text AI falls back to Groq (Gemini entries are skipped, no key), then `lib/ollama.js`.
 
 ## Shared AI gateway (aigw, since 28/11/2026)
 
